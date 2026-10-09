@@ -997,7 +997,7 @@ export function CostEstimateTab({
             )}
           </div>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3" onBlur={handleAutoSaveBlur}>
+        <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-4 items-start [&_label]:flex [&_label]:items-center [&_label]:h-4 [&_input]:h-10 [&_button]:h-10" onBlur={handleAutoSaveBlur}>
           <div className="space-y-1"><Label className="text-xs">Incoterm</Label><DebouncedInput disabled={ro} value={estimate.incoterm || ''} onCommit={(v) => patchEstimate({ incoterm: v } as any)} className="bg-muted/20" /></div>
           <div className="space-y-1"><Label className="text-xs">Trânsito</Label><DebouncedInput disabled={ro} value={estimate.transito || ''} onCommit={(v) => patchEstimate({ transito: v } as any)} placeholder="7 A 10 DIAS" className="bg-muted/20" /></div>
           <div className="space-y-1">
