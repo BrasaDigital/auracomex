@@ -1,0 +1,107 @@
+/*
+ * Tema "Porto": versão de teste do visual do app depois do login.
+ * Só vale quando <html> tem a classe .tema-porto (ver src/hooks/useTemaPorto.ts).
+ * Troca as variáveis de cor, o raio das bordas e as fontes; nenhuma tela precisa
+ * ser reescrita para pegar a paleta. É só no modo claro (o app já nunca liga o
+ * modo escuro).
+ *
+ * Paleta: névoa de cais (fundo), papel (superfícies), tinta azul-petróleo
+ * (texto e barra lateral), azul-contêiner (ações), âmbar (destaque sobre a tinta),
+ * ferrugem (atraso), verde (concluído).
+ */
+
+html.tema-porto {
+  --background: 156 14% 93%;
+  --foreground: 197 59% 13%;
+
+  --card: 150 15% 97%;
+  --card-foreground: 197 59% 13%;
+  --popover: 150 15% 98%;
+  --popover-foreground: 197 59% 13%;
+
+  --primary: 211 72% 38%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 158 13% 88%;
+  --secondary-foreground: 197 59% 13%;
+
+  --muted: 158 13% 88%;
+  --muted-foreground: 197 20% 35%;
+
+  --accent: 154 47% 33%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 11 61% 44%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 160 12% 80%;
+  --input: 160 12% 76%;
+  --ring: 211 72% 38%;
+
+  --radius: 0.25rem;
+
+  --status-transit: 211 72% 38%;
+  --status-attention: 38 85% 38%;
+  --status-urgent: 11 61% 44%;
+  --status-new: 263 45% 45%;
+  --status-completed: 154 47% 33%;
+  --status-draft: 197 15% 45%;
+
+  --sidebar-background: 197 59% 13%;
+  --sidebar-foreground: 156 14% 93%;
+  --sidebar-primary: 41 89% 53%;
+  --sidebar-primary-foreground: 197 59% 13%;
+  --sidebar-accent: 196 53% 18%;
+  --sidebar-accent-foreground: 156 14% 93%;
+  --sidebar-border: 197 34% 25%;
+  --sidebar-ring: 41 89% 53%;
+
+  --porto-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --porto-corpo: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html.tema-porto body {
+  font-family: var(--porto-corpo);
+}
+
+/* O "vidro" do app atual vira superfície chapada. */
+html.tema-porto .glass {
+  background: hsl(var(--card));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid hsl(var(--border));
+  box-shadow: none;
+}
+html.tema-porto .glass-dark {
+  background: hsl(var(--sidebar-background));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* Classes de uso nos componentes do layout novo. */
+html.tema-porto .porto-display {
+  font-family: var(--porto-display);
+  letter-spacing: 0;
+}
+
+/* Painel de contêiner: as nervuras verticais das paredes de contêiner. */
+html.tema-porto .porto-nervuras {
+  background-color: hsl(var(--primary));
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(14, 43, 54, 0.22) 0,
+    rgba(14, 43, 54, 0.22) 3px,
+    transparent 3px,
+    transparent 16px
+  );
+}
+
+/* Foco visível no tema novo. */
+html.tema-porto :focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+html.tema-porto aside :focus-visible {
+  outline-color: hsl(var(--sidebar-ring));
+}

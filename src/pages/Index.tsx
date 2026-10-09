@@ -13,6 +13,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
+import { useTemaPorto } from '@/hooks/useTemaPorto';
+import { DashboardPorto } from '@/components/dashboard/DashboardPorto';
 
 // recharts é pesado (~100kB+ gzip) — lazy pra não entrar no bundle principal,
 // carregado em toda página (Index não passa por Suspense de rota, é crítico).
@@ -36,6 +38,7 @@ const MODE_COLORS: Record<string, string> = {
 
 export default function Index() {
   const { t } = useLanguage();
+  const { ativo: porto } = useTemaPorto();
   const { profile, user } = useAuth();
   const { canAccessQuotes, canAccessShipments, canAccessFinancial, isScopedToOwnProcesses } = usePermissions();
   const { clientIds } = useSalespersonClients();
@@ -229,6 +232,35 @@ export default function Index() {
 
   // Só mostra a seção "Requer atenção" se o usuário tiver acesso a pelo menos uma das áreas
   const showAttentionSection = canAccessShipments || canAccessQuotes || canAccessFinancial;
+
+  if (porto) {
+    return (
+      <DashboardPorto
+        fechamentos={closedThisMonth}
+        referencias={quoteStats?.createdThisMonth ?? 0}
+        emAndamento={shipmentsInProgress.length}
+        podeCotacoes={canAccessQuotes}
+        podeEmbarques={canAccessShipments}
+        podeFinanceiro={canAccessFinancial}
+        cotacoesAtrasadas={quotesOverdue as any}
+        embarquesAtencao={shipmentAlerts as any}
+        aReceber={overdueReceivableTotal}
+        aPagar={overduePayableTotal}
+        graficos={
+          <Suspense fallback={<div className="h-64 bg-card border border-border animate-pulse" />}>
+            <DashboardCharts
+              stacked
+              noDataLabel={t('common.no_data')}
+              modeDistribution={modeDistribution}
+              modeChartConfig={modeChartConfig}
+              monthlyEvolution={monthlyEvolution}
+              evolutionChartConfig={evolutionChartConfig}
+            />
+          </Suspense>
+        }
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 animate-slide-in">

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bell, Globe, Sparkles, LogOut, CheckCheck, Trash2, X, UserCircle, CreditCard } from 'lucide-react';
+import { Bell, Globe, Sparkles, LogOut, CheckCheck, Trash2, X, UserCircle, CreditCard, RefreshCw, Check, Palette } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -16,12 +16,47 @@ import { ReleaseNotesDialog } from '@/components/releases/ReleaseNotesDialog';
 import { useReleases } from '@/hooks/useReleases';
 import { useSubscription, PLAN_LABEL } from '@/hooks/useSubscription';
 import { useNotifications } from '@/hooks/useNotifications';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useTemaPorto } from '@/hooks/useTemaPorto';
+import { useExchangeRate } from '@/hooks/useExchangeRate';
+import { allNavItems } from './AppSidebar';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 
+/** Câmbio do dia (visual Porto): sai da barra lateral e fica sempre à vista aqui. */
+function CambioPorto() {
+  const { usdBrl, eurBrl, source, loading, refetch } = useExchangeRate();
+  const chip = (rotulo: string, valor: number | null) => (
+    <span className="flex items-baseline gap-1.5 border border-border bg-card px-2 py-1 text-xs">
+      <span className="text-muted-foreground">{rotulo}</span>
+      <span className="font-semibold tabular-nums">{valor ? valor.toFixed(4) : '—'}</span>
+    </span>
+  );
+  return (
+    <div className="hidden md:flex items-center gap-1.5" title={source ? `Fonte: ${source}` : undefined}>
+      {chip('USD/BRL', usdBrl)}
+      {chip('EUR/BRL', eurBrl)}
+      <button
+        onClick={() => refetch()}
+        aria-label="Atualizar câmbio"
+        title="Atualizar câmbio"
+        className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+      </button>
+    </div>
+  );
+}
+
 export function TopBar() {
+  const { ativo: porto, alternar: alternarPorto } = useTemaPorto();
+  const location = useLocation();
+  const tituloItem = allNavItems.find((i) =>
+    i.path === '/'
+      ? location.pathname === '/' || location.pathname.startsWith('/dashboard')
+      : location.pathname.startsWith(i.path === '/financial/empresa' ? '/financial' : i.path),
+  );
   const { t, language, setLanguage } = useLanguage();
   const { profile, signOut } = useAuth();
   const { unread } = useReleases();
@@ -38,9 +73,27 @@ export function TopBar() {
     .slice(0, 2) || 'FF';
 
   return (
-    <header className="h-16 border-b border-border bg-card/50 backdrop-blur-lg flex items-center justify-end px-6">
+    <header
+      className={cn(
+        'h-16 border-b border-border flex items-center px-6',
+        porto ? 'bg-card justify-between' : 'bg-card/50 backdrop-blur-lg justify-end',
+      )}
+    >
+      {porto && (
+        <div className="flex items-center gap-3 min-w-0">
+          {tituloItem && (
+            <h1 className="porto-display text-2xl font-bold uppercase tracking-wide truncate">{t(tituloItem.key)}</h1>
+          )}
+          <CambioPorto />
+        </div>
+      )}
       {/* Right side */}
       <div className="flex items-center gap-3">
+        {porto && (
+          <span className="hidden sm:inline-flex items-center border border-primary/40 text-primary px-2 py-0.5 text-xs font-medium">
+            Visual de teste
+          </span>
+        )}
         <ReleaseNotesDialog mode="manual" open={notesOpen} onOpenChange={setNotesOpen} />
 
         {/* Notifications */}
@@ -156,6 +209,11 @@ export function TopBar() {
               <Sparkles className="w-4 h-4 mr-2" />
               {language === 'pt' ? 'Novidades' : "What's new"}
               {unread.length > 0 && <span className="ml-1.5 w-1.5 h-1.5 rounded-full bg-primary" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={alternarPorto} className="cursor-pointer">
+              <Palette className="w-4 h-4 mr-2" />
+              <span className="flex-1">{language === 'pt' ? 'Visual novo (teste)' : 'New look (beta)'}</span>
+              {porto && <Check className="w-4 h-4 ml-2" />}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setLanguage(language === 'pt' ? 'en' : 'pt')} className="cursor-pointer">
               <Globe className="w-4 h-4 mr-2" />

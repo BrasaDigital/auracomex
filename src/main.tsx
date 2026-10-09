@@ -1,6 +1,8 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import "./styles/tema-porto.css";
+import { iniciarTemaPorto } from "./hooks/useTemaPorto";
 // SVG country flags (bundled as CSS classes). Used instead of emoji flags
 // because Windows/Chrome doesn't render flag emoji glyphs — it shows the
 // 2-letter code or nothing at all. These are actual images, so they render
@@ -23,6 +25,9 @@ window.addEventListener('vite:preloadError', () => {
   sessionStorage.setItem(key, '1');
   window.location.reload();
 });
+
+// Visual Porto (versão de teste): aplica a classe antes de renderizar, sem piscar.
+iniciarTemaPorto();
 
 createRoot(document.getElementById("root")!).render(
   <ErrorBoundary>

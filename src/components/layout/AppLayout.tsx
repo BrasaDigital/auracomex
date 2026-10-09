@@ -1,9 +1,12 @@
 import { AppSidebar } from './AppSidebar';
+import { AppSidebarPorto } from './AppSidebarPorto';
 import { TopBar } from './TopBar';
+import { useTemaPorto } from '@/hooks/useTemaPorto';
 export function AppLayout({ children }: { children: React.ReactNode }) {
+  const { ativo: porto } = useTemaPorto();
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <AppSidebar />
+      {porto ? <AppSidebarPorto /> : <AppSidebar />}
       <div className="flex flex-col flex-1 overflow-hidden">
         <TopBar />
         <main className="flex-1 overflow-y-auto p-4 md:p-6">

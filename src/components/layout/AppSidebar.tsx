@@ -14,7 +14,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { SupportSheet } from '@/components/support/SupportButton';
 import { useReleases } from '@/hooks/useReleases';
 
-const allNavItems = [
+export const allNavItems = [
   { key: 'nav.dashboard', icon: LayoutDashboard, path: '/', permission: 'canAccessDashboard' as const },
   { key: 'nav.quotes', icon: FileText, path: '/quotes', permission: 'canAccessQuotes' as const },
   { key: 'nav.shipments', icon: Ship, path: '/shipments', permission: 'canAccessShipments' as const },

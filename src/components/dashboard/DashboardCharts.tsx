@@ -8,6 +8,8 @@ interface DashboardChartsProps {
   modeChartConfig: ChartConfig;
   monthlyEvolution: { key: string; label: string; count: number }[];
   evolutionChartConfig: ChartConfig;
+  /** Empilha os dois gráficos em uma coluna só (visual Porto). */
+  stacked?: boolean;
 }
 
 export default function DashboardCharts({
@@ -16,9 +18,10 @@ export default function DashboardCharts({
   modeChartConfig,
   monthlyEvolution,
   evolutionChartConfig,
+  stacked = false,
 }: DashboardChartsProps) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className={stacked ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 lg:grid-cols-2 gap-4"}>
       <Card className="glass">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">Embarques em andamento por modal</CardTitle>
