@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { PortSelect } from '@/components/shared/PortSelect';
-import { ModeFields, type CargoItem } from './ModeFields';
+import { ModeFields, type CargoItem, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage } from './ModeFields';
 import { ModeIcon } from '@/components/shared/ModeIcon';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, Copy, Plus, X } from 'lucide-react';
@@ -278,24 +278,6 @@ export function QuoteCreateModal({ open, onClose, onCreated }: Props) {
   function buildSummaryText(): string {
     const modeLabel = t(`mode.${mode}`);
 
-    // Calculate totals across all items
-    let totalWeight = 0;
-    let totalVolume = 0;
-    let totalPackages = 0;
-    let totalContainers = 0;
-    items.forEach((item) => {
-      totalWeight += parseFloat(item.weight_kg) || 0;
-      totalVolume += parseFloat(item.volume_cbm) || 0;
-      totalPackages += parseInt(item.packages) || 0;
-      if (mode === 'ocean_fcl' || mode === 'multimodal') {
-        totalContainers += Number(item.container_qty) || 0;
-      }
-      const l = parseFloat(item.length_cm), w = parseFloat(item.width_cm), h = parseFloat(item.height_cm);
-      if (l && w && h && !item.volume_cbm) {
-        totalVolume += (l * w * h / 1_000_000) * (parseInt(item.packages) || 1);
-      }
-    });
-
     const lines: string[] = [
       `📋 Cotação - ${modeLabel}`,
       '',
@@ -305,37 +287,8 @@ export function QuoteCreateModal({ open, onClose, onCreated }: Props) {
       `Entrega: ${form.delivery || '-'}`,
       `Incoterm: ${form.incoterm}`,
       '',
-      '📊 Totais da Carga:',
+      ...buildCargoSummaryLines(mode, items),
     ];
-
-    if ((mode === 'ocean_fcl' || mode === 'multimodal') && totalContainers > 0) {
-      lines.push(`  Containers: ${totalContainers}`);
-    }
-    if (totalWeight > 0) lines.push(`  Peso Total: ${totalWeight} kg`);
-    if (totalVolume > 0) lines.push(`  Volume Total: ${totalVolume.toFixed(4)} m³`);
-    if (totalPackages > 0) lines.push(`  Total Volumes: ${totalPackages}`);
-
-    lines.push('');
-    lines.push('📦 Detalhamento por Item:');
-
-    items.forEach((item, idx) => {
-      lines.push(`  Item ${idx + 1}:`);
-      if (mode === 'ocean_fcl' || mode === 'multimodal') {
-        lines.push(`    Container: ${item.container_type} x ${item.container_qty}`);
-      }
-      if (item.weight_kg) lines.push(`    Peso: ${item.weight_kg} kg`);
-      if (item.volume_cbm) lines.push(`    Volume: ${item.volume_cbm} m³`);
-      const l = parseFloat(item.length_cm), w = parseFloat(item.width_cm), h = parseFloat(item.height_cm);
-      if (l && w && h) {
-        lines.push(`    Dimensões: ${item.length_cm} x ${item.width_cm} x ${item.height_cm} cm`);
-        const cbm = (l * w * h / 1_000_000) * (parseInt(item.packages) || 1);
-        lines.push(`    Volume calc.: ${cbm.toFixed(4)} m³`);
-      }
-      if (item.packages) lines.push(`    Volumes: ${item.packages}`);
-      if (item.commodity) lines.push(`    Mercadoria: ${item.commodity}`);
-      if (item.dangerous_goods) lines.push(`    ⚠️ Carga Perigosa`);
-      if (mode === 'road' && item.vehicle_type) lines.push(`    Veículo: ${item.vehicle_type}`);
-    });
 
     if (form.notes) {
       lines.push('');
@@ -345,6 +298,11 @@ export function QuoteCreateModal({ open, onClose, onCreated }: Props) {
   }
 
   function handleCopySummary() {
+    const missingPkgs = getItemsMissingPackages(items, mode);
+    if (missingPkgs.length > 0) {
+      toast.error(missingPackagesMessage(missingPkgs));
+      return;
+    }
     const text = buildSummaryText();
     navigator.clipboard.writeText(text).then(() => {
       toast.success(t('common.copied'));
@@ -353,6 +311,11 @@ export function QuoteCreateModal({ open, onClose, onCreated }: Props) {
 
   async function handleCreate() {
     if (!profile) return;
+    const missingPkgs = getItemsMissingPackages(items, mode);
+    if (missingPkgs.length > 0) {
+      toast.error(missingPackagesMessage(missingPkgs));
+      return;
+    }
     setLoading(true);
     try {
       const manualRef = form.manual_reference.trim();

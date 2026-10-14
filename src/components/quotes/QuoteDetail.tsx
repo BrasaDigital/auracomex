@@ -27,7 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { ModeIcon } from '@/components/shared/ModeIcon';
 import { PortSelect } from '@/components/shared/PortSelect';
-import { ModeFields, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume } from './ModeFields';
+import { ModeFields, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage } from './ModeFields';
 import { useCostEstimate } from '@/hooks/useCostEstimate';
 import { extractCountryFromPort } from '@/lib/countryFlag';
 import { FlagIcon } from '@/components/shared/FlagIcon';
@@ -483,22 +483,11 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     const mode = form.transport_mode;
     const modeLabel = t(`mode.${mode}`);
 
-    let totalWeight = 0;
-    let totalVolume = 0;
-    let totalPackages = 0;
-    let totalContainers = 0;
-    cargoItems.forEach((item) => {
-      totalWeight += parseFloat(item.weight_kg) || 0;
-      totalVolume += parseFloat(item.volume_cbm) || 0;
-      totalPackages += parseInt(item.packages) || 0;
-      if (mode === 'ocean_fcl' || mode === 'multimodal') {
-        totalContainers += Number(item.container_qty) || 0;
-      }
-      const l = parseFloat(item.length_cm), w = parseFloat(item.width_cm), h = parseFloat(item.height_cm);
-      if (l && w && h && !item.volume_cbm) {
-        totalVolume += (l * w * h / 1_000_000) * (parseInt(item.packages) || 1);
-      }
-    });
+    const missingPkgs = getItemsMissingPackages(cargoItems, mode);
+    if (missingPkgs.length > 0) {
+      toast.error(missingPackagesMessage(missingPkgs));
+      return;
+    }
 
     const lines: string[] = [`📋 Cotação - ${modeLabel}`, ''];
     if (form.pickup_address) lines.push(`Coleta: ${form.pickup_address}`);
@@ -508,34 +497,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     lines.push(`Incoterm: ${(form.incoterm && form.incoterm !== 'NONE') ? form.incoterm : '-'}`);
     if (form.client_reference) lines.push(`Ref. do Cliente: ${form.client_reference}`);
     lines.push('');
-    lines.push('📊 Totais da Carga:');
-    if ((mode === 'ocean_fcl' || mode === 'multimodal') && totalContainers > 0) {
-      lines.push(`  Containers: ${totalContainers}`);
-    }
-    if (totalWeight > 0) lines.push(`  Peso Total: ${totalWeight} kg`);
-    if (totalVolume > 0) lines.push(`  Volume Total: ${totalVolume.toFixed(4)} m³`);
-    if (totalPackages > 0) lines.push(`  Total Volumes: ${totalPackages}`);
-
-    lines.push('');
-    lines.push('📦 Detalhamento por Item:');
-    cargoItems.forEach((item, idx) => {
-      lines.push(`  Item ${idx + 1}:`);
-      if (mode === 'ocean_fcl' || mode === 'multimodal') {
-        lines.push(`    Container: ${item.container_type} x ${item.container_qty}`);
-      }
-      if (item.weight_kg) lines.push(`    Peso: ${item.weight_kg} kg`);
-      if (item.volume_cbm) lines.push(`    Volume: ${item.volume_cbm} m³`);
-      const l = parseFloat(item.length_cm), w = parseFloat(item.width_cm), h = parseFloat(item.height_cm);
-      if (l && w && h) {
-        lines.push(`    Dimensões: ${item.length_cm} x ${item.width_cm} x ${item.height_cm} cm`);
-        const cbm = (l * w * h / 1_000_000) * (parseInt(item.packages) || 1);
-        lines.push(`    Volume calc.: ${cbm.toFixed(4)} m³`);
-      }
-      if (item.packages) lines.push(`    Volumes: ${item.packages}`);
-      if (item.commodity) lines.push(`    Mercadoria: ${item.commodity}`);
-      if (item.dangerous_goods) lines.push(`    ⚠️ Carga Perigosa`);
-      if (mode === 'road' && item.vehicle_type) lines.push(`    Veículo: ${item.vehicle_type}`);
-    });
+    lines.push(...buildCargoSummaryLines(mode, cargoItems));
 
     if (form.notes) {
       lines.push('');
@@ -1147,6 +1109,12 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
       // a página inteira (F5), em vez de só trocar de aba.
       queryClient.invalidateQueries({ queryKey: ['logistics-quote-items'] });
       toast.success(t('quotes.changes_saved'));
+      // Autosave no blur: não trava o salvamento (perderia o que a pessoa acabou
+      // de digitar), mas avisa que Volumes é obrigatório pro peso/cubagem total.
+      const missingPkgs = getItemsMissingPackages(cargoItems, form.transport_mode);
+      if (missingPkgs.length > 0) {
+        toast.warning(missingPackagesMessage(missingPkgs), { id: 'packages-required' });
+      }
       setSaveState('saved');
       setTimeout(() => setSaveState('idle'), 2000);
     } catch (err: any) {

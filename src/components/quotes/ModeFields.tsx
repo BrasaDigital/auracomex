@@ -270,6 +270,83 @@ export function calcItemWeight(item: CargoItem): number {
   return pkgs >= 2 ? w * pkgs : w;
 }
 
+/** Arredonda pra no máx. 2 casas (evita 27.200000000000003 de soma em ponto flutuante). */
+function fmtNum(n: number, decimals = 2): string {
+  const f = 10 ** decimals;
+  return String(Math.round(n * f) / f);
+}
+
+/**
+ * Posições (1-based) dos itens preenchidos que estão sem Volumes (packages >= 1).
+ * Volumes é obrigatório porque o peso digitado é POR VOLUME — sem a quantidade
+ * o peso/cubagem totais ficam errados. FCL não exige (usa container_qty).
+ */
+export function getItemsMissingPackages(items: CargoItem[], mode: string): number[] {
+  if (mode === 'ocean_fcl') return [];
+  const missing: number[] = [];
+  items.forEach((it, idx) => {
+    if (isEmptyCargoItem(it, mode === 'multimodal')) return;
+    if (!(parseInt(it.packages) >= 1)) missing.push(idx + 1);
+  });
+  return missing;
+}
+
+/** Mensagem padrão de erro quando faltam Volumes (ex: "Item 2"). */
+export function missingPackagesMessage(positions: number[]): string {
+  return positions.length === 1
+    ? `Preencha os Volumes do item ${positions[0]}.`
+    : `Preencha os Volumes dos itens ${positions.join(', ')}.`;
+}
+
+/**
+ * Linhas "Totais da Carga" + "Detalhamento por Item" do resumo de cotação
+ * (compartilhado entre QuoteCreateModal e QuoteDetail). Peso e cubagem totais
+ * usam as mesmas regras da tela (peso por volume × volumes).
+ */
+export function buildCargoSummaryLines(mode: string, items: CargoItem[]): string[] {
+  const showContainers = mode === 'ocean_fcl' || mode === 'multimodal';
+  const totalWeight = items.reduce((s, i) => s + calcItemWeight(i), 0);
+  const totalVolume = items.reduce((s, i) => s + getEffectiveVolume(i), 0);
+  const totalPackages = items.reduce((s, i) => s + (parseInt(i.packages) || 0), 0);
+  const totalContainers = showContainers ? items.reduce((s, i) => s + (Number(i.container_qty) || 0), 0) : 0;
+
+  const lines: string[] = ['📊 Totais da Carga:'];
+  if (showContainers && totalContainers > 0) lines.push(`  Containers: ${totalContainers}`);
+  if (totalWeight > 0) lines.push(`  Peso Total: ${fmtNum(totalWeight)} kg`);
+  if (totalVolume > 0) lines.push(`  Volume Total: ${totalVolume.toFixed(4)} m³`);
+  if (totalPackages > 0) lines.push(`  Total Volumes: ${totalPackages}`);
+
+  lines.push('');
+  lines.push('📦 Detalhamento por Item:');
+  items.forEach((item, idx) => {
+    const pkgs = parseInt(item.packages) || 0;
+    lines.push(`  Item ${idx + 1}:`);
+    if (showContainers) lines.push(`    Container: ${item.container_type} x ${item.container_qty}`);
+    const w = parseFloat(item.weight_kg) || 0;
+    if (w > 0) {
+      lines.push(pkgs >= 2
+        ? `    Peso: ${fmtNum(w)} kg/vol. (total ${fmtNum(calcItemWeight(item))} kg)`
+        : `    Peso: ${fmtNum(w)} kg`);
+    }
+    const l = parseFloat(item.length_cm), wd = parseFloat(item.width_cm), h = parseFloat(item.height_cm);
+    const hasDims = !!(l && wd && h);
+    if (!hasDims && item.volume_cbm) {
+      lines.push(pkgs >= 2
+        ? `    Volume: ${item.volume_cbm} m³/vol. (total ${getEffectiveVolume(item).toFixed(4)} m³)`
+        : `    Volume: ${item.volume_cbm} m³`);
+    }
+    if (hasDims) {
+      lines.push(`    Dimensões: ${item.length_cm} x ${item.width_cm} x ${item.height_cm} cm`);
+      lines.push(`    Volume calc.: ${calcItemCbm(item).toFixed(4)} m³`);
+    }
+    if (pkgs > 0) lines.push(`    Volumes: ${pkgs}`);
+    if (item.commodity) lines.push(`    Mercadoria: ${item.commodity}`);
+    if (item.dangerous_goods) lines.push(`    ⚠️ Carga Perigosa`);
+    if (mode === 'road' && item.vehicle_type) lines.push(`    Veículo: ${item.vehicle_type}`);
+  });
+  return lines;
+}
+
 export function calcChargeableWeight(items: CargoItem[], mode: string): number {
   const totalWeight = items.reduce((s, i) => s + calcItemWeight(i), 0);
   const totalCbm = items.reduce((s, i) => s + getEffectiveVolume(i), 0);
@@ -451,8 +528,14 @@ export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFiel
         <div className="grid grid-cols-3 gap-2.5">
           {mode !== 'ocean_fcl' && (
             <div className="space-y-1.5">
-              <Label className={fieldLabelCls}>{t('quotes.packages')}</Label>
-              <Input inputMode="numeric" placeholder="1" value={item.packages} onChange={(e) => updateItem(idx, { packages: e.target.value })} />
+              <Label className={fieldLabelCls}>{t('quotes.packages')} <span className="text-destructive">*</span></Label>
+              <Input
+                inputMode="numeric"
+                placeholder="1"
+                value={item.packages}
+                className={!readOnly && !isEmptyCargoItem(item, showContainers) && !(parseInt(item.packages) >= 1) ? 'border-destructive focus-visible:ring-destructive' : ''}
+                onChange={(e) => updateItem(idx, { packages: e.target.value })}
+              />
             </div>
           )}
           <div className="space-y-1.5">
