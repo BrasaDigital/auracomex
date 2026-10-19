@@ -36,7 +36,7 @@ const categoriaLabels: Record<AccountabilityCategoria, string> = {
 };
 
 export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Props) {
-  const { data, isLoading, updateItem, attachComprovante, removeComprovante, recomputeTotals, removeAccountability } = useAccountability(quoteId, companyId);
+  const { data, isLoading, updateItem, setConfirmado, attachComprovante, removeComprovante, recomputeTotals, removeAccountability } = useAccountability(quoteId, companyId);
   const locked = !!isFinalized;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -71,10 +71,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
   const handleToggleConfirmado = async (item: AccountabilityItemRow, confirmado: boolean) => {
     if (locked) { toast.error('Processo finalizado — não é possível editar a prestação de contas.'); return; }
     try {
-      await updateItem(item.id, {
-        confirmado,
-        valor_pago_brl: item.valor_pago_brl ?? item.valor_orcado_brl,
-      });
+      await setConfirmado(item, confirmado);
       await recomputeTotals(accountability.id);
     } catch (e: any) {
       toast.error(e.message || 'Erro ao confirmar item.');

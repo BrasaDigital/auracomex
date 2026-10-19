@@ -168,6 +168,25 @@ export function useAccountability(quoteId: string, companyId: string | undefined
   };
 
   /**
+   * Marca/desmarca "Confirmado" SEM sobrescrever um valor pago já digitado:
+   * só preenche valor_pago_brl com o orçado se ele ainda estiver NULL no banco
+   * (condição avaliada no servidor, não pelo estado em tela, que pode estar defasado).
+   */
+  const setConfirmado = async (item: AccountabilityItemRow, confirmado: boolean) => {
+    const { error } = await (supabase as any).from('accountability_items').update({ confirmado }).eq('id', item.id);
+    if (error) throw error;
+    if (confirmado) {
+      const { error: e2 } = await (supabase as any)
+        .from('accountability_items')
+        .update({ valor_pago_brl: item.valor_orcado_brl })
+        .eq('id', item.id)
+        .is('valor_pago_brl', null);
+      if (e2) throw e2;
+    }
+    invalidate();
+  };
+
+  /**
    * Sobe o comprovante de pagamento de um item pro Storage, registra em
    * `documents` (pra aparecer também na aba Documentos do processo) e
    * vincula o item da prestação a esse documento.
@@ -243,5 +262,5 @@ export function useAccountability(quoteId: string, companyId: string | undefined
     invalidate();
   };
 
-  return { ...query, createFromEstimate, updateItem, attachComprovante, removeComprovante, recomputeTotals, closeAccountability, removeAccountability, invalidate };
+  return { ...query, createFromEstimate, updateItem, setConfirmado, attachComprovante, removeComprovante, recomputeTotals, closeAccountability, removeAccountability, invalidate };
 }
