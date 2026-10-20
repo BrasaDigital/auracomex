@@ -98,8 +98,8 @@ export function CargoVolumesEditor({ volumes, onChange, readOnly, valueTotal }: 
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Carga física do embarque</p>
-          <p className="text-[11px] text-muted-foreground">Informe a quantidade e o tipo; cada volume ganha uma linha com suas medidas. O total soma todos.</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Carga física do embarque · usada para cotação e frete</p>
+          <p className="text-[11px] text-muted-foreground">Informe a quantidade e o tipo; cada volume ganha uma linha com suas medidas. O total (peso, cubagem e peso taxado) soma todos e é a base das cotações.</p>
         </div>
         {!readOnly && (
           <Button type="button" size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={addGroup}>

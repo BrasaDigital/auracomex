@@ -800,6 +800,12 @@ export function ModeFields({ mode, items, onChange, readOnly, saving, volumes, c
 
   return (
     <div className="space-y-4">
+      {commercialOnly && (
+        <div className="rounded-lg border border-dashed bg-muted/10 px-3 py-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Itens da invoice · usados no desembaraço</p>
+          <p className="text-[11px] text-muted-foreground">Mercadoria, NCM, quantidade de peças e valor de cada produto. Servem para a DUIMP e a Estimativa; o frete e a cotação usam a carga física acima.</p>
+        </div>
+      )}
       {/* Totais calculados + botão Adicionar, na mesma linha */}
       <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border bg-muted/20 px-3 py-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm min-h-[20px]">
