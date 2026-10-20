@@ -144,7 +144,7 @@ export function AutoInsuranceCard({ quoteId, companyId, quote, quotePartners = [
   const taxaPct = taxaResolved ?? 0;
   // `localAuto` manda enquanto não for resetado (troca de processo) — só cai
   // pro valor vindo do servidor/cache quando ainda não houve clique local.
-  const auto = localAuto !== null ? localAuto : quote?.seguro_auto !== false; // default true enquanto carrega
+  const auto = localAuto !== null ? localAuto : quote?.seguro_auto === true; // seguro nasce desmarcado; só liga quando o usuário marca
 
   const breakdown = useMemo(() => calcSeguroInternacional({
     custoUsd: custoCargaUsd,
