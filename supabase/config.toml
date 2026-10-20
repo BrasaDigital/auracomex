@@ -2,3 +2,6 @@ project_id = "pqiuxojgjmqhdajdhgqk"
 
 [functions.process-email-queue]
 verify_jwt = true
+
+[functions.mcp]
+verify_jwt = false

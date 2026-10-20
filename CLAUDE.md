@@ -32,7 +32,7 @@ repositório montado localmente (`C:\auracomex\auracomex`, ver seção "Git no a
 sandbox" abaixo). PORÉM: o push passa por um proxy de git que só injeta credencial pra
 repositórios autorizados na sessão. Se o push falhar com 403 e "not in this session's
 authorized repository set": estar dentro do projeto AuraComex NÃO basta — o repo
-`AuraComexBR/auracomex` precisa estar adicionado como FONTE da própria conversa (seletor
+`BrasaDigital/auracomex` precisa estar adicionado como FONTE da própria conversa (seletor
 de fontes/conhecimento da conversa). A correção é o usuário adicionar o repo GitHub como
 fonte da conversa. Não adianta mexer em credencial, remote ou config do git — o bloqueio
 é do proxy, não do repositório. Enquanto isso, o commit local não se perde: qualquer
@@ -40,13 +40,13 @@ sessão autorizada (ou o próprio usuário na máquina dele) consegue dar o push
 
 **Sessão sem pasta local montada (ex: Cowork sem `C:\auracomex\auracomex` conectado)**:
 sem `git`, ler/editar arquivo do repo por `web_fetch` direto em
-`https://raw.githubusercontent.com/AuraComexBR/auracomex/main/<caminho>` (rápido,
+`https://raw.githubusercontent.com/BrasaDigital/auracomex/main/<caminho>` (rápido,
 confiável, um arquivo por vez). `api.github.com` (search/tree/contents) não responde
 nem pelo `bash` do sandbox nem sempre pelo `web_fetch`; pra listar diretório ou navegar
-histórico, usar o Chrome (`github.com/AuraComexBR/auracomex/tree/main/<pasta>`) — o
+histórico, usar o Chrome (`github.com/BrasaDigital/auracomex/tree/main/<pasta>`) — o
 `web_fetch` direto em `github.com` normal não retorna conteúdo (página client-rendered).
 Pra COMMITAR sem pasta local, editar pelo Chrome no editor web do GitHub
-(`github.com/AuraComexBR/auracomex/edit/main/<arquivo>`) e commitar direto na `main`;
+(`github.com/BrasaDigital/auracomex/edit/main/<arquivo>`) e commitar direto na `main`;
 depois disso o Vercel faz o deploy automático como qualquer outro push. Abrir/mergear PR
 pelo Chrome às vezes trava na primeira tentativa ("This page is taking too long to
 load") — recarregar a comparação (`compare/main...branch`) e tentar de novo resolve.
@@ -56,7 +56,7 @@ load") — recarregar a comparação (`compare/main...branch`) e tentar de novo 
 - React 18 + TypeScript + Vite + shadcn/ui (Radix) + Tailwind + TanStack React Query + React Router
 - Backend: Supabase (Postgres/Auth/Storage/Edge Functions, pg_cron) — projeto `pqiuxojgjmqhdajdhgqk`
 - Testes: Vitest (`npx vitest run`)
-- Repo GitHub: `AuraComexBR/auracomex`, branch de produção `main`
+- Repo GitHub: `BrasaDigital/auracomex`, branch de produção `main`
 - Deploy: Vercel, auto-deploy no push pro `main` — projeto `auracomex`
   (id `prj_gS2iVXFhlHTqHspNQ79m2AsDz0wA`, team `team_72KuLwbJZBtnU2NFLrfHBomJ`)
 - Deploy Hook manual (se o auto-deploy falhar): colar no navegador
