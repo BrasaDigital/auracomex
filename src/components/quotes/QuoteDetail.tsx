@@ -28,7 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { ModeIcon } from '@/components/shared/ModeIcon';
 import { PortSelect } from '@/components/shared/PortSelect';
 import { ModeFields, PACKAGE_TYPES, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage, type CargoVolume, effectiveCalcItems, legacyItemsToVolumes, usesVolumes, isEmptyVolume, getVolumesMissingQty } from './ModeFields';
-import { CargoVolumesEditor } from './CargoVolumesEditor';
+import { CargoVolumesEditor, VolumeQtyInput, resizeVolumes, totalVolumeQty } from './CargoVolumesEditor';
 import { calcTotalCargoValueUsd } from '@/lib/cargoValue';
 import { useCostEstimate } from '@/hooks/useCostEstimate';
 import { extractCountryFromPort } from '@/lib/countryFlag';
@@ -2459,22 +2459,29 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
               )}
               {/* Carga física do embarque (totais). Itens/produtos ficam abaixo, só com peças e valor. */}
               <div className="rounded-lg border border-border/60 p-3 space-y-2.5">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Carga física do embarque (totais)</div>
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Carga física do embarque · usada para cotação e frete</div>
+                <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] uppercase text-muted-foreground">Pallets</Label>
-                    <Input inputMode="numeric" placeholder="0" value={form.cargo_pallets} disabled={!canEditCargo}
-                      onChange={(e) => setForm((f) => ({ ...f, cargo_pallets: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[11px] uppercase text-muted-foreground">Caixas / volumes</Label>
-                    <Input inputMode="numeric" placeholder="0" value={form.cargo_packages} disabled={!canEditCargo}
-                      onChange={(e) => setForm((f) => ({ ...f, cargo_packages: e.target.value }))} />
+                    <Label className="text-[11px] uppercase text-muted-foreground">Quantidade</Label>
+                    {usesVolumes(form.transport_mode) ? (
+                      <VolumeQtyInput count={totalVolumeQty(cargoVolumes) * (cargoVolumes.length ? 1 : 0)} disabled={!canEditCargo}
+                        onCommit={(n) => {
+                          setCargoVolumes(resizeVolumes(cargoVolumes, n, form.cargo_package_type || ''));
+                          setForm((f) => ({ ...f, cargo_packages: n ? String(n) : '' }));
+                        }} />
+                    ) : (
+                      <Input inputMode="numeric" placeholder="0" value={form.cargo_packages} disabled={!canEditCargo}
+                        onChange={(e) => setForm((f) => ({ ...f, cargo_packages: e.target.value }))} />
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-[11px] uppercase text-muted-foreground">Tipo do volume</Label>
                     <Select value={form.cargo_package_type || '__none'} disabled={!canEditCargo}
-                      onValueChange={(v) => setForm((f) => ({ ...f, cargo_package_type: v === '__none' ? '' : v }))}>
+                      onValueChange={(v) => {
+                        const type = v === '__none' ? '' : v;
+                        setForm((f) => ({ ...f, cargo_package_type: type }));
+                        setCargoVolumes(cargoVolumes.map((r) => ({ ...r, package_type: type })));
+                      }}>
                       <SelectTrigger><SelectValue placeholder="Volume" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none">Volume (genérico)</SelectItem>
