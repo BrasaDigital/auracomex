@@ -302,9 +302,14 @@ export function mergeItemsWithQuoteItems(existing: ExistingItem[], qItems: Quote
   const norm = (s: string | null | undefined) => (s || '').trim().toLowerCase();
   const usedFallbackIds = new Set<string>();
   const byNameNcm = new Map<string, ExistingItem>();
+  // Itens da Estimativa sem vínculo OU "órfãos" (o quote_item deles foi apagado/recriado na Carga) podem ser
+  // reaproveitados por nome+NCM — assim os dados fiscais (VMCV, alíquotas) não ficam para trás nem duplicam.
+  const currentIds = new Set(qItems.map(q => q.id));
   for (const e of existing) {
-    if (e.quote_item_id) continue;
-    byNameNcm.set(`${norm(e.nome)}|${norm(e.ncm)}`, e);
+    if (e.quote_item_id && currentIds.has(e.quote_item_id)) continue;
+    const k = `${norm(e.nome)}|${norm(e.ncm)}`;
+    const cur = byNameNcm.get(k);
+    if (!cur || (Number(e.vmcv_unit_usd) || 0) > (Number(cur.vmcv_unit_usd) || 0)) byNameNcm.set(k, e);
   }
   const merged: MergedItem[] = [];
   for (const qi of qItems) {
