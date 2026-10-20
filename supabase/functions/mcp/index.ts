@@ -25,7 +25,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.2.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.3.0" };
 
 // ---------- helpers ----------
 
@@ -425,6 +425,66 @@ function prepareFields(input: Record<string, unknown>, current: Record<string, u
   return novos;
 }
 
+// ---- Resumo da Carga (quote_items, ligada à cotação do processo) ----
+const CARGO_NUM: Record<string, number> = {
+  weight_kg: 1e9, volume_cbm: 1e9, chargeable_weight: 1e9, length_cm: 1e6, width_cm: 1e6, height_cm: 1e6, cargo_value: 1e12,
+};
+const CARGO_INT = ["container_qty", "packages"];
+const CARGO_TXT: Record<string, number> = {
+  container_type: 60, commodity: 300, ncm_code: 20, notes: 1000, container_number: 60, cargo_value_currency: 3, vehicle_type: 60,
+};
+
+function parseCargo(raw: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 50) {
+    throw new ToolError('"itens_carga" deve ser uma lista de 1 a 50 itens de carga.');
+  }
+  return raw.map((it, i) => {
+    if (!it || typeof it !== "object" || Array.isArray(it)) throw new ToolError(`Item de carga ${i + 1}: deve ser um objeto.`);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(it as Record<string, unknown>)) {
+      const bad = (m: string) => new ToolError(`Item de carga ${i + 1}, campo "${k}": ${m}`);
+      if (v === null || v === undefined || v === "") continue;
+      if (k in CARGO_NUM) {
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > CARGO_NUM[k]) throw bad("deve ser número >= 0.");
+        out[k] = v;
+      } else if (CARGO_INT.includes(k)) {
+        if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 1_000_000) throw bad("deve ser inteiro >= 0.");
+        out[k] = v;
+      } else if (k in CARGO_TXT) {
+        if (typeof v !== "string" || v.trim().length > CARGO_TXT[k]) throw bad("texto inválido ou longo demais.");
+        out[k] = k === "cargo_value_currency" ? v.trim().toUpperCase() : v.trim();
+      } else if (k === "dangerous_goods") {
+        if (typeof v !== "boolean") throw bad("deve ser true ou false.");
+        out[k] = v;
+      } else {
+        throw new ToolError(`Item de carga ${i + 1}: campo "${k}" não existe. Campos: ${[...Object.keys(CARGO_NUM), ...CARGO_INT, ...Object.keys(CARGO_TXT), "dangerous_goods"].join(", ")}.`);
+      }
+    }
+    if (Object.keys(out).length === 0) throw new ToolError(`Item de carga ${i + 1}: vazio.`);
+    return out;
+  });
+}
+
+async function adicionarCarga(ctx: Ctx, a: Args) {
+  requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos");
+  const ref = optStr(a, "processo");
+  if (!ref) throw new ToolError('Informe "processo" (número de referência exato).');
+  const itens = parseCargo(a.itens_carga);
+
+  const sh = await findShipmentByRef(ctx, ref, "id,reference_number,company_id,is_finalized");
+  if (sh.is_finalized) throw new ToolError(`O processo ${sh.reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
+  const { data: q } = await ctx.sb.from("quotes").select("id").eq("shipment_id", sh.id).limit(1).maybeSingle();
+  if (!q?.id) throw new ToolError(`O processo ${sh.reference_number} não tem cotação ligada, então não há onde registrar a carga.`);
+
+  const { error } = await ctx.sb.from("quote_items").insert(itens.map((it) => ({ ...it, quote_id: q.id, company_id: sh.company_id })));
+  if (error) throw new ToolError(`Não foi possível registrar a carga: ${error.message.slice(0, 200)}`);
+  await ctx.sb.from("shipment_audit_log").insert({
+    shipment_id: sh.id, quote_id: q.id, company_id: sh.company_id, user_id: ctx.userId,
+    field_name: "cargo_items", old_value: null, new_value: `${itens.length} item(ns) de carga adicionados via Claude`,
+  });
+  return ok({ adicionado: true, processo: sh.reference_number, itens_adicionados: itens.length });
+}
+
 // Cria um processo novo (mesmo caminho do "criação rápida" do app): referência sequencial
 // do banco (next_reference), status inicial "approved", created_by = usuário.
 async function criarProcesso(ctx: Ctx, a: Args) {
@@ -440,6 +500,7 @@ async function criarProcesso(ctx: Ctx, a: Args) {
   const desconhecidos = Object.keys(extra).filter((k) => !(k in EDITABLE_FIELDS));
   if (desconhecidos.length) throw new ToolError(`Campo(s) não editáveis: ${desconhecidos.join(", ")}.`);
   const novos = prepareFields(extra, {});
+  const itensCarga = a.itens_carga === undefined || a.itens_carga === null ? [] : parseCargo(a.itens_carga);
 
   // Cliente: tem que existir e ser único (e, para vendedor, ser dele).
   const ids = await clientFilter(ctx, cliente);
@@ -535,9 +596,19 @@ async function criarProcesso(ctx: Ctx, a: Args) {
     field_name: "conversion", old_value: "Cotação (quoting)", new_value: `Embarque criado (${novo.reference_number}) via Claude`,
   });
 
+  let cargaRegistrada = 0;
+  if (itensCarga.length) {
+    const { error: ei } = await ctx.sb.from("quote_items").insert(itensCarga.map((it) => ({ ...it, quote_id: cot.id, company_id: ctx.companyId })));
+    if (ei) {
+      throw new ToolError(`O processo ${novo.reference_number} foi criado, mas a carga não foi registrada (${ei.message.slice(0, 150)}). Use adicionar_carga para tentar de novo.`);
+    }
+    cargaRegistrada = itensCarga.length;
+  }
+
   return ok({
     criado: true,
     processo: novo.reference_number,
+    itens_carga_registrados: cargaRegistrada,
     cotacao_ligada: true,
     cliente: cand[0].name,
     modal,
@@ -619,7 +690,33 @@ type Tool = {
   write?: boolean;
 };
 
-const limiteProp = { type: "integer", minimum: 1, maximum: 50, description: "Máximo de itens (padrão 20)." };
+const CARGO_SCHEMA = {
+  type: "array",
+  maxItems: 50,
+  description: "Itens da carga (um por mercadoria/linha).",
+  items: {
+    type: "object",
+    properties: {
+      commodity: { type: "string", description: "Descrição da mercadoria." },
+      ncm_code: { type: "string", description: "NCM." },
+      weight_kg: { type: "number", description: "Peso bruto em kg." },
+      volume_cbm: { type: "number", description: "Volume em m³." },
+      packages: { type: "integer", description: "Quantidade de volumes/embalagens." },
+      container_type: { type: "string", description: "Tipo de container (ex.: 40HC), se FCL." },
+      container_qty: { type: "integer", description: "Quantidade de containers." },
+      container_number: { type: "string" },
+      chargeable_weight: { type: "number" },
+      length_cm: { type: "number" }, width_cm: { type: "number" }, height_cm: { type: "number" },
+      cargo_value: { type: "number", description: "Valor da carga." },
+      cargo_value_currency: { type: "string", description: "Moeda de 3 letras (padrão USD)." },
+      dangerous_goods: { type: "boolean" },
+      notes: { type: "string" },
+    },
+    additionalProperties: false,
+  },
+};
+
+const limiteProp ={ type: "integer", minimum: 1, maximum: 50, description: "Máximo de itens (padrão 20)." };
 
 const TOOLS: Tool[] = [
   {
@@ -717,10 +814,26 @@ const TOOLS: Tool[] = [
         referencia: { type: "string", description: "Opcional. Número manual (ex.: 26/256). Sem ele, o sistema gera o próximo da sequência." },
         direcao: { type: "string", enum: ["IMP", "EXP"], description: "Importação (padrão) ou exportação." },
         campos: { type: "object", description: "Opcional. Campos iniciais, como em atualizar_processo.", additionalProperties: true },
+        itens_carga: CARGO_SCHEMA,
       },
       required: ["cliente", "modal"],
     },
     run: criarProcesso,
+    write: true,
+  },
+  {
+    name: "adicionar_carga",
+    description:
+      "Adiciona itens ao Resumo da Carga (aba Carga) de um processo: mercadoria, NCM, peso, volume, volumes/embalagens, tipo e quantidade de containers, valor da carga. Só adiciona (não apaga nem altera itens existentes). Não edita processo finalizado. Só use quando o usuário pedir explicitamente.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        processo: { type: "string", description: "Número de referência exato do processo." },
+        itens_carga: CARGO_SCHEMA,
+      },
+      required: ["processo", "itens_carga"],
+    },
+    run: adicionarCarga,
     write: true,
   },
   {
