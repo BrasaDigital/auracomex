@@ -464,23 +464,81 @@ async function criarProcesso(ctx: Ctx, a: Args) {
     }
   }
 
-  const { data: ref, error: er } = await ctx.sb.rpc("next_reference", { p_company_id: ctx.companyId });
-  if (er || !ref) throw new ToolError("Não foi possível gerar o número de referência.");
+  // Número: manual (como o campo "referência manual" do app) ou sequencial do banco.
+  // Cotação e processo compartilham o mesmo número, como no fluxo normal do app.
+  const exists = async (n: string) => {
+    const [{ data: q }, { data: s }] = await Promise.all([
+      ctx.sb.from("quotes").select("id").eq("company_id", ctx.companyId).ilike("quote_number", n).limit(1),
+      ctx.sb.from("shipments").select("id").eq("company_id", ctx.companyId).ilike("reference_number", n).limit(1),
+    ]);
+    return !!(q?.length || s?.length);
+  };
+  const manual = optStr(a, "referencia", 40);
+  const direcao = a.direcao === "EXP" ? "EXP" : "IMP";
+  let baseRef: string;
+  let numero: string;
+  if (manual) {
+    if (await exists(manual)) throw new ToolError(`Já existe cotação ou processo com a referência "${manual}". Escolha outra.`);
+    baseRef = manual;
+    numero = manual;
+  } else {
+    const { data: ref, error: er } = await ctx.sb.rpc("next_reference", { p_company_id: ctx.companyId });
+    if (er || !ref) throw new ToolError("Não foi possível gerar o número de referência.");
+    baseRef = String(ref);
+    const { data: comp } = await ctx.sb.from("companies").select("quote_include_mode").eq("id", ctx.companyId).maybeSingle();
+    const letter = ({ ocean_fcl: "F", ocean_lcl: "L", air: "A", road: "R", multimodal: "M" } as Record<string, string>)[modal] ?? "F";
+    numero = comp?.quote_include_mode !== false ? `${baseRef}-${letter}${direcao === "EXP" ? "E" : "I"}` : baseRef;
+    for (let i = 2; await exists(numero); i++) numero = `${baseRef}-${i}`; // nunca colide
+  }
 
+  // 1) Cotação (todo processo nasce de uma cotação — é ela que abre a tela completa do processo).
+  const { data: cot, error: eq } = await ctx.sb.from("quotes").insert({
+    company_id: ctx.companyId,
+    quote_number: numero,
+    base_reference: baseRef,
+    transport_mode: modal,
+    client_id: cand[0].id,
+    origin: novos.origin_port ?? null,
+    destination: novos.destination_port ?? null,
+    transshipment: novos.transshipment ?? null,
+    incoterm: novos.incoterm ?? null,
+    client_reference: novos.client_reference ?? null,
+    free_time: novos.free_time ?? null,
+    direction: direcao,
+    created_by: ctx.userId,
+    status: "quoting",
+  }).select("id").single();
+  if (eq || !cot) throw new ToolError(`Não foi possível criar a cotação do processo: ${(eq?.message ?? "").slice(0, 200)}`);
+
+  // 2) Processo (embarque) com o mesmo número.
   const { data: novo, error } = await ctx.sb.from("shipments").insert({
     ...novos,
     company_id: ctx.companyId,
-    reference_number: ref,
+    reference_number: numero,
     client_id: cand[0].id,
     transport_mode: modal,
     status: "approved",
     created_by: ctx.userId,
   }).select("id,reference_number,status").single();
-  if (error) throw new ToolError(`Não foi possível criar o processo: ${error.message.slice(0, 200)}`);
+  if (error || !novo) {
+    await ctx.sb.from("quotes").delete().eq("id", cot.id); // desfaz a cotação recém-criada, sem deixar órfã
+    throw new ToolError(`Não foi possível criar o processo: ${(error?.message ?? "").slice(0, 200)}`);
+  }
+
+  // 3) Liga os dois e marca a cotação como convertida (igual ao "converter em embarque" do app).
+  const { error: el } = await ctx.sb.from("quotes").update({ status: "converted", shipment_id: novo.id }).eq("id", cot.id);
+  if (el) {
+    throw new ToolError(`O processo ${novo.reference_number} foi criado, mas não consegui ligá-lo à cotação (${el.message.slice(0, 120)}). Avise o suporte.`);
+  }
+  await ctx.sb.from("shipment_audit_log").insert({
+    shipment_id: novo.id, quote_id: cot.id, company_id: ctx.companyId, user_id: ctx.userId,
+    field_name: "conversion", old_value: "Cotação (quoting)", new_value: `Embarque criado (${novo.reference_number}) via Claude`,
+  });
 
   return ok({
     criado: true,
     processo: novo.reference_number,
+    cotacao_ligada: true,
     cliente: cand[0].name,
     modal,
     status: novo.status,
@@ -650,12 +708,14 @@ const TOOLS: Tool[] = [
   {
     name: "criar_processo",
     description:
-      "Cria um processo (embarque) novo para um cliente já cadastrado, com número de referência sequencial gerado pelo sistema e status inicial \"approved\". Informe cliente, modal e, se já souber, outros dados em \"campos\" (mesmos campos de atualizar_processo; portos pelo código, ex.: CNSHA, BRSSZ). Depois use atualizar_processo, atualizar_status e adicionar_observacao para continuar o processo. Só use quando o usuário pedir explicitamente para criar.",
+      "Cria um processo (embarque) novo para um cliente já cadastrado, junto com a cotação ligada a ele (como no fluxo normal do app), com número gerado pelo sistema (ou informado em \"referencia\") e status inicial \"approved\". Informe cliente, modal e, se já souber, outros dados em \"campos\" (mesmos campos de atualizar_processo; portos pelo código, ex.: CNSHA, BRSSZ). Depois use atualizar_processo, atualizar_status e adicionar_observacao para continuar o processo. Só use quando o usuário pedir explicitamente para criar.",
     inputSchema: {
       type: "object",
       properties: {
         cliente: { type: "string", description: "Nome (ou parte do nome) do cliente cadastrado." },
         modal: { type: "string", enum: TRANSPORT_MODES, description: "ocean_fcl, ocean_lcl, air, road ou multimodal." },
+        referencia: { type: "string", description: "Opcional. Número manual (ex.: 26/256). Sem ele, o sistema gera o próximo da sequência." },
+        direcao: { type: "string", enum: ["IMP", "EXP"], description: "Importação (padrão) ou exportação." },
         campos: { type: "object", description: "Opcional. Campos iniciais, como em atualizar_processo.", additionalProperties: true },
       },
       required: ["cliente", "modal"],
