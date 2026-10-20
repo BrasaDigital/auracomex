@@ -13,6 +13,8 @@ interface Props {
   volumes: CargoVolume[];
   onChange: (v: CargoVolume[]) => void;
   readOnly?: boolean;
+  /** Valor total da carga (invoice digitada ou soma dos itens), mostrado junto aos totais. */
+  valueTotal?: { amount: number; currency: string; approx?: boolean };
 }
 
 const labelCls = 'text-[10px] font-semibold uppercase tracking-wide text-muted-foreground';
@@ -53,7 +55,7 @@ function QtyInput({ count, disabled, onCommit }: { count: number; disabled?: boo
  * Volumes físicos do embarque (base do frete): Quantidade + Tipo; a quantidade abre uma linha por volume
  * (comprimento, largura, altura, peso e cubagem). Peso, cubagem e peso taxado dos totais vêm da soma das linhas.
  */
-export function CargoVolumesEditor({ volumes, onChange, readOnly }: Props) {
+export function CargoVolumesEditor({ volumes, onChange, readOnly, valueTotal }: Props) {
   const groups = buildGroups(volumes);
 
   const patchRow = (idx: number, patch: Partial<CargoVolume>) =>
@@ -207,11 +209,14 @@ export function CargoVolumesEditor({ volumes, onChange, readOnly }: Props) {
               </div>
             );
           })}
-          {groups.length > 1 && (() => {
+          {(() => {
             const t = sumOf(volumes);
             return (
               <p className="text-xs text-right pr-1">
-                Total de todos os volumes: <strong>{t.q} vol.</strong> · <strong>{fmtW(t.w)} kg</strong> · <strong>{t.c.toFixed(4)} m³</strong>
+                Total da carga física: <strong>{t.q} vol.</strong> · <strong>{fmtW(t.w)} kg</strong> · <strong>{t.c.toFixed(4)} m³</strong>
+                {valueTotal && valueTotal.amount > 0 && (
+                  <> · Valor: <strong>{valueTotal.currency} {valueTotal.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>{valueTotal.approx && <span className="text-amber-600" title="Itens em outra moeda não estão somados">*</span>}</>
+                )}
               </p>
             );
           })()}

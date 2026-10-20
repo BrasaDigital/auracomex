@@ -29,6 +29,7 @@ import { ModeIcon } from '@/components/shared/ModeIcon';
 import { PortSelect } from '@/components/shared/PortSelect';
 import { ModeFields, PACKAGE_TYPES, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage, type CargoVolume, effectiveCalcItems, legacyItemsToVolumes, usesVolumes, isEmptyVolume, getVolumesMissingQty } from './ModeFields';
 import { CargoVolumesEditor } from './CargoVolumesEditor';
+import { calcTotalCargoValueUsd } from '@/lib/cargoValue';
 import { useCostEstimate } from '@/hooks/useCostEstimate';
 import { extractCountryFromPort } from '@/lib/countryFlag';
 import { FlagIcon } from '@/components/shared/FlagIcon';
@@ -2485,7 +2486,13 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                   </div>
                 </div>
                 {usesVolumes(form.transport_mode) && (
-                  <CargoVolumesEditor volumes={cargoVolumes} onChange={setCargoVolumes} readOnly={!canEditCargo} />
+                  <CargoVolumesEditor volumes={cargoVolumes} onChange={setCargoVolumes} readOnly={!canEditCargo}
+                    valueTotal={(() => {
+                      const typed = parseFloat(form.cargo_value_total) || 0;
+                      if (typed > 0) return { amount: typed, currency: form.cargo_value_currency || 'USD' };
+                      const s = calcTotalCargoValueUsd(cargoItems);
+                      return { amount: s.totalUsd, currency: 'USD', approx: s.hasNonUsd };
+                    })()} />
                 )}
                 <div className="grid grid-cols-3 gap-2.5 items-end">
                   <div className="space-y-1.5 col-span-3 md:col-span-1">
