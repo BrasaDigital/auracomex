@@ -116,7 +116,7 @@ export default function OAuthConsent() {
               </p>
               <p>
                 Ele poderá consultar processos, documentos e cotações da sua empresa, registrar observações
-                no diário dos processos e alterar o status deles. Nada é apagado, e tudo fica registrado
+                no diário dos processos, alterar o status e editar os campos deles. Nada é apagado, e tudo fica registrado
                 com o seu nome. Você pode negar agora e o acesso só vale para quem você aprovar.
               </p>
               {hostOf(details.redirect_uri) && (
