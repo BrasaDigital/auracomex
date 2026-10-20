@@ -27,7 +27,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { ModeIcon } from '@/components/shared/ModeIcon';
 import { PortSelect } from '@/components/shared/PortSelect';
-import { ModeFields, PACKAGE_TYPES, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage } from './ModeFields';
+import { ModeFields, PACKAGE_TYPES, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage, type CargoVolume, effectiveCalcItems, legacyItemsToVolumes, usesVolumes, isEmptyVolume, getVolumesMissingQty } from './ModeFields';
+import { CargoVolumesEditor } from './CargoVolumesEditor';
 import { useCostEstimate } from '@/hooks/useCostEstimate';
 import { extractCountryFromPort } from '@/lib/countryFlag';
 import { FlagIcon } from '@/components/shared/FlagIcon';
@@ -173,8 +174,11 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     cargo_pallets: '',
     cargo_packages: '',
     cargo_package_type: '',
+    cargo_value_total: '',
+    cargo_value_currency: 'USD',
   });
   const [cargoItems, setCargoItems] = useState<CargoItem[]>([{ ...emptyCargoItem }]);
+  const [cargoVolumes, setCargoVolumes] = useState<CargoVolume[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [chargeForm, setChargeForm] = useState({
@@ -272,6 +276,20 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         .order('created_at');
       if (error) throw error;
       return data;
+    },
+  });
+
+  // Linhas de volume físico do embarque (base de peso/cubagem/peso taxado).
+  const { data: savedVolumes = [] } = useQuery({
+    queryKey: ['quote-volumes', quoteId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('quote_cargo_volumes' as any)
+        .select('*')
+        .eq('quote_id', quoteId)
+        .order('position');
+      if (error) throw error;
+      return (data || []) as any[];
     },
   });
 
@@ -486,10 +504,18 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     const mode = form.transport_mode;
     const modeLabel = t(`mode.${mode}`);
 
-    const missingPkgs = getItemsMissingPackages(cargoItems, mode);
-    if (missingPkgs.length > 0) {
-      toast.error(missingPackagesMessage(missingPkgs));
-      return;
+    if (usesVolumes(mode)) {
+      const missingVol = getVolumesMissingQty(cargoVolumes);
+      if (missingVol.length > 0) {
+        toast.error(`Preencha a quantidade da linha de volume ${missingVol.join(', ')}.`);
+        return;
+      }
+    } else {
+      const missingPkgs = getItemsMissingPackages(cargoItems, mode);
+      if (missingPkgs.length > 0) {
+        toast.error(missingPackagesMessage(missingPkgs));
+        return;
+      }
     }
 
     const lines: string[] = [`📋 Cotação - ${modeLabel}`, ''];
@@ -500,7 +526,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     lines.push(`Incoterm: ${(form.incoterm && form.incoterm !== 'NONE') ? form.incoterm : '-'}`);
     if (form.client_reference) lines.push(`Ref. do Cliente: ${form.client_reference}`);
     lines.push('');
-    lines.push(...buildCargoSummaryLines(mode, cargoItems, { pallets: form.cargo_pallets, packages: form.cargo_packages, package_type: form.cargo_package_type }));
+    lines.push(...buildCargoSummaryLines(mode, cargoItems, { pallets: form.cargo_pallets, packages: form.cargo_packages, package_type: form.cargo_package_type }, cargoVolumes));
 
     if (form.notes) {
       lines.push('');
@@ -537,6 +563,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         cargo_pallets: (quote as any).cargo_pallets?.toString() || '',
         cargo_packages: (quote as any).cargo_packages?.toString() || '',
         cargo_package_type: (quote as any).cargo_package_type || '',
+        cargo_value_total: (quote as any).cargo_value_total != null ? String((quote as any).cargo_value_total) : '',
+        cargo_value_currency: (quote as any).cargo_value_currency || 'USD',
       });
     }
   }, [quote]);
@@ -568,13 +596,50 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     }
   }, [items]);
 
+  // Volumes: o que está salvo; se ainda não há linhas, deriva dos itens antigos (peso/medidas/volumes
+  // dentro do item) para a tela já abrir no formato novo. Só vira registro quando o usuário salvar.
+  const quoteMode = (quote as any)?.transport_mode || form.transport_mode;
+  const baselineVolumes = useMemo<CargoVolume[]>(() => {
+    if (!usesVolumes(quoteMode)) return [];
+    if (savedVolumes.length > 0) {
+      return savedVolumes.map((r: any) => ({
+        id: r.id,
+        qty: r.qty != null ? String(r.qty) : '',
+        package_type: r.package_type || '',
+        length_cm: r.length_cm != null ? String(r.length_cm) : '',
+        width_cm: r.width_cm != null ? String(r.width_cm) : '',
+        height_cm: r.height_cm != null ? String(r.height_cm) : '',
+        weight_kg: r.weight_kg != null ? String(r.weight_kg) : '',
+        volume_cbm: r.volume_cbm != null ? String(r.volume_cbm) : '',
+      }));
+    }
+    return legacyItemsToVolumes((items as any[]).map((i: any) => ({
+      ...emptyCargoItem,
+      packages: i.packages?.toString() || '',
+      weight_kg: i.weight_kg?.toString() || '',
+      volume_cbm: i.volume_cbm?.toString() || '',
+      length_cm: i.length_cm?.toString() || '',
+      width_cm: i.width_cm?.toString() || '',
+      height_cm: i.height_cm?.toString() || '',
+    })), quoteMode);
+  }, [savedVolumes, items, quoteMode]);
+
+  useEffect(() => { setCargoVolumes(baselineVolumes); }, [baselineVolumes]);
+
+  const volKey = (vs: CargoVolume[]) => vs.filter((v) => !isEmptyVolume(v))
+    .map((v) => [parseInt(v.qty) || 0, v.package_type || '', parseFloat(v.length_cm) || 0, parseFloat(v.width_cm) || 0, parseFloat(v.height_cm) || 0, parseFloat(v.weight_kg) || 0, parseFloat(v.volume_cbm) || 0].join('|')).join(';');
+  const volumesChanged = volKey(cargoVolumes) !== volKey(baselineVolumes);
+
+  // Itens usados em peso/cubagem/peso taxado: linhas de volume (ou formato antigo, se não houver).
+  const calcItems = useMemo(() => effectiveCalcItems(form.transport_mode, cargoItems, cargoVolumes), [form.transport_mode, cargoItems, cargoVolumes]);
+
   const incoterms = useMemo(() => INCOTERMS_BY_MODE[form.transport_mode] || INCOTERMS_BY_MODE.ocean_fcl, [form.transport_mode]);
 
   // Cargo metrics for billing unit calculations.
   // Volume e containers vêm sempre da Resumo da Carga (a Estimativa não tem esses campos).
   // Peso vem da Estimativa quando ela estiver preenchida; senão, vem da Resumo da Carga.
   const cargoMetrics = useMemo(() => {
-    const totalCbm = cargoItems.reduce((s, i) => s + getEffectiveVolume(i), 0);
+    const totalCbm = calcItems.reduce((s, i) => s + getEffectiveVolume(i), 0);
     let totalContainers20 = 0;
     let totalContainers40 = 0;
     for (const i of cargoItems) {
@@ -587,13 +652,13 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
 
     const totalWeight = hasEstimateOverride
       ? estimateItemsForCargo.reduce((s: number, it: any) => s + (Number(it.peso) || 0) * (Number(it.quantidade) || 1), 0)
-      : cargoItems.reduce((s, i) => s + calcItemWeight(i), 0);
+      : calcItems.reduce((s, i) => s + calcItemWeight(i), 0);
     const totalChargeable = hasEstimateOverride
       ? calcChargeableWeightFromTotals(totalWeight, totalCbm, form.transport_mode)
-      : calcChargeableWeight(cargoItems, form.transport_mode);
+      : calcChargeableWeight(calcItems, form.transport_mode);
 
     return { totalWeight, totalCbm, totalChargeable, totalContainers, totalContainers20, totalContainers40 };
-  }, [cargoItems, form.transport_mode, hasEstimateOverride, estimateItemsForCargo]);
+  }, [cargoItems, calcItems, form.transport_mode, hasEstimateOverride, estimateItemsForCargo]);
 
   // Check if form or cargo items have changed compared to original quote/items
   const hasChanges = useMemo(() => {
@@ -621,9 +686,11 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
       (form.client_reference || '') !== ((quote as any).client_reference || '') ||
       (form.cargo_pallets || '') !== ((quote as any).cargo_pallets?.toString() || '') ||
       (form.cargo_packages || '') !== ((quote as any).cargo_packages?.toString() || '') ||
-      (form.cargo_package_type || '') !== ((quote as any).cargo_package_type || '');
+      (form.cargo_package_type || '') !== ((quote as any).cargo_package_type || '') ||
+      (form.cargo_value_total || '') !== ((quote as any).cargo_value_total != null ? String((quote as any).cargo_value_total) : '') ||
+      (form.cargo_value_currency || 'USD') !== ((quote as any).cargo_value_currency || 'USD');
 
-    if (formChanged) return true;
+    if (formChanged || volumesChanged) return true;
 
     if (cargoItems.length !== items.length) return true;
 
@@ -655,7 +722,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     }
 
     return false;
-  }, [form, cargoItems, quote, items]);
+  }, [form, cargoItems, quote, items, volumesChanged]);
 
   const dirtyCount = hasChanges ? 1 : 0;
 
@@ -1027,8 +1094,38 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         cargo_pallets: parseInt(form.cargo_pallets) || null,
         cargo_packages: parseInt(form.cargo_packages) || null,
         cargo_package_type: form.cargo_package_type || null,
+        cargo_value_total: parseFloat(form.cargo_value_total) || null,
+        cargo_value_currency: parseFloat(form.cargo_value_total) ? (form.cargo_value_currency || 'USD') : null,
       } as any).eq('id', quoteId);
       if (error) throw error;
+
+      // Volumes físicos: substitui as linhas só quando mudaram (evita regravar à toa).
+      let volumeChange: { field_name: string; old_value: string | null; new_value: string | null } | null = null;
+      if (volumesChanged && usesVolumes(form.transport_mode)) {
+        const filled = cargoVolumes.filter((v) => !isEmptyVolume(v));
+        const { error: delErr } = await supabase.from('quote_cargo_volumes' as any).delete().eq('quote_id', quoteId);
+        if (delErr) throw delErr;
+        if (filled.length > 0) {
+          const { error: insErr } = await supabase.from('quote_cargo_volumes' as any).insert(filled.map((v, i) => ({
+            quote_id: quoteId,
+            company_id: profile.company_id,
+            position: i,
+            qty: parseInt(v.qty) || null,
+            package_type: v.package_type || null,
+            length_cm: parseFloat(v.length_cm) || null,
+            width_cm: parseFloat(v.width_cm) || null,
+            height_cm: parseFloat(v.height_cm) || null,
+            weight_kg: parseFloat(v.weight_kg) || null,
+            volume_cbm: parseFloat(v.volume_cbm) || null,
+          })));
+          if (insErr) throw insErr;
+        }
+        volumeChange = {
+          field_name: 'cargo_volumes',
+          old_value: `${baselineVolumes.filter((v) => !isEmptyVolume(v)).length} linha(s) de volume`,
+          new_value: `${filled.length} linha(s) de volume`,
+        };
+      }
 
       // Modal e Incoterm são espelhados com a aba Logística (tabela shipments) —
       // editar aqui também atualiza o embarque vinculado, pra nunca ficarem divergentes.
@@ -1113,12 +1210,13 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         shipmentId: isShipmentMode ? shipmentId : null,
         companyId: profile.company_id,
         userId: profile.user_id,
-        changes: [...generalChanges, ...cargoChanges],
+        changes: [...generalChanges, ...cargoChanges, ...(volumeChange ? [volumeChange] : [])],
       });
 
       await syncTotals();
       queryClient.invalidateQueries({ queryKey: ['quote-detail', quoteId] });
       queryClient.invalidateQueries({ queryKey: ['quote-items', quoteId] });
+      queryClient.invalidateQueries({ queryKey: ['quote-volumes', quoteId] });
       queryClient.invalidateQueries({ queryKey: ['quotes'] });
       queryClient.invalidateQueries({ queryKey: ['cost-estimate', quoteId] });
       // Aba Logística usa sua própria query (cache separado) pra saber a
@@ -1129,9 +1227,16 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
       toast.success(t('quotes.changes_saved'));
       // Autosave no blur: não trava o salvamento (perderia o que a pessoa acabou
       // de digitar), mas avisa que Volumes é obrigatório pro peso/cubagem total.
-      const missingPkgs = getItemsMissingPackages(cargoItems, form.transport_mode);
-      if (missingPkgs.length > 0) {
-        toast.warning(missingPackagesMessage(missingPkgs), { id: 'packages-required' });
+      if (usesVolumes(form.transport_mode)) {
+        const missingVol = getVolumesMissingQty(cargoVolumes);
+        if (missingVol.length > 0) {
+          toast.warning(`Preencha a quantidade da linha de volume ${missingVol.join(', ')} — sem ela o peso e a cubagem ficam errados.`, { id: 'packages-required' });
+        }
+      } else {
+        const missingPkgs = getItemsMissingPackages(cargoItems, form.transport_mode);
+        if (missingPkgs.length > 0) {
+          toast.warning(missingPackagesMessage(missingPkgs), { id: 'packages-required' });
+        }
       }
       setSaveState('saved');
       setTimeout(() => setSaveState('idle'), 2000);
@@ -2379,6 +2484,28 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                     </Select>
                   </div>
                 </div>
+                {usesVolumes(form.transport_mode) && (
+                  <CargoVolumesEditor volumes={cargoVolumes} onChange={setCargoVolumes} readOnly={!canEditCargo} />
+                )}
+                <div className="grid grid-cols-3 gap-2.5 items-end">
+                  <div className="space-y-1.5 col-span-3 md:col-span-1">
+                    <Label className="text-[11px] uppercase text-muted-foreground">Valor total da carga (invoice)</Label>
+                    <div className="flex gap-1.5">
+                      <Select value={form.cargo_value_currency || 'USD'} disabled={!canEditCargo}
+                        onValueChange={(v) => setForm((f) => ({ ...f, cargo_value_currency: v }))}>
+                        <SelectTrigger className="w-20 shrink-0 px-2"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {['USD', 'BRL', 'EUR', 'GBP', 'CNY'].map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                      <Input inputMode="decimal" placeholder="Soma dos itens" value={form.cargo_value_total} disabled={!canEditCargo}
+                        onChange={(e) => setForm((f) => ({ ...f, cargo_value_total: e.target.value }))} />
+                    </div>
+                  </div>
+                  <p className="col-span-3 md:col-span-2 text-[11px] text-muted-foreground">
+                    Total da invoice. Deixe em branco para usar a soma do valor dos itens (abaixo, vindo da invoice).
+                  </p>
+                </div>
               </div>
               <ModeFields
                 mode={form.transport_mode}
@@ -2386,6 +2513,9 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                 onChange={setCargoItems}
                 readOnly={!canEditCargo}
                 saving={activeTab === 'cargo' && saveState === 'saving'}
+                volumes={usesVolumes(form.transport_mode) ? cargoVolumes : undefined}
+                cargoValueTotal={form.cargo_value_total}
+                cargoValueCurrency={form.cargo_value_currency}
               />
             </CardContent>
           </Card>
@@ -2474,7 +2604,9 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                         companyId={profile.company_id}
                         quote={quote as any}
                         quotePartners={quotePartners}
-                        cargoItems={items}
+                        cargoItems={Number((quote as any)?.cargo_value_total) > 0
+                          ? [{ cargo_value: (quote as any).cargo_value_total, cargo_value_currency: (quote as any).cargo_value_currency || 'USD' }]
+                          : items}
                         readOnly={!canEditCharges}
                       />
                     </div>

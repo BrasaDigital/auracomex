@@ -157,6 +157,15 @@ export function DuplicateShipmentDialog({ shipment, onClose, onDuplicated }: Pro
           await supabase.from('quote_items' as any).insert(newItems);
           itemsInserted = true;
         }
+        // Volumes físicos (peso/medidas por unidade × quantidade) acompanham a cópia.
+        const { data: vols } = await supabase.from('quote_cargo_volumes' as any).select('*').eq('quote_id', linkedQuote.id).order('position');
+        if (vols && vols.length > 0) {
+          await supabase.from('quote_cargo_volumes' as any).insert((vols as any[]).map((v: any, i: number) => ({
+            quote_id: newQuote.id, company_id: profile.company_id, position: i,
+            qty: v.qty, package_type: v.package_type, length_cm: v.length_cm, width_cm: v.width_cm,
+            height_cm: v.height_cm, weight_kg: v.weight_kg, volume_cbm: v.volume_cbm,
+          })));
+        }
       }
 
       // Fallback: build a single item from shipment cargo fields

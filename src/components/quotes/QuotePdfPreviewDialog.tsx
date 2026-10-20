@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { calcItemCbm, calcChargeableWeight, getEffectiveVolume } from './ModeFields';
+import { calcItemCbm, calcItemWeight, calcChargeableWeight, getEffectiveVolume, effectiveCalcItems, type CargoVolume } from './ModeFields';
 import { groupByCurrency } from '@/lib/utils';
 import { generatePdfFromElement } from '@/lib/pdf-utils';
 
@@ -42,6 +42,7 @@ interface PrintData {
   company: any;
   client: any;
   items: any[];
+  volumes?: any[];
   charges: any[];
   estimate?: any;
   userEmail?: string | null;
@@ -73,7 +74,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
           .single();
         if (!quote) return;
 
-        const [companyRes, clientRes, itemsRes, chargesRes, estimateRes, userRes] = await Promise.all([
+        const [companyRes, clientRes, itemsRes, chargesRes, estimateRes, userRes, volumesRes] = await Promise.all([
           supabase.from('companies').select('*').eq('id', quote.company_id).single(),
           quote.client_id
             ? supabase.from('clients').select('*').eq('id', quote.client_id).single()
@@ -82,6 +83,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
           supabase.from('quote_charges').select('*').eq('quote_id', quoteId).order('created_at'),
           supabase.from('cost_estimates').select('usd_brl, eur_brl').eq('quote_id', quoteId).maybeSingle(),
           supabase.auth.getUser(),
+          supabase.from('quote_cargo_volumes' as any).select('*').eq('quote_id', quoteId).order('position'),
         ]);
 
         const userId = userRes.data?.user?.id;
@@ -100,6 +102,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
           company: companyRes.data,
           client: clientRes.data,
           items: itemsRes.data || [],
+          volumes: ((volumesRes as any)?.data || []) as any[],
           charges: chargesRes.data || [],
           estimate: estimateRes.data,
           userEmail: userRes.data?.user?.email ?? null,
@@ -201,9 +204,19 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
       notes: item.notes || '',
     }));
 
-    const totalWeight = cargoItems.reduce((s: number, i: any) => s + (parseFloat(i.weight_kg) || 0), 0);
-    const totalCbm = cargoItems.reduce((s: number, i: any) => s + getEffectiveVolume(i), 0);
-    const totalChargeable = calcChargeableWeight(cargoItems, quote.transport_mode);
+    // Linhas de volume do embarque (peso/medidas por unidade × quantidade) mandam; sem elas, formato antigo.
+    const pdfVolumes: CargoVolume[] = ((data as any).volumes || []).map((v: any) => ({
+      qty: String(v.qty ?? ''), package_type: v.package_type || '',
+      length_cm: String(v.length_cm ?? ''), width_cm: String(v.width_cm ?? ''), height_cm: String(v.height_cm ?? ''),
+      weight_kg: String(v.weight_kg ?? ''), volume_cbm: String(v.volume_cbm ?? ''),
+    }));
+    const volMode = pdfVolumes.length > 0 && quote.transport_mode !== 'ocean_fcl';
+    const calcItems = effectiveCalcItems(quote.transport_mode, cargoItems, pdfVolumes);
+    const totalWeight = volMode
+      ? calcItems.reduce((s: number, i: any) => s + calcItemWeight(i), 0)
+      : cargoItems.reduce((s: number, i: any) => s + (parseFloat(i.weight_kg) || 0), 0);
+    const totalCbm = calcItems.reduce((s: number, i: any) => s + getEffectiveVolume(i), 0);
+    const totalChargeable = calcChargeableWeight(calcItems, quote.transport_mode);
     const totalContainers = cargoItems.reduce((s: number, i: any) => s + (i.container_qty || 1), 0);
     const totalContainers20 = cargoItems.reduce((s: number, i: any) => s + ((i.container_type || '').startsWith('20') ? (i.container_qty || 1) : 0), 0);
     const totalContainers40 = cargoItems.reduce((s: number, i: any) => s + ((i.container_type || '').startsWith('40') ? (i.container_qty || 1) : 0), 0);
@@ -278,7 +291,9 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
 
     const fmt = (n: number, d = 2) => n.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
     const commoditiesAll = Array.from(new Set(items.map((i: any) => (i.commodity || '').trim()).filter(Boolean))).join(', ') || '—';
-    const totalPkg = items.reduce((s: number, i: any) => s + (Number(i.packages) || 0), 0);
+    const totalPkg = ((data as any).volumes || []).length > 0 && quote.transport_mode !== 'ocean_fcl'
+      ? ((data as any).volumes as any[]).reduce((s: number, v: any) => s + (Number(v.qty) || 0), 0)
+      : items.reduce((s: number, i: any) => s + (Number(i.packages) || 0), 0);
     const containerSummary = (() => {
       const map = new Map<string, number>();
       items.forEach((i: any) => { const t = i.container_type || '—'; map.set(t, (map.get(t) || 0) + (Number(i.container_qty) || 1)); });

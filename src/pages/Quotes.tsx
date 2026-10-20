@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSalespersonClients } from '@/hooks/useSalespersonClients';
 import { groupByCurrency } from '@/lib/utils';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
-import { calcItemCbm, calcItemWeight, calcChargeableWeight, getEffectiveVolume } from '@/components/quotes/ModeFields';
+import { calcItemCbm, calcItemWeight, calcChargeableWeight, getEffectiveVolume, effectiveCalcItems, type CargoVolume } from '@/components/quotes/ModeFields';
 import { Plus, Copy, CircleCheck, XCircle, FileText, Clock, Ship, Sparkles } from 'lucide-react';
 import { QuoteCreateModal } from '@/components/quotes/QuoteCreateModal';
 import { QuoteDetail } from '@/components/quotes/QuoteDetail';
@@ -64,9 +64,16 @@ function computeQuoteProfitBrl(q: any, usdBrl: number, eurBrl: number): number {
     dangerous_goods: item.dangerous_goods || false,
     vehicle_type: item.vehicle_type || '',
   }));
-  const totalWeight = qItems.reduce((s: number, i: any) => s + calcItemWeight(i), 0);
-  const totalCbm = qItems.reduce((s: number, i: any) => s + getEffectiveVolume(i), 0);
-  const totalChargeable = calcChargeableWeight(qItems, q.transport_mode);
+  // Linhas de volume do embarque mandam no peso/cubagem; sem elas, vale o formato antigo (medidas no item).
+  const qVolumes: CargoVolume[] = (q.quote_cargo_volumes || []).map((v: any) => ({
+    qty: String(v.qty ?? ''), package_type: v.package_type || '',
+    length_cm: String(v.length_cm ?? ''), width_cm: String(v.width_cm ?? ''), height_cm: String(v.height_cm ?? ''),
+    weight_kg: String(v.weight_kg ?? ''), volume_cbm: String(v.volume_cbm ?? ''),
+  }));
+  const calcItems = effectiveCalcItems(q.transport_mode, qItems, qVolumes);
+  const totalWeight = calcItems.reduce((s: number, i: any) => s + calcItemWeight(i), 0);
+  const totalCbm = calcItems.reduce((s: number, i: any) => s + getEffectiveVolume(i), 0);
+  const totalChargeable = calcChargeableWeight(calcItems, q.transport_mode);
   const totalContainers = qItems.reduce((s: number, i: any) => s + (i.container_qty || 1), 0);
   const totalContainers20 = qItems.reduce((s: number, i: any) => s + ((i.container_type || '').startsWith('20') ? (i.container_qty || 1) : 0), 0);
   const totalContainers40 = qItems.reduce((s: number, i: any) => s + ((i.container_type || '').startsWith('40') ? (i.container_qty || 1) : 0), 0);
@@ -150,7 +157,7 @@ export default function Quotes() {
     queryFn: async () => {
       let query = supabase
         .from('quotes')
-        .select('id, quote_number, status, transport_mode, origin, destination, valid_until, created_at, sent_at, client_id, currency, clients(name), quote_charges(id, sell_amount, buy_amount, currency, billing_unit, payment_term), quote_items(container_type, container_qty, weight_kg, volume_cbm, chargeable_weight, length_cm, width_cm, height_cm, packages, commodity, dangerous_goods, vehicle_type)')
+        .select('id, quote_number, status, transport_mode, origin, destination, valid_until, created_at, sent_at, client_id, currency, clients(name), quote_charges(id, sell_amount, buy_amount, currency, billing_unit, payment_term), quote_items(container_type, container_qty, weight_kg, volume_cbm, chargeable_weight, length_cm, width_cm, height_cm, packages, commodity, dangerous_goods, vehicle_type), quote_cargo_volumes(qty, package_type, length_cm, width_cm, height_cm, weight_kg, volume_cbm)')
         .order('created_at', { ascending: false });
 
       if (activeTab === 'rejected') {

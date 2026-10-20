@@ -23,6 +23,7 @@ interface PrintData {
   company: any;
   client: any;
   items: any[];
+  volumes?: any[];
   charges: any[];
 }
 
@@ -42,13 +43,14 @@ export default function QuotePrintView() {
           .single();
         if (!quote) return;
 
-        const [companyRes, clientRes, itemsRes, chargesRes] = await Promise.all([
+        const [companyRes, clientRes, itemsRes, chargesRes, volumesRes] = await Promise.all([
           supabase.from('companies').select('*').eq('id', quote.company_id).single(),
           quote.client_id
             ? supabase.from('clients').select('*').eq('id', quote.client_id).single()
             : Promise.resolve({ data: null }),
           supabase.from('quote_items').select('*').eq('quote_id', quoteId).order('created_at'),
           supabase.from('quote_charges').select('*').eq('quote_id', quoteId).order('created_at'),
+          supabase.from('quote_cargo_volumes' as any).select('*').eq('quote_id', quoteId).order('position'),
         ]);
 
         setData({
@@ -56,6 +58,7 @@ export default function QuotePrintView() {
           company: companyRes.data,
           client: clientRes.data,
           items: itemsRes.data || [],
+          volumes: ((volumesRes as any)?.data || []) as any[],
           charges: chargesRes.data || [],
         });
       } catch (err) {
@@ -90,6 +93,7 @@ export default function QuotePrintView() {
   }
 
   const { quote, company, client, items, charges } = data;
+  const volMode = (data.volumes || []).length > 0 && quote.transport_mode !== 'ocean_fcl';
 
   // Only sell charges
   const sellCharges = charges.filter((c: any) => (c.sell_amount || 0) > 0);
@@ -245,6 +249,33 @@ export default function QuotePrintView() {
           </div>
         </div>
 
+        {/* Volumes físicos do embarque (peso/medidas por unidade × quantidade) */}
+        {(data.volumes || []).length > 0 && quote.transport_mode !== 'ocean_fcl' && (
+          <>
+            <div className="section-title">Volumes</div>
+            <table>
+              <thead>
+                <tr><th>Qtd</th><th>Tipo</th><th>Medidas (cm)</th><th>Peso/un (kg)</th><th>Cubagem/un (m³)</th></tr>
+              </thead>
+              <tbody>
+                {(data.volumes || []).map((v: any, idx: number) => {
+                  const dims = v.length_cm && v.width_cm && v.height_cm ? `${v.length_cm} × ${v.width_cm} × ${v.height_cm}` : '—';
+                  const unitCbm = v.length_cm && v.width_cm && v.height_cm ? (v.length_cm * v.width_cm * v.height_cm) / 1_000_000 : Number(v.volume_cbm) || 0;
+                  return (
+                    <tr key={idx}>
+                      <td>{v.qty || '—'}</td>
+                      <td>{v.package_type || 'volume'}</td>
+                      <td>{dims}</td>
+                      <td>{v.weight_kg ? Number(v.weight_kg).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+                      <td>{unitCbm ? unitCbm.toFixed(4) : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
+
         {/* Cargo Details */}
         {items.length > 0 && (
           <>
@@ -255,11 +286,11 @@ export default function QuotePrintView() {
                   {quote.transport_mode?.startsWith('ocean') && <th>Container</th>}
                   {quote.transport_mode?.startsWith('ocean') && <th>Qtd</th>}
                   <th>Mercadoria</th>
-                  <th>Peso (kg)</th>
-                  <th>Volume (m³)</th>
-                  {(quote.transport_mode === 'air' || quote.transport_mode === 'ocean_lcl') && <th>Peso Taxável</th>}
+                  {!volMode && <th>Peso (kg)</th>}
+                  {!volMode && <th>Volume (m³)</th>}
+                  {!volMode && (quote.transport_mode === 'air' || quote.transport_mode === 'ocean_lcl') && <th>Peso Taxável</th>}
                   <th>Valor Carga</th>
-                  <th>Volumes</th>
+                  {!volMode && <th>Volumes</th>}
                 </tr>
               </thead>
               <tbody>
@@ -268,13 +299,13 @@ export default function QuotePrintView() {
                     {quote.transport_mode?.startsWith('ocean') && <td>{item.container_type || '—'}</td>}
                     {quote.transport_mode?.startsWith('ocean') && <td>{item.container_qty || '—'}</td>}
                     <td>{item.commodity || '—'}</td>
-                    <td>{item.weight_kg ? Number(item.weight_kg).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
-                    <td>{item.volume_cbm ? Number(item.volume_cbm).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
-                    {(quote.transport_mode === 'air' || quote.transport_mode === 'ocean_lcl') && (
+                    {!volMode && <td>{item.weight_kg ? Number(item.weight_kg).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>}
+                    {!volMode && <td>{item.volume_cbm ? Number(item.volume_cbm).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>}
+                    {!volMode && (quote.transport_mode === 'air' || quote.transport_mode === 'ocean_lcl') && (
                       <td>{item.chargeable_weight ? Number(item.chargeable_weight).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
                     )}
                     <td>{item.cargo_value ? `${item.cargo_value_currency || 'USD'} ${Number(item.cargo_value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
-                    <td>{item.packages || '—'}</td>
+                    {!volMode && <td>{item.packages || '—'}</td>}
                   </tr>
                 ))}
               </tbody>

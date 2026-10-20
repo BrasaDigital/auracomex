@@ -138,6 +138,14 @@ interface ModeFieldsProps {
   readOnly?: boolean;
   /** Mostra um indicador de "salvando" ao lado do item em edição (auto-save). */
   saving?: boolean;
+  /**
+   * Linhas de volume do embarque. Quando informado (e o modal não é FCL), os itens passam a
+   * ser só comerciais (mercadoria, NCM, peças, valor) e peso/cubagem vêm daqui.
+   */
+  volumes?: CargoVolume[];
+  /** Valor total da carga digitado (invoice). Vazio = soma dos itens. */
+  cargoValueTotal?: string;
+  cargoValueCurrency?: string;
 }
 
 /** Tipos de embalagem contados em "Volumes" (packages). Chave gravada no banco. */
@@ -180,6 +188,82 @@ export function fmtPhysicalCargo(p?: Partial<PhysicalCargo> | null): string {
   const parts: string[] = [];
   if (parseInt(p.pallets || '') > 0) parts.push(fmtPallets(p.pallets));
   if (parseInt(p.packages || '') > 0) parts.push(fmtPackages(p.packages, p.package_type));
+  return parts.join(' · ');
+}
+
+/**
+ * Linha de VOLUME físico do embarque (o que viaja): quantidade, tipo, medidas e peso
+ * POR UNIDADE. É a base de peso, cubagem e peso taxado (frete). Independe dos itens/
+ * produtos da invoice — um volume pode misturar vários produtos.
+ */
+export interface CargoVolume {
+  id?: string | null;
+  qty: string;
+  package_type: string;
+  length_cm: string;
+  width_cm: string;
+  height_cm: string;
+  /** peso bruto por unidade (kg) */
+  weight_kg: string;
+  /** cubagem por unidade (m³), manual — ignorada quando há C/L/A */
+  volume_cbm: string;
+}
+
+export const emptyCargoVolume: CargoVolume = {
+  id: null, qty: '', package_type: 'caixa', length_cm: '', width_cm: '', height_cm: '', weight_kg: '', volume_cbm: '',
+};
+
+/** FCL cobra por container; nos demais modais o peso/cubagem vêm das linhas de volume. */
+export const usesVolumes = (mode: string) => mode !== 'ocean_fcl';
+
+export function isEmptyVolume(v: CargoVolume): boolean {
+  return !v.qty && !v.length_cm && !v.width_cm && !v.height_cm && !v.weight_kg && !v.volume_cbm;
+}
+
+/** Linha de volume no formato que as funções de cálculo (calcItemWeight etc.) já entendem. */
+export function volumeAsCalcItem(v: CargoVolume): CargoItem {
+  return {
+    ...emptyCargoItem,
+    packages: v.qty, weight_kg: v.weight_kg, volume_cbm: v.volume_cbm,
+    length_cm: v.length_cm, width_cm: v.width_cm, height_cm: v.height_cm,
+  };
+}
+
+/**
+ * Itens usados nos cálculos de peso/cubagem/peso taxado: se o embarque tem linhas de
+ * volume, elas mandam; senão cai no formato antigo (medidas dentro do item).
+ */
+export function effectiveCalcItems(mode: string, items: CargoItem[], volumes?: CargoVolume[] | null): CargoItem[] {
+  if (!usesVolumes(mode)) return items;
+  const filled = (volumes || []).filter((v) => !isEmptyVolume(v));
+  return filled.length > 0 ? filled.map(volumeAsCalcItem) : items;
+}
+
+/** Itens antigos (peso/medidas/volumes dentro do item) → linhas de volume. */
+export function legacyItemsToVolumes(items: CargoItem[], mode: string): CargoVolume[] {
+  if (!usesVolumes(mode)) return [];
+  return items
+    .filter((it) => parseInt(it.packages) > 0 || parseFloat(it.weight_kg) > 0 || parseFloat(it.volume_cbm) > 0 ||
+      (parseFloat(it.length_cm) > 0 && parseFloat(it.width_cm) > 0 && parseFloat(it.height_cm) > 0))
+    .map((it) => ({
+      id: null, qty: it.packages || '', package_type: '', length_cm: it.length_cm || '', width_cm: it.width_cm || '',
+      height_cm: it.height_cm || '', weight_kg: it.weight_kg || '', volume_cbm: it.volume_cbm || '',
+    }));
+}
+
+/** Posições (1-based) das linhas de volume preenchidas sem quantidade. */
+export function getVolumesMissingQty(volumes: CargoVolume[]): number[] {
+  const out: number[] = [];
+  volumes.forEach((v, i) => { if (!isEmptyVolume(v) && !(parseInt(v.qty) >= 1)) out.push(i + 1); });
+  return out;
+}
+
+/** "100 caixas · 40×30×20 cm · 6,9 kg/un" */
+export function describeVolume(v: CargoVolume): string {
+  const parts = [fmtPackages(v.qty, v.package_type || null)];
+  if (parseFloat(v.length_cm) > 0 && parseFloat(v.width_cm) > 0 && parseFloat(v.height_cm) > 0) parts.push(`${v.length_cm}×${v.width_cm}×${v.height_cm} cm`);
+  else if (parseFloat(v.volume_cbm) > 0) parts.push(`${v.volume_cbm} m³/un`);
+  if (parseFloat(v.weight_kg) > 0) parts.push(`${v.weight_kg} kg/un`);
   return parts.join(' · ');
 }
 
@@ -354,11 +438,14 @@ export function missingPackagesMessage(positions: number[]): string {
  * (compartilhado entre QuoteCreateModal e QuoteDetail). Peso e cubagem totais
  * usam as mesmas regras da tela (peso por volume × volumes).
  */
-export function buildCargoSummaryLines(mode: string, items: CargoItem[], physical?: Partial<PhysicalCargo> | null): string[] {
+export function buildCargoSummaryLines(mode: string, items: CargoItem[], physical?: Partial<PhysicalCargo> | null, volumes?: CargoVolume[] | null): string[] {
   const showContainers = mode === 'ocean_fcl' || mode === 'multimodal';
-  const totalWeight = items.reduce((s, i) => s + calcItemWeight(i), 0);
-  const totalVolume = items.reduce((s, i) => s + getEffectiveVolume(i), 0);
-  const totalPackages = items.reduce((s, i) => s + (parseInt(i.packages) || 0), 0);
+  const filledVolumes = usesVolumes(mode) ? (volumes || []).filter((v) => !isEmptyVolume(v)) : [];
+  const volMode = filledVolumes.length > 0;
+  const calcItems = effectiveCalcItems(mode, items, volumes);
+  const totalWeight = calcItems.reduce((s, i) => s + calcItemWeight(i), 0);
+  const totalVolume = calcItems.reduce((s, i) => s + getEffectiveVolume(i), 0);
+  const totalPackages = calcItems.reduce((s, i) => s + (parseInt(i.packages) || 0), 0);
   const totalContainers = showContainers ? items.reduce((s, i) => s + (Number(i.container_qty) || 0), 0) : 0;
 
   const lines: string[] = ['📊 Totais da Carga:'];
@@ -369,12 +456,25 @@ export function buildCargoSummaryLines(mode: string, items: CargoItem[], physica
   const phys = fmtPhysicalCargo(physical);
   if (phys) lines.push(`  Carga física: ${phys}`);
 
+  if (volMode) {
+    lines.push('');
+    lines.push('📐 Volumes:');
+    filledVolumes.forEach((v) => lines.push(`  ${describeVolume(v)}`));
+  }
+
   lines.push('');
   lines.push('📦 Detalhamento por Item:');
   items.forEach((item, idx) => {
     const pkgs = parseInt(item.packages) || 0;
     lines.push(`  Item ${idx + 1}:`);
     if (showContainers) lines.push(`    Container: ${item.container_type} x ${item.container_qty}`);
+    if (volMode) {
+      if (fmtPieces(item)) lines.push(`    Quantidade: ${fmtPieces(item)}`);
+      if (item.commodity) lines.push(`    Mercadoria: ${item.commodity}`);
+      if (item.ncm_code) lines.push(`    NCM: ${item.ncm_code}`);
+      if (item.dangerous_goods) lines.push(`    ⚠️ Carga Perigosa`);
+      return;
+    }
     const w = parseFloat(item.weight_kg) || 0;
     if (w > 0) {
       lines.push(pkgs >= 2
@@ -429,13 +529,15 @@ function itemTitle(item: CargoItem, mode: string): string {
   return item.commodity || 'Item sem descrição';
 }
 
-function itemSubtitle(item: CargoItem, mode: string): string {
+function itemSubtitle(item: CargoItem, mode: string, commercialOnly = false): string {
   const parts: string[] = [];
-  const weight = calcItemWeight(item);
-  if (weight > 0) parts.push(`${weight.toLocaleString('pt-BR')} kg`);
-  const cbm = getEffectiveVolume(item);
-  if (cbm > 0) parts.push(`${cbm.toFixed(3)} m³`);
-  if (item.packages) parts.push(`${item.packages} vol.`);
+  if (!commercialOnly) {
+    const weight = calcItemWeight(item);
+    if (weight > 0) parts.push(`${weight.toLocaleString('pt-BR')} kg`);
+    const cbm = getEffectiveVolume(item);
+    if (cbm > 0) parts.push(`${cbm.toFixed(3)} m³`);
+    if (item.packages) parts.push(`${item.packages} vol.`);
+  }
   if (fmtPieces(item)) parts.push(fmtPieces(item));
   if (item.cargo_value) parts.push(`${item.cargo_value_currency || 'USD'} ${item.cargo_value}`);
   if (mode !== 'ocean_fcl' && mode !== 'multimodal' && item.ncm_code) parts.push(`NCM ${item.ncm_code}`);
@@ -449,13 +551,15 @@ function isEmptyCargoItem(it: CargoItem, showContainers: boolean): boolean {
     !it.vehicle_type && !it.dangerous_goods && !it.container_number;
 }
 
-export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFieldsProps) {
+export function ModeFields({ mode, items, onChange, readOnly, saving, volumes, cargoValueTotal, cargoValueCurrency }: ModeFieldsProps) {
   const { t } = useLanguage();
   // null = nenhuma linha expandida; >=0 = editando/preenchendo items[idx]
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const showContainers = mode === 'ocean_fcl' || mode === 'multimodal';
-  const showDimensions = mode !== 'ocean_fcl';
+  // Itens só comerciais quando o embarque usa linhas de volume (medidas/peso/volumes não ficam mais no item).
+  const commercialOnly = usesVolumes(mode) && volumes !== undefined;
+  const showDimensions = mode !== 'ocean_fcl' && !commercialOnly;
   const showVehicle = mode === 'road';
 
   // Sem botão "Salvar": qualquer alteração já grava direto na lista de itens.
@@ -491,10 +595,12 @@ export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFiel
     if (editingIndex === index) setEditingIndex(null);
   };
 
-  const totalCbm = items.reduce((s, i) => s + getEffectiveVolume(i), 0);
-  const totalWeight = items.reduce((s, i) => s + calcItemWeight(i), 0);
-  const totalChargeable = calcChargeableWeight(items, mode);
+  const calcItems = effectiveCalcItems(mode, items, volumes);
+  const totalCbm = calcItems.reduce((s, i) => s + getEffectiveVolume(i), 0);
+  const totalWeight = calcItems.reduce((s, i) => s + calcItemWeight(i), 0);
+  const totalChargeable = calcChargeableWeight(calcItems, mode);
   const { totalUsd: totalCargoValueUsd, hasNonUsd: hasNonUsdCargoValue } = calcTotalCargoValueUsd(items);
+  const typedValueTotal = parseFloat(cargoValueTotal || '') || 0;
 
   // Formulário compacto, renderizado inline dentro da própria linha do item.
   // IMPORTANTE: isso é uma função comum que retorna JSX (não um componente
@@ -601,7 +707,8 @@ export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFiel
           </div>
         </div>
 
-        {/* Linha 2: Quantidade - Peso - Cubagem */}
+        {/* Linha 2: Quantidade - Peso - Cubagem (só no formato antigo; com linhas de volume ficam nos totais do embarque) */}
+        {!commercialOnly && (
         <div className="grid grid-cols-3 gap-2.5">
           {mode !== 'ocean_fcl' && (
             <div className="space-y-1.5">
@@ -647,11 +754,12 @@ export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFiel
             })()}
           </div>
         </div>
+        )}
 
         {/* Linha 3: Moeda/Valor da Carga - NCM - Carga Perigosa */}
         <div className="grid grid-cols-3 gap-2.5 items-start">
           <div className="space-y-1.5">
-            <Label className={fieldLabelCls}>Valor da Carga</Label>
+            <Label className={fieldLabelCls}>{commercialOnly ? 'Valor do item (invoice)' : 'Valor da Carga'}</Label>
             <div className="flex gap-1.5">
               <Select value={item.cargo_value_currency || 'USD'} onValueChange={(v) => updateItem(idx, { cargo_value_currency: v })}>
                 <SelectTrigger className="w-16 shrink-0 px-2"><SelectValue /></SelectTrigger>
@@ -695,7 +803,7 @@ export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFiel
       {/* Totais calculados + botão Adicionar, na mesma linha */}
       <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border bg-muted/20 px-3 py-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm min-h-[20px]">
-          {items.length > 0 ? (
+          {items.length > 0 || calcItems.length > 0 ? (
             <>
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t('quotes.totals')}</span>
               <span>{t('quotes.weight_kg')}: <strong className="font-mono">{totalWeight.toFixed(2)}</strong></span>
@@ -703,7 +811,11 @@ export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFiel
               {(mode === 'air' || mode === 'ocean_lcl') && (
                 <span>{t('quotes.total_chargeable')}: <strong className="font-mono">{totalChargeable.toFixed(2)}</strong> kg</span>
               )}
-              {totalCargoValueUsd > 0 && (
+              {typedValueTotal > 0 ? (
+                <span>
+                  Valor Total da Carga: <strong className="font-mono">{cargoValueCurrency || 'USD'} {typedValueTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                </span>
+              ) : totalCargoValueUsd > 0 && (
                 <span title={hasNonUsdCargoValue ? 'Itens em outra moeda não estão somados aqui' : undefined}>
                   Valor Total da Carga: <strong className="font-mono">US$ {totalCargoValueUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                   {hasNonUsdCargoValue && <span className="text-amber-600">*</span>}
@@ -751,7 +863,7 @@ export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFiel
                         </Badge>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground truncate">{itemSubtitle(item, mode)}</p>
+                    <p className="text-xs text-muted-foreground truncate">{itemSubtitle(item, mode, commercialOnly)}</p>
                   </div>
                 </button>
                 {!readOnly && (
