@@ -549,6 +549,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         width_cm: item.width_cm?.toString() || '',
         height_cm: item.height_cm?.toString() || '',
         packages: item.packages?.toString() || '',
+        package_type: item.package_type || '',
+        pallets: item.pallets?.toString() || '',
         ncm_code: item.ncm_code || '',
         commodity: item.commodity || '',
         dangerous_goods: item.dangerous_goods || false,
@@ -633,6 +635,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         parseFloat(ci.width_cm || '0') !== ((oi as any).width_cm || 0) ||
         parseFloat(ci.height_cm || '0') !== ((oi as any).height_cm || 0) ||
         parseInt(ci.packages || '0') !== ((oi as any).packages || 0) ||
+        (ci.package_type || '') !== ((oi as any).package_type || '') ||
+        parseInt(ci.pallets || '0') !== ((oi as any).pallets || 0) ||
         !!ci.dangerous_goods !== !!(oi as any).dangerous_goods ||
         (ci.vehicle_type || '') !== ((oi as any).vehicle_type || '') ||
         parseFloat(ci.cargo_value || '0') !== ((oi as any).cargo_value || 0) ||
@@ -1040,6 +1044,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
           width_cm: parseFloat(item.width_cm) || null,
           height_cm: parseFloat(item.height_cm) || null,
           packages: parseInt(item.packages) || null,
+          package_type: item.package_type || null,
+          pallets: parseInt(item.pallets || '') || null,
           ncm_code: item.ncm_code || null,
           commodity: item.commodity || null,
           dangerous_goods: item.dangerous_goods,

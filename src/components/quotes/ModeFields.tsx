@@ -119,6 +119,8 @@ interface CargoItem {
   width_cm: string;
   height_cm: string;
   packages: string;
+  package_type?: string;
+  pallets?: string;
   ncm_code: string;
   commodity: string;
   dangerous_goods: boolean;
@@ -136,6 +138,33 @@ interface ModeFieldsProps {
   /** Mostra um indicador de "salvando" ao lado do item em edição (auto-save). */
   saving?: boolean;
 }
+
+/** Tipos de embalagem contados em "Volumes" (packages). Chave gravada no banco. */
+export const PACKAGE_TYPES: { value: string; singular: string; plural: string }[] = [
+  { value: 'caixa', singular: 'caixa', plural: 'caixas' },
+  { value: 'pallet', singular: 'pallet', plural: 'pallets' },
+  { value: 'volume', singular: 'volume', plural: 'volumes' },
+  { value: 'saco', singular: 'saco', plural: 'sacos' },
+  { value: 'fardo', singular: 'fardo', plural: 'fardos' },
+  { value: 'tambor', singular: 'tambor', plural: 'tambores' },
+  { value: 'rolo', singular: 'rolo', plural: 'rolos' },
+  { value: 'engradado', singular: 'engradado', plural: 'engradados' },
+  { value: 'outro', singular: 'unidade', plural: 'unidades' },
+];
+
+/** "320 caixas", "1 caixa", "4 volumes" (sem tipo = "vol."). */
+export function fmtPackages(n: number | string | null | undefined, type?: string | null): string {
+  const q = Number(n) || 0;
+  const pt = PACKAGE_TYPES.find((p) => p.value === type);
+  if (!pt) return `${q} vol.`;
+  return `${q} ${q === 1 ? pt.singular : pt.plural}`;
+}
+
+/** "4 pallets" / "1 pallet" */
+export const fmtPallets = (n: number | string | null | undefined) => {
+  const q = Number(n) || 0;
+  return `${q} ${q === 1 ? 'pallet' : 'pallets'}`;
+};
 
 const CONTAINER_TYPES = ['20GP', '20HC', '40GP', '40HC', '40NOR', '20RF', '40RF', '20OT', '40OT', '20FR', '40FR'];
 const VEHICLE_TYPES = ['Truck', 'Carreta', 'Bitrem', 'Rodotrem', 'Sider', 'Baú', 'Graneleiro'];
@@ -167,6 +196,8 @@ export const emptyCargoItem: CargoItem = {
   width_cm: '',
   height_cm: '',
   packages: '',
+  package_type: '',
+  pallets: '',
   ncm_code: '',
   commodity: '',
   dangerous_goods: false,
@@ -314,7 +345,11 @@ export function buildCargoSummaryLines(mode: string, items: CargoItem[]): string
   if (showContainers && totalContainers > 0) lines.push(`  Containers: ${totalContainers}`);
   if (totalWeight > 0) lines.push(`  Peso Total: ${fmtNum(totalWeight)} kg`);
   if (totalVolume > 0) lines.push(`  Volume Total: ${totalVolume.toFixed(4)} m³`);
-  if (totalPackages > 0) lines.push(`  Total Volumes: ${totalPackages}`);
+  const pkgTypes = new Set(items.filter((i) => parseInt(i.packages) > 0).map((i) => i.package_type || ''));
+  const onlyType = pkgTypes.size === 1 ? [...pkgTypes][0] : '';
+  const totalPallets = items.reduce((s, i) => s + (parseInt(i.pallets || '') || 0), 0);
+  if (totalPackages > 0) lines.push(`  Total Volumes: ${onlyType ? fmtPackages(totalPackages, onlyType) : totalPackages}`);
+  if (totalPallets > 0) lines.push(`  Total Pallets: ${totalPallets}`);
 
   lines.push('');
   lines.push('📦 Detalhamento por Item:');
@@ -339,7 +374,8 @@ export function buildCargoSummaryLines(mode: string, items: CargoItem[]): string
       lines.push(`    Dimensões: ${item.length_cm} x ${item.width_cm} x ${item.height_cm} cm`);
       lines.push(`    Volume calc.: ${calcItemCbm(item).toFixed(4)} m³`);
     }
-    if (pkgs > 0) lines.push(`    Volumes: ${pkgs}`);
+    if (pkgs > 0) lines.push(`    Volumes: ${item.package_type ? fmtPackages(pkgs, item.package_type) : pkgs}`);
+    if (parseInt(item.pallets || '') > 0) lines.push(`    Pallets: ${parseInt(item.pallets || '')}`);
     if (item.commodity) lines.push(`    Mercadoria: ${item.commodity}`);
     if (item.dangerous_goods) lines.push(`    ⚠️ Carga Perigosa`);
     if (mode === 'road' && item.vehicle_type) lines.push(`    Veículo: ${item.vehicle_type}`);
@@ -381,7 +417,8 @@ function itemSubtitle(item: CargoItem, mode: string): string {
   if (weight > 0) parts.push(`${weight.toLocaleString('pt-BR')} kg`);
   const cbm = getEffectiveVolume(item);
   if (cbm > 0) parts.push(`${cbm.toFixed(3)} m³`);
-  if (item.packages) parts.push(`${item.packages} vol.`);
+  if (item.packages) parts.push(fmtPackages(item.packages, item.package_type));
+  if (parseInt(item.pallets || '') > 0 && item.package_type !== 'pallet') parts.push(fmtPallets(item.pallets));
   if (item.cargo_value) parts.push(`${item.cargo_value_currency || 'USD'} ${item.cargo_value}`);
   if (mode !== 'ocean_fcl' && mode !== 'multimodal' && item.ncm_code) parts.push(`NCM ${item.ncm_code}`);
   return parts.length > 0 ? parts.join(' · ') : 'Sem detalhes preenchidos';
@@ -389,7 +426,7 @@ function itemSubtitle(item: CargoItem, mode: string): string {
 
 function isEmptyCargoItem(it: CargoItem, showContainers: boolean): boolean {
   if (showContainers && (it.container_qty > 1 || (it.container_type && it.container_type !== '20GP'))) return false;
-  return !it.weight_kg && !it.volume_cbm && !it.packages && !it.ncm_code && !it.commodity &&
+  return !it.weight_kg && !it.volume_cbm && !it.packages && !it.pallets && !it.ncm_code && !it.commodity &&
     !it.cargo_value && !it.notes && !it.length_cm && !it.width_cm && !it.height_cm &&
     !it.vehicle_type && !it.dangerous_goods && !it.container_number;
 }
@@ -520,6 +557,33 @@ export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFiel
             <div className="space-y-1.5">
               <Label className={fieldLabelCls}>{t('quotes.height_cm')}</Label>
               <Input inputMode="decimal" placeholder="0" value={item.height_cm} onChange={(e) => updateItem(idx, { height_cm: e.target.value })} />
+            </div>
+          </div>
+        )}
+
+        {/* Embalagem: tipo do "Volumes" (caixa, pallet...) e pallets de movimentação — informativo, não altera peso/cubagem */}
+        {mode !== 'ocean_fcl' && (
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="space-y-1.5">
+              <Label className={fieldLabelCls}>Tipo de volume</Label>
+              <Select value={item.package_type || '__none'} onValueChange={(v) => updateItem(idx, { package_type: v === '__none' ? '' : v })}>
+                <SelectTrigger><SelectValue placeholder="Volume" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Volume (genérico)</SelectItem>
+                  {PACKAGE_TYPES.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>{p.singular.charAt(0).toUpperCase() + p.singular.slice(1)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className={fieldLabelCls}>Pallets</Label>
+              <Input
+                inputMode="numeric"
+                placeholder="0"
+                value={item.pallets ?? ''}
+                onChange={(e) => updateItem(idx, { pallets: e.target.value })}
+              />
             </div>
           </div>
         )}

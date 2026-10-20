@@ -159,6 +159,8 @@ export function DuplicateQuoteDialog({ quote, onClose, onDuplicated }: Props) {
           width_cm: item.width_cm,
           height_cm: item.height_cm,
           packages: item.packages,
+          package_type: item.package_type ?? null,
+          pallets: item.pallets ?? null,
           ncm_code: item.ncm_code,
           commodity: item.commodity,
           dangerous_goods: item.dangerous_goods,

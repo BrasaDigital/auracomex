@@ -384,6 +384,8 @@ export function QuoteCreateModal({ open, onClose, onCreated }: Props) {
         width_cm: parseFloat(item.width_cm) || null,
         height_cm: parseFloat(item.height_cm) || null,
         packages: parseInt(item.packages) || null,
+        package_type: item.package_type || null,
+        pallets: parseInt(item.pallets || '') || null,
         ncm_code: item.ncm_code || null,
         commodity: item.commodity || null,
         dangerous_goods: item.dangerous_goods,
