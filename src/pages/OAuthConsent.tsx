@@ -115,8 +115,8 @@ export default function OAuthConsent() {
                 {user?.email ? <> (<strong>{user.email}</strong>)</> : null}.
               </p>
               <p>
-                Ele poderá consultar processos, documentos e cotações da sua empresa, registrar observações
-                no diário dos processos, alterar o status e editar os campos deles. Nada é apagado, e tudo fica registrado
+                Ele poderá consultar processos, documentos e cotações da sua empresa, criar processos,
+                registrar observações no diário, alterar o status e editar os campos deles. Nada é apagado, e tudo fica registrado
                 com o seu nome. Você pode negar agora e o acesso só vale para quem você aprovar.
               </p>
               {hostOf(details.redirect_uri) && (
