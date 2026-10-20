@@ -31,7 +31,7 @@ export function CargoVolumesEditor({ volumes, onChange, readOnly }: Props) {
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volumes (base do cálculo de frete)</p>
-          <p className="text-[11px] text-muted-foreground">Uma linha por tipo de embalagem. Peso e cubagem são por unidade; o total é quantidade × unidade.</p>
+          <p className="text-[11px] text-muted-foreground">Informe a quantidade e o tipo; peso e medidas são por unidade. Se houver volumes com medidas diferentes, use outra linha: o total soma todas.</p>
         </div>
         {!readOnly && (
           <Button type="button" size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={add}>
@@ -53,15 +53,15 @@ export function CargoVolumesEditor({ volumes, onChange, readOnly }: Props) {
             const qtyMissing = !readOnly && !isEmptyVolume(v) && !(parseInt(v.qty) >= 1);
             return (
               <div key={idx} className="rounded-md border bg-muted/10 p-2.5 space-y-2">
-                <div className="grid grid-cols-2 md:grid-cols-8 gap-2 items-end">
+                <div className="grid grid-cols-[90px_1fr_auto] md:grid-cols-[110px_220px_1fr_auto] gap-2 items-end">
                   <div className="space-y-1">
                     <Label className={labelCls}>Qtd <span className="text-destructive">*</span></Label>
                     <Input inputMode="numeric" placeholder="1" value={v.qty} disabled={readOnly}
                       className={qtyMissing ? 'border-destructive focus-visible:ring-destructive' : ''}
                       onChange={(e) => update(idx, { qty: e.target.value })} />
                   </div>
-                  <div className="space-y-1 md:col-span-1">
-                    <Label className={labelCls}>Tipo</Label>
+                  <div className="space-y-1">
+                    <Label className={labelCls}>Tipo de volume</Label>
                     <Select value={v.package_type || '__none'} disabled={readOnly}
                       onValueChange={(val) => update(idx, { package_type: val === '__none' ? '' : val })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -73,6 +73,16 @@ export function CargoVolumesEditor({ volumes, onChange, readOnly }: Props) {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="hidden md:block" />
+                  <div className="flex items-end justify-end">
+                    {!readOnly && (
+                      <Button type="button" variant="ghost" size="icon" className="h-9 w-9" title="Remover volume" onClick={() => remove(idx)}>
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
                   <div className="space-y-1">
                     <Label className={labelCls}>Comp. (cm)</Label>
                     <Input inputMode="decimal" placeholder="0" value={v.length_cm} disabled={readOnly}
@@ -106,14 +116,16 @@ export function CargoVolumesEditor({ volumes, onChange, readOnly }: Props) {
                       );
                     })()}
                   </div>
-                  <div className="flex items-end justify-end">
-                    {!readOnly && (
-                      <Button type="button" variant="ghost" size="icon" className="h-9 w-9" title="Remover volume" onClick={() => remove(idx)}>
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    )}
-                  </div>
                 </div>
+                {!readOnly && (parseInt(v.qty) || 0) >= 2 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Medidas e peso acima valem para cada um dos {parseInt(v.qty)} volumes. Algum tem medidas diferentes?{' '}
+                    <button type="button" className="text-primary underline underline-offset-2"
+                      onClick={() => onChange([...volumes.slice(0, idx), { ...v, qty: String((parseInt(v.qty) || 2) - 1) }, { ...emptyCargoVolume, package_type: v.package_type }, ...volumes.slice(idx + 1)])}>
+                      Separar 1 volume em nova linha
+                    </button>
+                  </p>
+                )}
                 {(totalW > 0 || totalC > 0) && (
                   <p className="text-[11px] text-muted-foreground">
                     Total desta linha: <strong>{totalW.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kg</strong> · <strong>{totalC.toFixed(4)} m³</strong>
@@ -122,6 +134,14 @@ export function CargoVolumesEditor({ volumes, onChange, readOnly }: Props) {
               </div>
             );
           })}
+          {volumes.length > 1 && (() => {
+            const tot = volumes.reduce((a, v) => { const it = volumeAsCalcItem(v); return { w: a.w + calcItemWeight(it), c: a.c + getEffectiveVolume(it), q: a.q + (parseInt(v.qty) || 0) }; }, { w: 0, c: 0, q: 0 });
+            return (
+              <p className="text-xs text-right pr-1">
+                Total de todos os volumes: <strong>{tot.q} vol.</strong> · <strong>{tot.w.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kg</strong> · <strong>{tot.c.toFixed(4)} m³</strong>
+              </p>
+            );
+          })()}
         </div>
       )}
     </div>
