@@ -27,7 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { ModeIcon } from '@/components/shared/ModeIcon';
 import { PortSelect } from '@/components/shared/PortSelect';
-import { ModeFields, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage } from './ModeFields';
+import { ModeFields, PACKAGE_TYPES, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage } from './ModeFields';
 import { useCostEstimate } from '@/hooks/useCostEstimate';
 import { extractCountryFromPort } from '@/lib/countryFlag';
 import { FlagIcon } from '@/components/shared/FlagIcon';
@@ -170,6 +170,9 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     pickup_address: '',
     delivery_address: '',
     client_reference: '',
+    cargo_pallets: '',
+    cargo_packages: '',
+    cargo_package_type: '',
   });
   const [cargoItems, setCargoItems] = useState<CargoItem[]>([{ ...emptyCargoItem }]);
   const [saving, setSaving] = useState(false);
@@ -497,7 +500,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     lines.push(`Incoterm: ${(form.incoterm && form.incoterm !== 'NONE') ? form.incoterm : '-'}`);
     if (form.client_reference) lines.push(`Ref. do Cliente: ${form.client_reference}`);
     lines.push('');
-    lines.push(...buildCargoSummaryLines(mode, cargoItems));
+    lines.push(...buildCargoSummaryLines(mode, cargoItems, { pallets: form.cargo_pallets, packages: form.cargo_packages, package_type: form.cargo_package_type }));
 
     if (form.notes) {
       lines.push('');
@@ -531,6 +534,9 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         pickup_address: (quote as any).pickup_address || '',
         delivery_address: (quote as any).delivery_address || '',
         client_reference: (quote as any).client_reference || '',
+        cargo_pallets: (quote as any).cargo_pallets?.toString() || '',
+        cargo_packages: (quote as any).cargo_packages?.toString() || '',
+        cargo_package_type: (quote as any).cargo_package_type || '',
       });
     }
   }, [quote]);
@@ -549,8 +555,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         width_cm: item.width_cm?.toString() || '',
         height_cm: item.height_cm?.toString() || '',
         packages: item.packages?.toString() || '',
-        package_type: item.package_type || '',
-        pallets: item.pallets?.toString() || '',
+        pieces: item.pieces?.toString() || '',
+        pieces_unit: item.pieces_unit || 'pçs',
         ncm_code: item.ncm_code || '',
         commodity: item.commodity || '',
         dangerous_goods: item.dangerous_goods || false,
@@ -612,7 +618,10 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
       (form.storage_fee_note || '') !== ((quote as any).storage_fee_note || '') ||
       (form.pickup_address || '') !== ((quote as any).pickup_address || '') ||
       (form.delivery_address || '') !== ((quote as any).delivery_address || '') ||
-      (form.client_reference || '') !== ((quote as any).client_reference || '');
+      (form.client_reference || '') !== ((quote as any).client_reference || '') ||
+      (form.cargo_pallets || '') !== ((quote as any).cargo_pallets?.toString() || '') ||
+      (form.cargo_packages || '') !== ((quote as any).cargo_packages?.toString() || '') ||
+      (form.cargo_package_type || '') !== ((quote as any).cargo_package_type || '');
 
     if (formChanged) return true;
 
@@ -635,8 +644,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         parseFloat(ci.width_cm || '0') !== ((oi as any).width_cm || 0) ||
         parseFloat(ci.height_cm || '0') !== ((oi as any).height_cm || 0) ||
         parseInt(ci.packages || '0') !== ((oi as any).packages || 0) ||
-        (ci.package_type || '') !== ((oi as any).package_type || '') ||
-        parseInt(ci.pallets || '0') !== ((oi as any).pallets || 0) ||
+        parseFloat(ci.pieces || '0') !== (Number((oi as any).pieces) || 0) ||
+        (ci.pieces_unit || 'pçs') !== ((oi as any).pieces_unit || 'pçs') ||
         !!ci.dangerous_goods !== !!(oi as any).dangerous_goods ||
         (ci.vehicle_type || '') !== ((oi as any).vehicle_type || '') ||
         parseFloat(ci.cargo_value || '0') !== ((oi as any).cargo_value || 0) ||
@@ -1015,6 +1024,9 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         pickup_address: form.pickup_address || null,
         delivery_address: form.delivery_address || null,
         client_reference: form.client_reference || null,
+        cargo_pallets: parseInt(form.cargo_pallets) || null,
+        cargo_packages: parseInt(form.cargo_packages) || null,
+        cargo_package_type: form.cargo_package_type || null,
       } as any).eq('id', quoteId);
       if (error) throw error;
 
@@ -1044,8 +1056,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
           width_cm: parseFloat(item.width_cm) || null,
           height_cm: parseFloat(item.height_cm) || null,
           packages: parseInt(item.packages) || null,
-          package_type: item.package_type || null,
-          pallets: parseInt(item.pallets || '') || null,
+          pieces: parseFloat(item.pieces || '') || null,
+          pieces_unit: parseFloat(item.pieces || '') ? (item.pieces_unit || 'pçs') : null,
           ncm_code: item.ncm_code || null,
           commodity: item.commodity || null,
           dangerous_goods: item.dangerous_goods,
@@ -2339,6 +2351,35 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                   </span>
                 </div>
               )}
+              {/* Carga física do embarque (totais). Itens/produtos ficam abaixo, só com peças e valor. */}
+              <div className="rounded-lg border border-border/60 p-3 space-y-2.5">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Carga física do embarque (totais)</div>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] uppercase text-muted-foreground">Pallets</Label>
+                    <Input inputMode="numeric" placeholder="0" value={form.cargo_pallets} disabled={!canEditCargo}
+                      onChange={(e) => setForm((f) => ({ ...f, cargo_pallets: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] uppercase text-muted-foreground">Caixas / volumes</Label>
+                    <Input inputMode="numeric" placeholder="0" value={form.cargo_packages} disabled={!canEditCargo}
+                      onChange={(e) => setForm((f) => ({ ...f, cargo_packages: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] uppercase text-muted-foreground">Tipo do volume</Label>
+                    <Select value={form.cargo_package_type || '__none'} disabled={!canEditCargo}
+                      onValueChange={(v) => setForm((f) => ({ ...f, cargo_package_type: v === '__none' ? '' : v }))}>
+                      <SelectTrigger><SelectValue placeholder="Volume" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">Volume (genérico)</SelectItem>
+                        {PACKAGE_TYPES.map((p) => (
+                          <SelectItem key={p.value} value={p.value}>{p.singular.charAt(0).toUpperCase() + p.singular.slice(1)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
               <ModeFields
                 mode={form.transport_mode}
                 items={cargoItems}

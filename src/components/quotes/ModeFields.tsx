@@ -119,8 +119,9 @@ interface CargoItem {
   width_cm: string;
   height_cm: string;
   packages: string;
-  package_type?: string;
-  pallets?: string;
+  /** Quantidade comercial do produto (ex.: 15000 pçs) — independe de caixas/pallets. */
+  pieces?: string;
+  pieces_unit?: string;
   ncm_code: string;
   commodity: string;
   dangerous_goods: boolean;
@@ -166,6 +167,25 @@ export const fmtPallets = (n: number | string | null | undefined) => {
   return `${q} ${q === 1 ? 'pallet' : 'pallets'}`;
 };
 
+/** Unidades da quantidade comercial do item. */
+export const PIECE_UNITS = ['pçs', 'un', 'par', 'jogo', 'kg', 'm', 'm²', 'litro'];
+
+/** Carga física do embarque (totais), independente dos itens/produtos. */
+export interface PhysicalCargo { pallets: string; packages: string; package_type: string }
+export const emptyPhysicalCargo: PhysicalCargo = { pallets: '', packages: '', package_type: '' };
+
+/** "4 pallets · 320 caixas" (vazio se nada preenchido). */
+export function fmtPhysicalCargo(p?: Partial<PhysicalCargo> | null): string {
+  if (!p) return '';
+  const parts: string[] = [];
+  if (parseInt(p.pallets || '') > 0) parts.push(fmtPallets(p.pallets));
+  if (parseInt(p.packages || '') > 0) parts.push(fmtPackages(p.packages, p.package_type));
+  return parts.join(' · ');
+}
+
+const fmtPieces = (it: { pieces?: string; pieces_unit?: string }) =>
+  parseFloat(it.pieces || '') > 0 ? `${Number(it.pieces).toLocaleString('pt-BR')} ${it.pieces_unit || 'pçs'}` : '';
+
 const CONTAINER_TYPES = ['20GP', '20HC', '40GP', '40HC', '40NOR', '20RF', '40RF', '20OT', '40OT', '20FR', '40FR'];
 const VEHICLE_TYPES = ['Truck', 'Carreta', 'Bitrem', 'Rodotrem', 'Sider', 'Baú', 'Graneleiro'];
 
@@ -196,8 +216,8 @@ export const emptyCargoItem: CargoItem = {
   width_cm: '',
   height_cm: '',
   packages: '',
-  package_type: '',
-  pallets: '',
+  pieces: '',
+  pieces_unit: 'pçs',
   ncm_code: '',
   commodity: '',
   dangerous_goods: false,
@@ -334,7 +354,7 @@ export function missingPackagesMessage(positions: number[]): string {
  * (compartilhado entre QuoteCreateModal e QuoteDetail). Peso e cubagem totais
  * usam as mesmas regras da tela (peso por volume × volumes).
  */
-export function buildCargoSummaryLines(mode: string, items: CargoItem[]): string[] {
+export function buildCargoSummaryLines(mode: string, items: CargoItem[], physical?: Partial<PhysicalCargo> | null): string[] {
   const showContainers = mode === 'ocean_fcl' || mode === 'multimodal';
   const totalWeight = items.reduce((s, i) => s + calcItemWeight(i), 0);
   const totalVolume = items.reduce((s, i) => s + getEffectiveVolume(i), 0);
@@ -345,11 +365,9 @@ export function buildCargoSummaryLines(mode: string, items: CargoItem[]): string
   if (showContainers && totalContainers > 0) lines.push(`  Containers: ${totalContainers}`);
   if (totalWeight > 0) lines.push(`  Peso Total: ${fmtNum(totalWeight)} kg`);
   if (totalVolume > 0) lines.push(`  Volume Total: ${totalVolume.toFixed(4)} m³`);
-  const pkgTypes = new Set(items.filter((i) => parseInt(i.packages) > 0).map((i) => i.package_type || ''));
-  const onlyType = pkgTypes.size === 1 ? [...pkgTypes][0] : '';
-  const totalPallets = items.reduce((s, i) => s + (parseInt(i.pallets || '') || 0), 0);
-  if (totalPackages > 0) lines.push(`  Total Volumes: ${onlyType ? fmtPackages(totalPackages, onlyType) : totalPackages}`);
-  if (totalPallets > 0) lines.push(`  Total Pallets: ${totalPallets}`);
+  if (totalPackages > 0) lines.push(`  Total Volumes: ${totalPackages}`);
+  const phys = fmtPhysicalCargo(physical);
+  if (phys) lines.push(`  Carga física: ${phys}`);
 
   lines.push('');
   lines.push('📦 Detalhamento por Item:');
@@ -374,8 +392,8 @@ export function buildCargoSummaryLines(mode: string, items: CargoItem[]): string
       lines.push(`    Dimensões: ${item.length_cm} x ${item.width_cm} x ${item.height_cm} cm`);
       lines.push(`    Volume calc.: ${calcItemCbm(item).toFixed(4)} m³`);
     }
-    if (pkgs > 0) lines.push(`    Volumes: ${item.package_type ? fmtPackages(pkgs, item.package_type) : pkgs}`);
-    if (parseInt(item.pallets || '') > 0) lines.push(`    Pallets: ${parseInt(item.pallets || '')}`);
+    if (pkgs > 0) lines.push(`    Volumes: ${pkgs}`);
+    if (fmtPieces(item)) lines.push(`    Quantidade: ${fmtPieces(item)}`);
     if (item.commodity) lines.push(`    Mercadoria: ${item.commodity}`);
     if (item.dangerous_goods) lines.push(`    ⚠️ Carga Perigosa`);
     if (mode === 'road' && item.vehicle_type) lines.push(`    Veículo: ${item.vehicle_type}`);
@@ -417,8 +435,8 @@ function itemSubtitle(item: CargoItem, mode: string): string {
   if (weight > 0) parts.push(`${weight.toLocaleString('pt-BR')} kg`);
   const cbm = getEffectiveVolume(item);
   if (cbm > 0) parts.push(`${cbm.toFixed(3)} m³`);
-  if (item.packages) parts.push(fmtPackages(item.packages, item.package_type));
-  if (parseInt(item.pallets || '') > 0 && item.package_type !== 'pallet') parts.push(fmtPallets(item.pallets));
+  if (item.packages) parts.push(`${item.packages} vol.`);
+  if (fmtPieces(item)) parts.push(fmtPieces(item));
   if (item.cargo_value) parts.push(`${item.cargo_value_currency || 'USD'} ${item.cargo_value}`);
   if (mode !== 'ocean_fcl' && mode !== 'multimodal' && item.ncm_code) parts.push(`NCM ${item.ncm_code}`);
   return parts.length > 0 ? parts.join(' · ') : 'Sem detalhes preenchidos';
@@ -426,7 +444,7 @@ function itemSubtitle(item: CargoItem, mode: string): string {
 
 function isEmptyCargoItem(it: CargoItem, showContainers: boolean): boolean {
   if (showContainers && (it.container_qty > 1 || (it.container_type && it.container_type !== '20GP'))) return false;
-  return !it.weight_kg && !it.volume_cbm && !it.packages && !it.pallets && !it.ncm_code && !it.commodity &&
+  return !it.weight_kg && !it.volume_cbm && !it.packages && !it.pieces && !it.ncm_code && !it.commodity &&
     !it.cargo_value && !it.notes && !it.length_cm && !it.width_cm && !it.height_cm &&
     !it.vehicle_type && !it.dangerous_goods && !it.container_number;
 }
@@ -561,32 +579,27 @@ export function ModeFields({ mode, items, onChange, readOnly, saving }: ModeFiel
           </div>
         )}
 
-        {/* Embalagem: tipo do "Volumes" (caixa, pallet...) e pallets de movimentação — informativo, não altera peso/cubagem */}
-        {mode !== 'ocean_fcl' && (
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="space-y-1.5">
-              <Label className={fieldLabelCls}>Tipo de volume</Label>
-              <Select value={item.package_type || '__none'} onValueChange={(v) => updateItem(idx, { package_type: v === '__none' ? '' : v })}>
-                <SelectTrigger><SelectValue placeholder="Volume" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none">Volume (genérico)</SelectItem>
-                  {PACKAGE_TYPES.map((p) => (
-                    <SelectItem key={p.value} value={p.value}>{p.singular.charAt(0).toUpperCase() + p.singular.slice(1)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className={fieldLabelCls}>Pallets</Label>
-              <Input
-                inputMode="numeric"
-                placeholder="0"
-                value={item.pallets ?? ''}
-                onChange={(e) => updateItem(idx, { pallets: e.target.value })}
-              />
-            </div>
+        {/* Quantidade comercial do produto (peças) — independe de caixas/pallets, que são totais do embarque */}
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="space-y-1.5">
+            <Label className={fieldLabelCls}>Quantidade (peças)</Label>
+            <Input
+              inputMode="decimal"
+              placeholder="0"
+              value={item.pieces ?? ''}
+              onChange={(e) => updateItem(idx, { pieces: e.target.value })}
+            />
           </div>
-        )}
+          <div className="space-y-1.5">
+            <Label className={fieldLabelCls}>Unidade</Label>
+            <Select value={item.pieces_unit || 'pçs'} onValueChange={(v) => updateItem(idx, { pieces_unit: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {PIECE_UNITS.map((u) => (<SelectItem key={u} value={u}>{u}</SelectItem>))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         {/* Linha 2: Quantidade - Peso - Cubagem */}
         <div className="grid grid-cols-3 gap-2.5">

@@ -274,7 +274,7 @@ export default function QuotePrintView() {
                       <td>{item.chargeable_weight ? Number(item.chargeable_weight).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
                     )}
                     <td>{item.cargo_value ? `${item.cargo_value_currency || 'USD'} ${Number(item.cargo_value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
-                    <td>{item.packages ? `${item.packages}${item.package_type ? ` ${item.package_type}` : ''}${item.pallets ? ` (${item.pallets} pallet${Number(item.pallets) === 1 ? '' : 's'})` : ''}` : '—'}</td>
+                    <td>{item.packages || '—'}</td>
                   </tr>
                 ))}
               </tbody>
