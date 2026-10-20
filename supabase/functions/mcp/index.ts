@@ -794,10 +794,11 @@ async function atualizarTaxa(ctx: Ctx, a: Args) {
 // total) NÃO ficam gravados: o app calcula na tela a partir do que está aqui. Frete/seguro internacional e as
 // despesas vindas de taxas são recalculados pelo app a partir da aba Taxas (auto-sync), e nome/NCM/peso/
 // quantidade dos itens vêm da Carga — por isso estes campos NÃO são editáveis aqui (seriam desfeitos).
-const EST_HEADER: Record<string, "text" | "date" | "num" | "rate" | "rateio" | "incoterm"> = {
+const EST_HEADER: Record<string, "text" | "date" | "num" | "rate" | "rateio" | "incoterm" | "bool"> = {
   incoterm: "incoterm", frequencia: "text", transito: "text", carrier: "text", rota_origem: "text", rota_destino: "text",
   data_fiscal: "date", usd_brl: "rate", eur_brl: "rate", rateio_metodo: "rateio",
   acrescimos_usd: "num", deducoes_usd: "num", pais_origem: "text", armazem: "text", peso_liquido_kg: "num", cbm_total: "num",
+  usd_brl_agencia: "rate", usd_brl_agencia_auto: "bool",
 };
 const EST_ITEM: Record<string, "usd" | "pct" | "dest" | "bool"> = {
   vmcv_unit_usd: "usd", aliq_ii: "pct", aliq_ipi: "pct", aliq_pis: "pct", aliq_cofins: "pct", aliq_icms: "pct",
@@ -847,15 +848,19 @@ async function atualizarEstimativa(ctx: Ctx, a: Args) {
     for (const [k, v] of Object.entries(campos)) {
       const kind = EST_HEADER[k];
       if (!kind) throw bad(`Campo "${k}" não editável. Editáveis: ${Object.keys(EST_HEADER).join(", ")}. (frete/seguro/despesas vêm das Taxas.)`);
-      if (v === null) { if (kind === "text") { hdr[k] = null; continue; } throw bad(`Campo "${k}" não aceita vazio.`); }
+      if (v === null) { if (kind === "text" || k === "usd_brl_agencia") { hdr[k] = null; continue; } throw bad(`Campo "${k}" não aceita vazio.`); }
       if (kind === "text") { if (typeof v !== "string" || v.length > 200) throw bad(`Campo "${k}": texto até 200 caracteres.`); hdr[k] = v.trim() || null; }
       else if (kind === "incoterm") { if (typeof v !== "string" || !/^[A-Za-z]{3}$/.test(v.trim())) throw bad('"incoterm": sigla de 3 letras.'); hdr[k] = v.trim().toUpperCase(); }
       else if (kind === "date") { if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v))) throw bad(`Campo "${k}": use AAAA-MM-DD.`); hdr[k] = v; }
       else if (kind === "rateio") { if (v !== "valor" && v !== "peso" && v !== "quantidade") throw bad('"rateio_metodo": valor, peso ou quantidade.'); hdr[k] = v; }
+      else if (kind === "bool") { if (typeof v !== "boolean") throw bad(`Campo "${k}": true ou false.`); hdr[k] = v; }
       else if (kind === "rate") { if (typeof v !== "number" || !(v > 0) || v > 1000) throw bad(`Campo "${k}": número > 0.`); hdr[k] = v; }
       else { if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1e12) throw bad(`Campo "${k}": número >= 0.`); hdr[k] = v; }
     }
   }
+
+  // Câmbio da agência informado à mão: desliga o modo automático (senão o app o recalcularia pelo spread do cliente).
+  if (typeof hdr.usd_brl_agencia === "number" && !("usd_brl_agencia_auto" in hdr)) hdr.usd_brl_agencia_auto = false;
 
   // Itens (somente dados fiscais)
   const itemUpd: { id: string; nome: string; patch: Record<string, unknown>; row: Record<string, unknown> }[] = [];
@@ -1373,7 +1378,7 @@ const TOOLS: Tool[] = [
   {
     name: "atualizar_estimativa",
     description:
-      "Edita a Estimativa de custo de um processo. \"campos\" (cabeçalho): " + Object.keys(EST_HEADER).join(", ") + ". \"itens\": lista de {id (de ver_estimativa), " + Object.keys(EST_ITEM).join(", ") + "} — alíquotas em percentual (14.4 = 14,4%). Não edita frete/seguro/despesas (vêm das Taxas) nem nome/NCM/peso/quantidade dos itens (vêm da Carga). Bloqueada se o Numerário já foi aprovado. Só perfis de acesso total. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
+      "Edita a Estimativa de custo de um processo. \"campos\" (cabeçalho): " + Object.keys(EST_HEADER).join(", ") + " (usd_brl = câmbio fiscal; usd_brl_agencia = câmbio da agência — ao informar o valor, o modo automático é desligado). \"itens\": lista de {id (de ver_estimativa), " + Object.keys(EST_ITEM).join(", ") + "} — alíquotas em percentual (14.4 = 14,4%). Não edita frete/seguro/despesas (vêm das Taxas) nem nome/NCM/peso/quantidade dos itens (vêm da Carga). Bloqueada se o Numerário já foi aprovado. Só perfis de acesso total. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
