@@ -25,7 +25,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.8.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.8.1" };
 
 // ---------- helpers ----------
 
@@ -823,8 +823,9 @@ async function cargaDoProcesso(ctx: Ctx, a: Args, write: boolean) {
   return { sh, quoteId: q.id as string, itens: (itens ?? []) as Record<string, unknown>[], mode, volumes };
 }
 
-const CARGO_SHOW = ["id", "commodity", "ncm_code", "pieces", "pieces_unit", "packages", "weight_kg", "volume_cbm", "length_cm", "width_cm", "height_cm", "chargeable_weight", "container_type", "container_qty", "container_number", "cargo_value", "cargo_value_currency", "dangerous_goods", "vehicle_type", "notes"];
-const pickCargo = (r: Record<string, unknown>) => Object.fromEntries(CARGO_SHOW.filter((k) => r[k] !== null && r[k] !== undefined).map((k) => [k, r[k]]));
+// O conector enxerga TUDO do item (todas as colunas, inclusive as vazias = null), menos ids internos.
+const CARGO_HIDE = ["quote_id", "company_id", "created_at"];
+const pickCargo = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([k]) => !CARGO_HIDE.includes(k)));
 
 async function listarCarga(ctx: Ctx, a: Args) {
   const { sh, quoteId, itens, volumes } = await cargaDoProcesso(ctx, a, false);
@@ -855,7 +856,7 @@ function parseCargoPatch(src: Record<string, unknown>, mode: string, cur: Record
     if (k === "id") continue;
     const bad = (m: string) => new ToolError(`Item ${i + 1}, campo "${k}": ${m}`);
     if (v === null || v === "") { // limpa o campo
-      if (k in CARGO_NUM || CARGO_INT.includes(k) || k in CARGO_TXT) { out[k] = null; continue; }
+      if (k !== "dangerous_goods" && (k in CARGO_NUM || CARGO_INT.includes(k) || k in CARGO_TXT)) { out[k] = null; continue; }
       throw bad("não aceita vazio.");
     }
     if (k in CARGO_NUM) {
@@ -1467,6 +1468,10 @@ const CARGO_SCHEMA = {
   },
 };
 
+// Na edição, todo campo (menos dangerous_goods) aceita null = limpar (ex.: tirar container_type/container_qty/container_number de item LCL).
+const nullableProps = (p: Record<string, Record<string, unknown>>) =>
+  Object.fromEntries(Object.entries(p).map(([k, v]) => [k, k === "dangerous_goods" ? v : { ...v, type: [v.type, "null"] }]));
+
 const limiteProp ={ type: "integer", minimum: 1, maximum: 50, description: "Máximo de itens (padrão 20)." };
 
 const TOOLS: Tool[] = [
@@ -1666,12 +1671,12 @@ const TOOLS: Tool[] = [
   {
     name: "atualizar_carga",
     description:
-      "Edita itens EXISTENTES da carga (pegue o id em listar_carga): mercadoria, NCM (ncm_code), peças (pieces + pieces_unit), valor da carga (da invoice), containers (FCL) etc. null limpa o campo. Volumes, medidas, peso e cubagem do embarque NÃO são editados aqui: use atualizar_volumes_carga. O NCM da Estimativa vem daqui. Escrita em 2 etapas: sem confirmar só devolve a prévia (com os totais do app antes/depois); grave (confirmar: true) só depois que o usuário aprovar.",
+      "Edita itens EXISTENTES da carga (pegue o id em listar_carga): mercadoria, NCM (ncm_code), peças (pieces + pieces_unit), valor da carga (da invoice), containers (FCL) etc. null limpa qualquer campo (ex.: container_type, container_qty e container_number = null para tirar o contêiner de um item LCL). Volumes, medidas, peso e cubagem do embarque NÃO são editados aqui: use atualizar_volumes_carga. O NCM da Estimativa vem daqui. Escrita em 2 etapas: sem confirmar só devolve a prévia (com os totais do app antes/depois); grave (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
         processo: { type: "string", description: "Número de referência exato do processo." },
-        itens: { type: "array", maxItems: 50, items: { ...CARGO_SCHEMA.items, properties: { id: { type: "string", description: "Id do item (de listar_carga)." }, ...CARGO_SCHEMA.items.properties }, required: ["id"] } },
+        itens: { type: "array", maxItems: 50, items: { ...CARGO_SCHEMA.items, properties: { id: { type: "string", description: "Id do item (de listar_carga)." }, ...nullableProps(CARGO_SCHEMA.items.properties) }, required: ["id"] } },
         confirmar: CONFIRMAR_PROP,
       },
       required: ["processo", "itens"],
