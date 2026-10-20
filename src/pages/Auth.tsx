@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { getPostLoginPath } from '@/lib/oauthResume';
 
 function ForgotPasswordLink() {
   const { t } = useLanguage();
@@ -75,7 +76,7 @@ export default function Auth() {
   const { user, signIn } = useAuth();
   const { t, language, setLanguage } = useLanguage();
 
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (user) return <Navigate to={getPostLoginPath()} replace />;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

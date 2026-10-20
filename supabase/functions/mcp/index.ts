@@ -16,6 +16,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, mcp-protocol-version, mcp-session-id",
+  "Access-Control-Expose-Headers": "WWW-Authenticate",
   "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
 };
 
@@ -36,7 +37,7 @@ class ToolError extends Error {}
 function json(body: unknown, status = 200, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json", ...extra },
+    headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8", ...extra },
   });
 }
 
@@ -362,10 +363,28 @@ async function handleRpc(msg: Rpc, ctx: Ctx): Promise<unknown | null> {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
+
+  // Metadados OAuth do recurso protegido (RFC 9728): diz ao Claude qual servidor
+  // de autorização usar (o OAuth Server do Supabase Auth). Público, sem login.
+  const base = Deno.env.get("SUPABASE_URL") ?? "";
+  const resource = `${base}/functions/v1/mcp`;
+  const metadataUrl = `${resource}/.well-known/oauth-protected-resource`;
+  if (req.method === "GET" && new URL(req.url).pathname.endsWith("/.well-known/oauth-protected-resource")) {
+    return json({
+      resource,
+      authorization_servers: [`${base}/auth/v1`],
+      bearer_methods_supported: ["header"],
+    });
+  }
+
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405, { Allow: "POST, OPTIONS" });
 
   const ctx = await authenticate(req);
-  if (!ctx) return json({ error: "unauthorized" }, 401, { "WWW-Authenticate": "Bearer" });
+  if (!ctx) {
+    return json({ error: "unauthorized" }, 401, {
+      "WWW-Authenticate": `Bearer resource_metadata="${metadataUrl}"`,
+    });
+  }
 
   let body: unknown;
   try {

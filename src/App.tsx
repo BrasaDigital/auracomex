@@ -11,9 +11,11 @@ import { usePermissions, type Permissions } from "@/hooks/usePermissions";
 
 // Páginas críticas (carregadas imediatamente)
 import Auth from "./pages/Auth";
+import { getPostLoginPath } from "@/lib/oauthResume";
 import Index from "./pages/Index";
 
 // Code splitting: páginas carregadas sob demanda (reduz bundle inicial)
+const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 const FirstAccess = lazy(() => import("./pages/FirstAccess"));
 const Shipments = lazy(() => import("./pages/Shipments"));
 const Quotes = lazy(() => import("./pages/Quotes"));
@@ -119,7 +121,8 @@ function AppRoutes() {
         <Route path="/termos" element={<TermsOfUse />} />
         <Route path="/privacidade" element={<PrivacyPolicy />} />
         <Route path="/demo" element={<DemoLogin />} />
-        <Route path="/" element={user && !loading ? <Navigate to="/dashboard" replace /> : <Auth />} />
+        <Route path="/oauth/consent" element={<OAuthConsent />} />
+        <Route path="/" element={user && !loading ? <Navigate to={getPostLoginPath()} replace /> : <Auth />} />
         <Route path="/dashboard" element={<DashboardRoute />} />
         <Route path="/shipments" element={<ProtectedRoute requiredPermission="canAccessShipments"><Shipments /></ProtectedRoute>} />
         <Route path="/quotes" element={<ProtectedRoute requiredPermission="canAccessQuotes"><Quotes /></ProtectedRoute>} />
