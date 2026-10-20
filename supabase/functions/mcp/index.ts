@@ -453,22 +453,53 @@ function prepareFields(input: Record<string, unknown>, current: Record<string, u
 }
 
 // ---- Resumo da Carga (quote_items, ligada à cotação do processo) ----
+// ATENÇÃO (regra do app, ver ModeFields.tsx): no banco, quote_items.weight_kg e volume_cbm são POR VOLUME
+// (por embalagem). O total da linha = valor × packages quando packages >= 2. Por isso a ferramenta recebe
+// TOTAIS da linha (peso_total_kg / volume_total_cbm — é o que invoice e packing list trazem) e converte
+// aqui; gravar o total direto faria o app multiplicar de novo (ex.: 1035 kg × 150 volumes = 155.250 kg).
 const CARGO_NUM: Record<string, number> = {
-  weight_kg: 1e9, volume_cbm: 1e9, chargeable_weight: 1e9, length_cm: 1e6, width_cm: 1e6, height_cm: 1e6, cargo_value: 1e12,
+  peso_total_kg: 1e9, volume_total_cbm: 1e9, chargeable_weight: 1e9, length_cm: 1e6, width_cm: 1e6, height_cm: 1e6, cargo_value: 1e12,
 };
 const CARGO_INT = ["container_qty", "packages"];
 const CARGO_TXT: Record<string, number> = {
   container_type: 60, commodity: 300, ncm_code: 20, notes: 1000, container_number: 60, cargo_value_currency: 3, vehicle_type: 60,
 };
 
-function parseCargo(raw: unknown): Record<string, unknown>[] {
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+// Totais exatamente como o app calcula (ModeFields.tsx: calcItemWeight / getEffectiveVolume).
+function cargoAppTotals(rows: Record<string, unknown>[]) {
+  let peso = 0, vol = 0, vols = 0;
+  for (const r of rows) {
+    const pk = Number(r.packages) || 0;
+    const p = pk >= 2 ? pk : 1;
+    const w = Number(r.weight_kg) || 0;
+    peso += w * p;
+    const l = Number(r.length_cm) || 0, wd = Number(r.width_cm) || 0, h = Number(r.height_cm) || 0;
+    const manual = Number(r.volume_cbm) || 0;
+    vol += l > 0 && wd > 0 && h > 0 ? (l * wd * h / 1e6) * (pk || 1) : manual * p;
+    vols += pk;
+  }
+  return { peso_total_kg: round6(peso), volume_total_cbm: round6(vol), total_volumes: vols };
+}
+
+// Recebe itens com TOTAIS por linha e devolve linhas prontas para quote_items (valores por volume).
+function parseCargo(raw: unknown, mode: string): Record<string, unknown>[] {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > 50) {
     throw new ToolError('"itens_carga" deve ser uma lista de 1 a 50 itens de carga.');
   }
+  const fcl = mode === "ocean_fcl" || mode === "multimodal";
   return raw.map((it, i) => {
     if (!it || typeof it !== "object" || Array.isArray(it)) throw new ToolError(`Item de carga ${i + 1}: deve ser um objeto.`);
+    const src = it as Record<string, unknown>;
+    if ("weight_kg" in src || "volume_cbm" in src) {
+      throw new ToolError(`Item de carga ${i + 1}: use "peso_total_kg" e "volume_total_cbm" (totais da linha); o sistema converte para valor por volume.`);
+    }
+    if (!fcl && ("container_type" in src || "container_qty" in src)) {
+      throw new ToolError(`Item de carga ${i + 1}: neste modal não informe container_type/container_qty (só valem para FCL/multimodal; o container vai em atualizar_processo → container_number).`);
+    }
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(it as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(src)) {
       const bad = (m: string) => new ToolError(`Item de carga ${i + 1}, campo "${k}": ${m}`);
       if (v === null || v === undefined || v === "") continue;
       if (k in CARGO_NUM) {
@@ -488,6 +519,15 @@ function parseCargo(raw: unknown): Record<string, unknown>[] {
       }
     }
     if (Object.keys(out).length === 0) throw new ToolError(`Item de carga ${i + 1}: vazio.`);
+
+    // Fora do FCL o app exige Volumes (packages) em toda linha, porque peso/cubagem são por volume.
+    const pk = Number(out.packages) || 0;
+    if (!fcl && pk < 1) throw new ToolError(`Item de carga ${i + 1}: informe "packages" (quantidade de volumes) — obrigatório fora do FCL.`);
+
+    // Converte totais da linha em valor por volume (regra do app: total = valor × packages quando packages >= 2).
+    const div = pk >= 2 ? pk : 1;
+    if ("peso_total_kg" in out) { out.weight_kg = round6(Number(out.peso_total_kg) / div); delete out.peso_total_kg; }
+    if ("volume_total_cbm" in out) { out.volume_cbm = round6(Number(out.volume_total_cbm) / div); delete out.volume_total_cbm; }
     return out;
   });
 }
@@ -496,10 +536,9 @@ async function adicionarCarga(ctx: Ctx, a: Args) {
   requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos");
   const ref = optStr(a, "processo");
   if (!ref) throw new ToolError('Informe "processo" (número de referência exato).');
-  const itens = parseCargo(a.itens_carga);
-
-  const sh = await findShipmentByRef(ctx, ref, "id,reference_number,company_id,is_finalized");
+  const sh = await findShipmentByRef(ctx, ref, "id,reference_number,company_id,is_finalized,transport_mode");
   if (sh.is_finalized) throw new ToolError(`O processo ${sh.reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
+  const itens = parseCargo(a.itens_carga, String(sh.transport_mode ?? ""));
   const { data: q } = await ctx.sb.from("quotes").select("id").eq("shipment_id", sh.id).limit(1).maybeSingle();
   if (!q?.id) throw new ToolError(`O processo ${sh.reference_number} não tem cotação ligada, então não há onde registrar a carga.`);
 
@@ -507,10 +546,12 @@ async function adicionarCarga(ctx: Ctx, a: Args) {
     const { data: atuais } = await ctx.sb.from("quote_items")
       .select("commodity,ncm_code,weight_kg,volume_cbm,packages,container_type,container_qty,cargo_value,cargo_value_currency")
       .eq("quote_id", q.id).order("created_at");
+    const todos = [...(atuais ?? []), ...itens];
     return previa({
       processo: sh.reference_number,
-      como_era: { itens_de_carga: atuais ?? [] },
-      como_vai_ficar: { itens_de_carga: [...(atuais ?? []), ...itens.map((it) => ({ ...it, _novo: true }))] },
+      nota: "Nos itens, weight_kg e volume_cbm são valores POR VOLUME (como o app guarda); o total da linha = valor × packages. 'totais_no_app' é o que a tela do AuraComex vai mostrar.",
+      como_era: { itens_de_carga: atuais ?? [], totais_no_app: cargoAppTotals((atuais ?? []) as Record<string, unknown>[]) },
+      como_vai_ficar: { itens_de_carga: todos, novos: itens.length, totais_no_app: cargoAppTotals(todos as Record<string, unknown>[]) },
     });
   }
   const { error } = await ctx.sb.from("quote_items").insert(itens.map((it) => ({ ...it, quote_id: q.id, company_id: sh.company_id })));
@@ -763,7 +804,7 @@ async function criarProcesso(ctx: Ctx, a: Args) {
   const desconhecidos = Object.keys(extra).filter((k) => !(k in EDITABLE_FIELDS));
   if (desconhecidos.length) throw new ToolError(`Campo(s) não editáveis: ${desconhecidos.join(", ")}.`);
   const novos = prepareFields(extra, {});
-  const itensCarga = a.itens_carga === undefined || a.itens_carga === null ? [] : parseCargo(a.itens_carga);
+  const itensCarga = a.itens_carga === undefined || a.itens_carga === null ? [] : parseCargo(a.itens_carga, modal);
 
   // Cliente: tem que existir e ser único (e, para vendedor, ser dele).
   const ids = await clientFilter(ctx, cliente);
@@ -812,6 +853,7 @@ async function criarProcesso(ctx: Ctx, a: Args) {
         cria_cotacao_ligada: true,
         campos: novos,
         itens_de_carga: itensCarga,
+        totais_no_app: cargoAppTotals(itensCarga),
       },
     });
   }
@@ -985,11 +1027,11 @@ const CARGO_SCHEMA = {
     properties: {
       commodity: { type: "string", description: "Descrição da mercadoria." },
       ncm_code: { type: "string", description: "NCM." },
-      weight_kg: { type: "number", description: "Peso bruto em kg." },
-      volume_cbm: { type: "number", description: "Volume em m³." },
-      packages: { type: "integer", description: "Quantidade de volumes/embalagens." },
-      container_type: { type: "string", description: "Tipo de container (ex.: 40HC), se FCL." },
-      container_qty: { type: "integer", description: "Quantidade de containers." },
+      peso_total_kg: { type: "number", description: "Peso bruto TOTAL desta linha, em kg (o que está na invoice/packing list). O sistema divide pelos volumes." },
+      volume_total_cbm: { type: "number", description: "Cubagem TOTAL desta linha, em m³. O sistema divide pelos volumes." },
+      packages: { type: "integer", description: "Quantidade de volumes/embalagens desta linha. Obrigatório fora do FCL." },
+      container_type: { type: "string", description: "Tipo de container (ex.: 40HC). Só para FCL/multimodal; não use em LCL." },
+      container_qty: { type: "integer", description: "Quantidade de containers. Só para FCL/multimodal; não use em LCL." },
       container_number: { type: "string" },
       chargeable_weight: { type: "number" },
       length_cm: { type: "number" }, width_cm: { type: "number" }, height_cm: { type: "number" },
