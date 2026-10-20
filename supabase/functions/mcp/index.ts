@@ -25,7 +25,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.9.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.9.1" };
 
 // ---------- helpers ----------
 
@@ -1063,21 +1063,38 @@ function validCpf(d: string): boolean {
   return true;
 }
 
+// Consulta de CNPJ: reaproveita a Edge Function lookup-cnpj do app (BrasilAPI → ReceitaWS → CNPJá). Nunca derruba o cadastro.
+type CnpjInfo = { name: string; email: string; phone: string; address: string };
+async function consultarCnpj(ctx: Ctx, cnpj: string): Promise<CnpjInfo | "nao_encontrado" | null> {
+  try {
+    const timeout = new Promise<null>((r) => setTimeout(() => r(null), 25_000));
+    const call = ctx.sb.functions.invoke("lookup-cnpj", { body: { cnpj } }).then(({ data, error }) => {
+      if (error || !data) return null;
+      const d = data as { not_found?: boolean; data?: CnpjInfo };
+      if (d.not_found) return "nao_encontrado" as const;
+      return d.data ?? null;
+    });
+    return await Promise.race([call, timeout]);
+  } catch {
+    return null;
+  }
+}
+
 async function cadastrarEmpresa(ctx: Ctx, a: Args) {
   if (ctx.role === "financeiro") throw new ToolError("Seu perfil (financeiro) não tem acesso a Cadastros.");
-  const nome = typeof a.nome === "string" ? a.nome.replace(/\s+/g, " ").trim() : "";
-  if (!nome || nome.length > 200) throw new ToolError('Informe "nome" da empresa (até 200 caracteres).');
+  let nome = typeof a.nome === "string" ? a.nome.replace(/\s+/g, " ").trim() : "";
+  if (nome.length > 200) throw new ToolError('"nome" pode ter no máximo 200 caracteres.');
 
   const tipoRaw = typeof a.tipo === "string" ? a.tipo.trim().toLowerCase() : "";
   const type = EMPRESA_TIPOS[tipoRaw];
   if (!type) {
-    throw new ToolError(`PERGUNTE ao usuário o que é "${nome}": cliente, fornecedor ou embarcador? (Se for fornecedor, pergunte também a categoria: transportadora/rodoviário, armador, cia aérea, seguradora, co-loader, terminal ou outros.) Depois chame cadastrar_empresa de novo com "tipo".`);
+    throw new ToolError(`PERGUNTE ao usuário o que é "${nome || "esta empresa"}": cliente, fornecedor ou embarcador? (Se for fornecedor, pergunte também a categoria: transportadora/rodoviário, armador, cia aérea, seguradora, co-loader, terminal ou outros.) Depois chame cadastrar_empresa de novo com "tipo".`);
   }
 
   let partner_category: string | null = null;
   if (type === "supplier") {
     const c = typeof a.categoria === "string" ? a.categoria.trim() : "";
-    if (!c) throw new ToolError(`PERGUNTE ao usuário qual a categoria do fornecedor "${nome}": transportadora/rodoviário, armador, cia aérea, seguradora, co-loader, terminal ou outros. Depois informe "categoria".`);
+    if (!c) throw new ToolError(`PERGUNTE ao usuário qual a categoria do fornecedor "${nome || "esta empresa"}": transportadora/rodoviário, armador, cia aérea, seguradora, co-loader, terminal ou outros. Depois informe "categoria".`);
     const low = c.toLowerCase();
     partner_category = EMPRESA_CATEGORIAS.includes(low) ? low : (EMPRESA_CAT_ALIAS[low] ?? c.slice(0, 40));
   } else if (a.categoria !== undefined && a.categoria !== null && a.categoria !== "") {
@@ -1122,6 +1139,18 @@ async function cadastrarEmpresa(ctx: Ctx, a: Args) {
     const { data: dup } = await ctx.sb.from("clients").select("name").eq("company_id", ctx.companyId).eq("tax_id", tax_id).limit(1);
     if (dup && dup.length) throw new ToolError(`Já existe empresa com este documento: ${(dup[0] as { name: string }).name}.`);
   }
+
+  // CNPJ informado: busca razão social, e-mail, telefone e endereço. O que o usuário digitou tem prioridade.
+  let consulta: string | null = null;
+  let lk: CnpjInfo | null = null;
+  if (tax_id && tax_id_type === "CNPJ") {
+    const r = await consultarCnpj(ctx, tax_id);
+    if (r === "nao_encontrado") consulta = "CNPJ não encontrado na consulta da Receita; usando só o que foi informado.";
+    else if (!r) consulta = "Consulta de CNPJ indisponível agora; usando só o que foi informado.";
+    else { lk = r; consulta = "Dados preenchidos pela consulta do CNPJ (o que foi informado à mão tem prioridade)."; }
+  }
+  if (!nome && lk?.name) nome = lk.name.replace(/\s+/g, " ").trim().slice(0, 200);
+  if (!nome) throw new ToolError('Informe "nome" da empresa (ou um "documento" CNPJ válido para buscar a razão social).');
   const { data: parecidas } = await ctx.sb.from("clients").select("name,type,partner_category").ilike("name", `%${clean(nome, 60)}%`).limit(8);
   const iguais = (parecidas ?? []).filter((c: { name: string }) => c.name.trim().toLowerCase() === nome.toLowerCase());
   if (iguais.length) throw new ToolError(`Já existe uma empresa com o nome "${nome}". Use a existente.`);
@@ -1129,10 +1158,10 @@ async function cadastrarEmpresa(ctx: Ctx, a: Args) {
   const payload: Record<string, unknown> = {
     company_id: ctx.companyId,
     name: nome,
-    email,
-    phone: text("telefone", 40),
+    email: email ?? (lk?.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lk.email.trim()) ? lk.email.trim().toLowerCase().slice(0, 200) : null),
+    phone: text("telefone", 40) ?? (lk?.phone?.trim() || null),
     contact_person: text("contato", 120),
-    address: text("endereco", 300),
+    address: text("endereco", 300) ?? (lk?.address?.trim().slice(0, 300) || null),
     tax_id,
     tax_id_type,
     is_foreign: foreign,
@@ -1146,11 +1175,12 @@ async function cadastrarEmpresa(ctx: Ctx, a: Args) {
     salesperson_id: ctx.role === "salesperson" && type === "client" ? ctx.userId : null,
   };
 
-  const shown = { nome, tipo: tipoRaw, categoria: partner_category, documento: tax_id ? `${tax_id_type} ${tax_id}` : (foreign ? "estrangeira (sem CNPJ)" : null), email, telefone: payload.phone, contato: payload.contact_person, endereco: payload.address };
+  const shown = { nome, tipo: tipoRaw, categoria: partner_category, documento: tax_id ? `${tax_id_type} ${tax_id}` : (foreign ? "estrangeira (sem CNPJ)" : null), email: payload.email, telefone: payload.phone, contato: payload.contact_person, endereco: payload.address };
   if (!confirmado(a)) {
     return previa({
       como_era: "Esta empresa ainda não existe no cadastro.",
       como_vai_ficar: { cadastro_novo: shown },
+      ...(consulta ? { consulta_cnpj: consulta } : {}),
       empresas_parecidas_ja_cadastradas: (parecidas ?? []).map((c: { name: string }) => c.name),
     });
   }
@@ -1872,11 +1902,11 @@ const TOOLS: Tool[] = [
   {
     name: "cadastrar_empresa",
     description:
-      "Cadastra uma empresa NOVA na aba Cadastros (cliente, fornecedor ou embarcador). Use quando a empresa citada não existir no sistema. ANTES de chamar, PERGUNTE ao usuário se é cliente, fornecedor ou embarcador e, se fornecedor, a categoria (transportadora/rodoviário, armador, cia aérea, seguradora, co-loader, terminal ou outros). Opcionais: documento (CNPJ ou CPF), estrangeiro (true = sem CNPJ), email, telefone, contato, endereco; taxas específicas por categoria: rebate_armazenagem_pct (co-loader), valor_fixo_armazenagem (terminal), taxa_seguro_pct (seguradora), spread_cambial_pct (cliente). Recusa empresa já existente (mesmo nome ou documento). Escrita em 2 etapas: sem confirmar só devolve a prévia (com empresas parecidas já cadastradas); cadastre (confirmar: true) só depois que o usuário aprovar.",
+      "Cadastra uma empresa NOVA na aba Cadastros (cliente, fornecedor ou embarcador). Use quando a empresa citada não existir no sistema. ANTES de chamar, PERGUNTE ao usuário se é cliente, fornecedor ou embarcador e, se fornecedor, a categoria (transportadora/rodoviário, armador, cia aérea, seguradora, co-loader, terminal ou outros). Com documento CNPJ, o sistema consulta a Receita e preenche razão social, e-mail, telefone e endereço (o que você informar tem prioridade). Opcionais: documento (CNPJ ou CPF), estrangeiro (true = sem CNPJ), email, telefone, contato, endereco; taxas específicas por categoria: rebate_armazenagem_pct (co-loader), valor_fixo_armazenagem (terminal), taxa_seguro_pct (seguradora), spread_cambial_pct (cliente). Recusa empresa já existente (mesmo nome ou documento). Escrita em 2 etapas: sem confirmar só devolve a prévia (com empresas parecidas já cadastradas); cadastre (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
-        nome: { type: "string", description: "Nome/razão social da empresa." },
+        nome: { type: "string", description: "Nome/razão social da empresa. Pode ficar em branco se informar um CNPJ em documento (a razão social vem da consulta)." },
         tipo: { type: "string", enum: ["cliente", "fornecedor", "embarcador"], description: "Pergunte ao usuário." },
         categoria: { type: "string", description: "Só para fornecedor: road_carrier (transportadora), ocean_carrier (armador), air_carrier (cia aérea), insurance (seguradora), co_loader, terminal, other (outros) ou um texto livre." },
         documento: { type: "string", description: "CNPJ (14 dígitos) ou CPF (11), com ou sem pontuação." },
@@ -1885,7 +1915,7 @@ const TOOLS: Tool[] = [
         rebate_armazenagem_pct: { type: "number" }, valor_fixo_armazenagem: { type: "number" }, taxa_seguro_pct: { type: "number" }, spread_cambial_pct: { type: "number" },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["nome", "tipo"],
+      required: ["tipo"],
       additionalProperties: false,
     },
     run: cadastrarEmpresa,
