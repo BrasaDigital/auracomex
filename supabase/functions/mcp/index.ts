@@ -389,13 +389,18 @@ async function atualizarStatus(ctx: Ctx, a: Args) {
   if (!match) {
     throw new ToolError(`Status "${wanted}" não existe. Opções: ${lista.map((o) => `${o.label} (${o.value})`).join("; ")}.`);
   }
-  if (isFinalizingLabel(match.label)) {
-    throw new ToolError(`"${match.label}" finaliza o processo e trava a edição. Esse status só pode ser aplicado pelo próprio AuraComex.`);
-  }
+  const finaliza = isFinalizingLabel(match.label);
+  const AVISO_FINALIZA =
+    `ATENÇÃO: "${match.label}" finaliza o processo. Depois disso o processo fica TRAVADO para edição (pelo conector e pelo app) e só pode ser reaberto pelo AuraComex (Configurações → Reabrir Processos Finalizados, perfil admin/diretor/gerente). Confirme se todos os dados já estão corretos.`;
   if (match.value === sh.status) return ok({ alterado: false, processo: sh.reference_number, status: match.label, motivo: "Já estava neste status." });
 
   if (!confirmado(a)) {
-    return previa({ processo: sh.reference_number, como_era: { status: sh.status }, como_vai_ficar: { status: match.label, codigo: match.value } });
+    return previa({
+      processo: sh.reference_number,
+      como_era: { status: sh.status },
+      como_vai_ficar: { status: match.label, codigo: match.value, ...(finaliza ? { finaliza_processo: true } : {}) },
+      ...(finaliza ? { aviso: AVISO_FINALIZA } : {}),
+    });
   }
   const { data: upd, error: e2 } = await ctx.sb.from("shipments")
     .update({ status: match.value }).eq("id", sh.id).eq("is_finalized", false).select("id");
@@ -411,7 +416,10 @@ async function atualizarStatus(ctx: Ctx, a: Args) {
     old_value: String(sh.status ?? "") || null,
     new_value: match.value,
   });
-  return ok({ alterado: true, processo: sh.reference_number, status_anterior: sh.status, status_novo: match.label });
+  return ok({
+    alterado: true, processo: sh.reference_number, status_anterior: sh.status, status_novo: match.label,
+    ...(finaliza ? { finalizado: true, aviso: "Processo finalizado: agora está travado para edição. Reabra pelo AuraComex se precisar alterar." } : {}),
+  });
 }
 
 // ---- edição de campos do processo (mesmos campos que a aba Logística do app edita) ----
@@ -1772,7 +1780,7 @@ const TOOLS: Tool[] = [
   {
     name: "atualizar_status",
     description:
-      "Altera o status de um processo para um dos status cadastrados na empresa (informe o nome ou o código). Não aplica status que finalizam o processo e não edita processos finalizados. Escrita em 2 etapas: sem confirmar só devolve a prévia (como era / como vai ficar); grave (confirmar: true) só depois que o usuário aprovar.",
+      "Altera o status de um processo para um dos status cadastrados na empresa (informe o nome ou o código). Pode aplicar status que finalizam o processo (Finalizado/Endossado): isso trava a edição e só se desfaz reabrindo pelo AuraComex, então mostre o aviso da prévia ao usuário. Não edita processos já finalizados. Escrita em 2 etapas: sem confirmar só devolve a prévia (como era / como vai ficar); grave (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
