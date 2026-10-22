@@ -20,12 +20,14 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
 };
 
-const FULL_ACCESS_ROLES = ["admin", "diretor", "gerente", "superadmin"];
+// "assistente_virtual" = login do agente (Aurélio): acesso total aos dados do conector, sem ser admin
+// (não gerencia usuários/configurações, que nem existem neste conector).
+const FULL_ACCESS_ROLES = ["admin", "diretor", "gerente", "superadmin", "assistente_virtual"];
 const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "inside", "salesperson"];
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.13.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.14.0" };
 
 // ---------- helpers ----------
 
