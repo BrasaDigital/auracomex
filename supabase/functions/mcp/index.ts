@@ -27,7 +27,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.15.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.15.1" };
 
 // ---------- helpers ----------
 
@@ -1398,7 +1398,7 @@ async function criarEstimativa(ctx: Ctx, a: Args) {
 
   const [{ data: q }, { data: itens }, { data: emb }] = await Promise.all([
     ctx.sb.from("quotes").select("incoterm,origin,destination,transit_time").eq("id", quoteId).maybeSingle(),
-    ctx.sb.from("quote_items").select("id,ncm_code,commodity,weight_kg,packages,container_qty").eq("quote_id", quoteId).order("created_at"),
+    ctx.sb.from("quote_items").select("id,ncm_code,commodity,weight_kg,pieces,packages,container_qty").eq("quote_id", quoteId).order("created_at"),
     ctx.sb.from("shipments").select("carrier,etd,eta").eq("id", sh.id).maybeSingle(),
   ]);
   let transito: string | undefined;
@@ -1413,7 +1413,9 @@ async function criarEstimativa(ctx: Ctx, a: Args) {
   };
   const linhas = (itens ?? []).filter((i: { id?: string }) => i?.id).map((qi: Record<string, unknown>, idx: number) => ({
     quote_item_id: qi.id, ordem: idx, ncm: qi.ncm_code || null, nome: qi.commodity || "",
-    peso: Number(qi.weight_kg) || 0, quantidade: Number(qi.packages) || Number(qi.container_qty) || 0,
+    peso: Number(qi.weight_kg) || 0,
+    // Quantidade = peças do item (é por ela que o VMCV unitário multiplica); sem peças, cai para volumes/contêineres como o app.
+    quantidade: Number(qi.pieces) || Number(qi.packages) || Number(qi.container_qty) || 0,
     vmcv_unit_usd: 0, aliq_ii: 0, aliq_ipi: 0, aliq_pis: 2.1, aliq_cofins: 9.65, aliq_icms: 18,
   }));
 
