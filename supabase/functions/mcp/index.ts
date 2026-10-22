@@ -27,7 +27,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.14.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.15.0" };
 
 // ---------- helpers ----------
 
@@ -1378,8 +1378,68 @@ async function estimativaDoProcesso(ctx: Ctx, a: Args, write: boolean) {
   const { sh, quoteId } = await processoComCotacao(ctx, a, write);
   const { data: est, error } = await ctx.sb.from("cost_estimates").select("*").eq("quote_id", quoteId).maybeSingle();
   if (error) throw new ToolError("Falha ao carregar a estimativa.");
-  if (!est) throw new ToolError(`O processo ${sh.reference_number} ainda não tem estimativa. Abra a aba Estimativa no AuraComex uma vez para ela ser criada.`);
+  if (!est) throw new ToolError(`O processo ${sh.reference_number} ainda não tem estimativa. Use criar_estimativa (prévia + confirmação) para criá-la.`);
   return { sh, quoteId, est: est as Record<string, unknown> };
+}
+
+// Cria a Estimativa de custo de um processo que ainda não tem (o app faz isso no botão "Criar estimativa").
+// Semeia o cabeçalho com os dados da cotação/embarque e os itens com a Carga, com as alíquotas padrão do app.
+// Frete/seguro/despesas vindos das Taxas e os totais são calculados pelo app quando a aba é aberta.
+async function criarEstimativa(ctx: Ctx, a: Args) {
+  requireRole(ctx, FULL_ACCESS_ROLES, "a estimativa de custo");
+  const { sh, quoteId } = await processoComCotacao(ctx, a, true);
+  const usd = a.usd_brl, eur = a.eur_brl;
+  if (typeof usd !== "number" || !(usd > 0) || usd > 1000) throw new ToolError('Informe "usd_brl" (câmbio fiscal USD→BRL, número > 0, ex.: 5.42). Pergunte ao usuário qual câmbio usar.');
+  if (eur !== undefined && eur !== null && (typeof eur !== "number" || !(eur > 0) || eur > 1000)) throw new ToolError('"eur_brl" deve ser um número > 0.');
+
+  const { data: ja, error: ej } = await ctx.sb.from("cost_estimates").select("id").eq("quote_id", quoteId).maybeSingle();
+  if (ej) throw new ToolError("Falha ao verificar a estimativa.");
+  if (ja) throw new ToolError(`O processo ${sh.reference_number} já tem estimativa. Use ver_estimativa e atualizar_estimativa.`);
+
+  const [{ data: q }, { data: itens }, { data: emb }] = await Promise.all([
+    ctx.sb.from("quotes").select("incoterm,origin,destination,transit_time").eq("id", quoteId).maybeSingle(),
+    ctx.sb.from("quote_items").select("id,ncm_code,commodity,weight_kg,packages,container_qty").eq("quote_id", quoteId).order("created_at"),
+    ctx.sb.from("shipments").select("carrier,etd,eta").eq("id", sh.id).maybeSingle(),
+  ]);
+  let transito: string | undefined;
+  if (emb?.etd && emb?.eta) {
+    const dias = Math.round((new Date(emb.eta as string).getTime() - new Date(emb.etd as string).getTime()) / 86400000);
+    if (dias >= 0) transito = `${dias} DIAS`;
+  }
+  if (!transito && q?.transit_time) transito = String(q.transit_time);
+  const cab = {
+    incoterm: q?.incoterm ?? null, rota_origem: q?.origin ?? null, rota_destino: q?.destination ?? null,
+    carrier: emb?.carrier ?? null, transito: transito ?? null, usd_brl: usd, eur_brl: typeof eur === "number" ? eur : 0,
+  };
+  const linhas = (itens ?? []).filter((i: { id?: string }) => i?.id).map((qi: Record<string, unknown>, idx: number) => ({
+    quote_item_id: qi.id, ordem: idx, ncm: qi.ncm_code || null, nome: qi.commodity || "",
+    peso: Number(qi.weight_kg) || 0, quantidade: Number(qi.packages) || Number(qi.container_qty) || 0,
+    vmcv_unit_usd: 0, aliq_ii: 0, aliq_ipi: 0, aliq_pis: 2.1, aliq_cofins: 9.65, aliq_icms: 18,
+  }));
+
+  if (!confirmado(a)) {
+    return previa({
+      processo: sh.reference_number,
+      como_era: "O processo ainda não tem estimativa.",
+      como_vai_ficar: {
+        cabecalho: cab,
+        itens: linhas.map((l) => ({ nome: l.nome, ncm: l.ncm, peso: l.peso, quantidade: l.quantidade, aliquotas_padrao: "II 0, IPI 0, PIS 2,1, COFINS 9,65, ICMS 18 (%)", vmcv_unit_usd: 0 })),
+        observacao: "Cria só o cabeçalho e os itens da Carga. Frete/seguro/despesas das Taxas e os totais são calculados pelo app quando a aba Estimativa é aberta. Depois, informe o VMCV unitário e as alíquotas com atualizar_estimativa.",
+      },
+    });
+  }
+
+  const { data: est, error } = await ctx.sb.from("cost_estimates").insert({ company_id: ctx.companyId, quote_id: quoteId, ...cab }).select("id").single();
+  if (error || !est) throw new ToolError("Não foi possível criar a estimativa.");
+  if (linhas.length) {
+    const { error: ei } = await ctx.sb.from("cost_estimate_items").upsert(
+      linhas.map((l) => ({ ...l, estimate_id: est.id, company_id: ctx.companyId })), { onConflict: "estimate_id,quote_item_id" });
+    if (ei) {
+      await ctx.sb.from("cost_estimates").delete().eq("id", est.id);
+      throw new ToolError("Não foi possível criar os itens da estimativa; nada foi gravado.");
+    }
+  }
+  return ok({ criada: true, aplicado: true, processo: sh.reference_number, itens_criados: linhas.length, proximo_passo: "Use ver_estimativa e atualizar_estimativa para informar VMCV unitário e alíquotas. Frete/seguro/despesas das Taxas e os totais aparecem quando a aba Estimativa é aberta no app." });
 }
 
 async function verEstimativa(ctx: Ctx, a: Args) {
@@ -2146,6 +2206,23 @@ const TOOLS: Tool[] = [
       required: ["processo", "id_taxa"],
     },
     run: removerTaxa,
+    write: true,
+  },
+  {
+    name: "criar_estimativa",
+    description:
+      "Cria a Estimativa de custo de um processo que ainda não tem (o que o app faz no botão \"Criar estimativa\"): cabeçalho com incoterm, rota, transportadora e trânsito vindos da cotação/embarque, câmbio informado e os itens da Carga com as alíquotas padrão (II 0, IPI 0, PIS 2,1, COFINS 9,65, ICMS 18). Depois use atualizar_estimativa para VMCV e alíquotas. Frete/seguro/despesas das Taxas e os totais são calculados pelo app ao abrir a aba. Só perfis de acesso total. Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        processo: { type: "string", description: "Número de referência exato do processo." },
+        usd_brl: { type: "number", description: "Câmbio fiscal USD→BRL (ex.: 5.42). Pergunte ao usuário." },
+        eur_brl: { type: "number", description: "Opcional. Câmbio EUR→BRL." },
+        confirmar: CONFIRMAR_PROP,
+      },
+      required: ["processo", "usd_brl"],
+    },
+    run: criarEstimativa,
     write: true,
   },
   {
