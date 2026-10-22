@@ -27,7 +27,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.16.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.17.0" };
 
 // ---------- helpers ----------
 
@@ -1449,12 +1449,25 @@ async function criarEstimativa(ctx: Ctx, a: Args) {
     incoterm: q?.incoterm ?? null, rota_origem: q?.origin ?? null, rota_destino: q?.destination ?? null,
     carrier: emb?.carrier ?? null, transito: transito ?? null, usd_brl: usd, eur_brl: typeof eur === "number" ? eur : 0,
   };
-  const linhas = (itens ?? []).filter((i: { id?: string }) => i?.id).map((qi: Record<string, unknown>, idx: number) => ({
+  const buscar = a.buscar_aliquotas !== false; // padrão: busca, como o app ao preencher o NCM
+  const avisosNcm: string[] = [];
+  const cacheNcm = new Map<string, AliqNcm | null>();
+  const aliqDoItem = async (ncm: unknown): Promise<AliqNcm | null> => {
+    const k = String(ncm ?? "").replace(/\D/g, "");
+    if (!buscar || !k) return null;
+    if (!cacheNcm.has(k)) {
+      try { cacheNcm.set(k, await aliquotasPorNcm(ctx, k)); } catch (e) { cacheNcm.set(k, null); avisosNcm.push(e instanceof ToolError ? e.message : `NCM ${k}: consulta falhou`); }
+    }
+    return cacheNcm.get(k) ?? null;
+  };
+  const itensValidos = (itens ?? []).filter((i: { id?: string }) => i?.id) as Record<string, unknown>[];
+  const aliqs = await Promise.all(itensValidos.map((qi) => aliqDoItem(qi.ncm_code)));
+  const linhas = itensValidos.map((qi: Record<string, unknown>, idx: number) => ({
     quote_item_id: qi.id, ordem: idx, ncm: qi.ncm_code || null, nome: qi.commodity || "",
     peso: Number(qi.weight_kg) || 0,
     // Quantidade = peças do item (é por ela que o VMCV unitário multiplica); sem peças, cai para volumes/contêineres como o app.
     quantidade: Number(qi.pieces) || Number(qi.packages) || Number(qi.container_qty) || 0,
-    vmcv_unit_usd: 0, aliq_ii: 0, aliq_ipi: 0, aliq_pis: 2.1, aliq_cofins: 9.65, aliq_icms: 18,
+    vmcv_unit_usd: 0, aliq_ii: aliqs[idx]?.ii ?? 0, aliq_ipi: aliqs[idx]?.ipi ?? 0, aliq_pis: aliqs[idx]?.pis ?? 2.1, aliq_cofins: aliqs[idx]?.cofins ?? 9.65, aliq_icms: 18,
   }));
 
   if (!confirmado(a)) {
@@ -1463,7 +1476,8 @@ async function criarEstimativa(ctx: Ctx, a: Args) {
       como_era: "O processo ainda não tem estimativa.",
       como_vai_ficar: {
         cabecalho: cab,
-        itens: linhas.map((l) => ({ nome: l.nome, ncm: l.ncm, peso: l.peso, quantidade: l.quantidade, aliquotas_padrao: "II 0, IPI 0, PIS 2,1, COFINS 9,65, ICMS 18 (%)", vmcv_unit_usd: 0 })),
+        itens: linhas.map((l) => ({ nome: l.nome, ncm: l.ncm, peso: l.peso, quantidade: l.quantidade, aliquotas_percentual: { II: l.aliq_ii, IPI: l.aliq_ipi, PIS: l.aliq_pis, COFINS: l.aliq_cofins, ICMS: l.aliq_icms }, vmcv_unit_usd: 0 })),
+        consulta_ncm: buscar ? { feita: true, avisos: avisosNcm, nota: "II/IPI da base oficial (TEC/TIPI); PIS/COFINS = alíquota geral do regime (confira monofásico/diferenciado); ICMS = 18 padrão (confira). Item sem NCM ou com consulta que falhou fica com II 0, IPI 0." } : { feita: false },
         observacao: "Cria só o cabeçalho e os itens da Carga. Frete/seguro/despesas das Taxas e os totais são calculados pelo app quando a aba Estimativa é aberta. Depois, informe o VMCV unitário e as alíquotas com atualizar_estimativa.",
       },
     });
@@ -1480,6 +1494,36 @@ async function criarEstimativa(ctx: Ctx, a: Args) {
     }
   }
   return ok({ criada: true, aplicado: true, processo: sh.reference_number, itens_criados: linhas.length, proximo_passo: "Use ver_estimativa e atualizar_estimativa para informar VMCV unitário e alíquotas. Frete/seguro/despesas das Taxas e os totais aparecem quando a aba Estimativa é aberta no app." });
+}
+
+// Alíquotas por NCM: mesma ação do botão da aba Estimativa (siscomex-gateway / get_ncm_rates).
+// II/IPI vêm da base oficial (TEC/TIPI via Tabelas Fiscais); PIS/COFINS são a alíquota GERAL do regime
+// (não é por NCM): monofásico/diferenciado precisa ser conferido. ICMS não é consultado.
+type AliqNcm = { ii: number; ipi: number; pis: number; cofins: number; descricao: string | null; fonte: string };
+async function aliquotasPorNcm(ctx: Ctx, ncm: unknown): Promise<AliqNcm> {
+  const limpo = String(ncm ?? "").replace(/\D/g, "");
+  if (limpo.length !== 8) throw new ToolError(`NCM "${String(ncm ?? "")}" inválido: precisa ter 8 dígitos.`);
+  const { data, error } = await ctx.sb.functions.invoke("siscomex-gateway", { body: { action: "get_ncm_rates", ncm: limpo, company_id: ctx.companyId } });
+  let corpo = data as Record<string, unknown> | null;
+  if (error && !corpo) {
+    try { corpo = await (error as unknown as { context: Response }).context.json(); } catch (_) { /* sem corpo */ }
+  }
+  if (!corpo?.success || !corpo.rates) {
+    throw new ToolError(`NCM ${limpo}: ${String(corpo?.error ?? "não foi possível consultar as alíquotas agora")}`);
+  }
+  const r = corpo.rates as Record<string, number>;
+  return { ii: Number(r.ii), ipi: Number(r.ipi), pis: Number(r.pis), cofins: Number(r.cofins), descricao: (corpo.ncm_descricao as string | null) ?? null, fonte: String(corpo.source ?? "") };
+}
+
+async function consultarAliquotasNcm(ctx: Ctx, a: Args) {
+  requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações");
+  const r = await aliquotasPorNcm(ctx, a.ncm);
+  return ok({
+    ncm: String(a.ncm).replace(/\D/g, ""), descricao: r.descricao,
+    aliquotas_percentual: { II: r.ii, IPI: r.ipi, PIS: r.pis, COFINS: r.cofins },
+    fonte: r.fonte,
+    atencao: "PIS/COFINS são a alíquota geral do regime, não específica do NCM: confira enquadramento monofásico/diferenciado. ICMS não é consultado (depende da UF e do produto).",
+  });
 }
 
 async function verEstimativa(ctx: Ctx, a: Args) {
@@ -1532,6 +1576,7 @@ async function atualizarEstimativa(ctx: Ctx, a: Args) {
 
   // Itens (somente dados fiscais)
   const itemUpd: { id: string; nome: string; patch: Record<string, unknown>; row: Record<string, unknown> }[] = [];
+  const consultasNcm: { item: string; ncm: string; descricao: string | null }[] = [];
   if (itensIn !== undefined) {
     if (!Array.isArray(itensIn) || itensIn.length === 0 || itensIn.length > 50) throw bad('"itens" deve ser uma lista de 1 a 50.');
     const { data: atuais } = await ctx.sb.from("cost_estimate_items").select("*").eq("estimate_id", est.id as string);
@@ -1543,14 +1588,22 @@ async function atualizarEstimativa(ctx: Ctx, a: Args) {
       const row = byId.get(id);
       if (!UUID_RE.test(id) || !row) throw bad(`Item ${i + 1}: "id" inválido (use o id de ver_estimativa).`);
       const patch: Record<string, unknown> = {};
+      let buscarNcm = false;
       for (const [k, v] of Object.entries(o)) {
         if (k === "id") continue;
+        if (k === "buscar_aliquotas_ncm") { if (typeof v !== "boolean") throw bad(`Item ${i + 1}, "buscar_aliquotas_ncm": true ou false.`); buscarNcm = v; continue; }
         const kind = EST_ITEM[k];
         if (!kind) throw bad(`Item ${i + 1}: campo "${k}" não editável. Editáveis: ${Object.keys(EST_ITEM).join(", ")}. (nome/NCM/peso/quantidade vêm da Carga.)`);
         if (kind === "usd") { if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1e9) throw bad(`Item ${i + 1}, "${k}": número >= 0.`); patch[k] = v; }
         else if (kind === "pct") { if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 99.99) throw bad(`Item ${i + 1}, "${k}": percentual entre 0 e 99,99 (ex.: 14.4 = 14,4%).`); patch[k] = v; }
         else if (kind === "dest") { if (v !== "consumo_final" && v !== "revenda_industrializacao") throw bad(`Item ${i + 1}: destinacao = consumo_final ou revenda_industrializacao.`); patch[k] = v; }
         else { if (typeof v !== "boolean") throw bad(`Item ${i + 1}, "${k}": true ou false.`); patch[k] = v; }
+      }
+      if (buscarNcm) {
+        if (!String(row.ncm ?? "").replace(/\D/g, "")) throw bad(`Item ${i + 1}: sem NCM — preencha o NCM na Carga (atualizar_carga) antes de buscar as alíquotas.`);
+        const r = await aliquotasPorNcm(ctx, row.ncm);
+        consultasNcm.push({ item: String(row.nome ?? ""), ncm: String(row.ncm), descricao: r.descricao });
+        for (const [kk, vv] of Object.entries({ aliq_ii: r.ii, aliq_ipi: r.ipi, aliq_pis: r.pis, aliq_cofins: r.cofins })) if (!(kk in patch)) patch[kk] = vv; // valor informado no mesmo item vence
       }
       if (Object.keys(patch).length === 0) throw bad(`Item ${i + 1}: nada para alterar.`);
       itemUpd.push({ id, nome: String(row.nome ?? ""), patch, row });
@@ -1568,6 +1621,7 @@ async function atualizarEstimativa(ctx: Ctx, a: Args) {
       processo: sh.reference_number,
       cabecalho: hdrChanges.map(([k, v]) => ({ campo: k, como_era: str(est[k]) || null, como_vai_ficar: str(v) || null })),
       itens: itemChanges.map((u) => ({ item: u.nome, mudancas: u.changes.map(([k, v]) => ({ campo: k, como_era: str(u.row[k]) || null, como_vai_ficar: str(v) })) })),
+      ...(consultasNcm.length ? { consulta_ncm: consultasNcm, atencao_ncm: "II/IPI da base oficial (TEC/TIPI); PIS/COFINS = alíquota geral do regime (confira monofásico/diferenciado). ICMS não é consultado." } : {}),
       nota: "Os totais e impostos são recalculados pelo app ao abrir a aba Estimativa.",
     });
   }
@@ -2358,12 +2412,24 @@ const TOOLS: Tool[] = [
         processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         usd_brl: { type: "number", description: "Câmbio fiscal USD→BRL (ex.: 5.42). Pergunte ao usuário." },
         eur_brl: { type: "number", description: "Opcional. Câmbio EUR→BRL." },
+        buscar_aliquotas: { type: "boolean", description: "Padrão true: busca II/IPI (e PIS/COFINS geral) pelo NCM de cada item, como o botão da aba Estimativa. false = alíquotas padrão do app." },
         confirmar: CONFIRMAR_PROP,
       },
       required: ["usd_brl"],
     },
     run: criarEstimativa,
     write: true,
+  },
+  {
+    name: "consultar_aliquotas_ncm",
+    description:
+      "Consulta as alíquotas de importação de um NCM de 8 dígitos (a mesma busca do botão da aba Estimativa): II e IPI da base oficial (TEC/TIPI) e PIS/COFINS pela alíquota geral do regime (não é por NCM: confira monofásico/diferenciado). ICMS não é consultado. Só lê; para aplicar numa estimativa use criar_estimativa (busca sozinha) ou atualizar_estimativa com buscar_aliquotas_ncm.",
+    inputSchema: {
+      type: "object",
+      properties: { ncm: { type: "string", description: "NCM com 8 dígitos (pontos são ignorados)." } },
+      required: ["ncm"],
+    },
+    run: consultarAliquotasNcm,
   },
   {
     name: "ver_estimativa",
@@ -2378,7 +2444,7 @@ const TOOLS: Tool[] = [
   {
     name: "atualizar_estimativa",
     description:
-      "Edita a Estimativa de custo de um processo. \"campos\" (cabeçalho): " + Object.keys(EST_HEADER).join(", ") + " (usd_brl = câmbio fiscal; usd_brl_agencia = câmbio da agência — ao informar o valor, o modo automático é desligado). \"itens\": lista de {id (de ver_estimativa), " + Object.keys(EST_ITEM).join(", ") + "} — alíquotas em percentual (14.4 = 14,4%). Não edita frete/seguro/despesas (vêm das Taxas) nem nome/NCM/peso/quantidade dos itens (vêm da Carga). Bloqueada se o Numerário já foi aprovado. Só perfis de acesso total. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
+      "Edita a Estimativa de custo de um processo. \"campos\" (cabeçalho): " + Object.keys(EST_HEADER).join(", ") + " (usd_brl = câmbio fiscal; usd_brl_agencia = câmbio da agência — ao informar o valor, o modo automático é desligado). \"itens\": lista de {id (de ver_estimativa), " + Object.keys(EST_ITEM).join(", ") + "} — alíquotas em percentual (14.4 = 14,4%). Por item, buscar_aliquotas_ncm: true busca II/IPI/PIS/COFINS pelo NCM do item (como o botão da aba). Não edita frete/seguro/despesas (vêm das Taxas) nem nome/NCM/peso/quantidade dos itens (vêm da Carga). Bloqueada se o Numerário já foi aprovado. Só perfis de acesso total. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2395,6 +2461,7 @@ const TOOLS: Tool[] = [
               aliq_ii: { type: "number" }, aliq_ipi: { type: "number" }, aliq_pis: { type: "number" }, aliq_cofins: { type: "number" }, aliq_icms: { type: "number" },
               destinacao: { type: "string", enum: ["consumo_final", "revenda_industrializacao"] },
               cofins_adicional: { type: "boolean" },
+              buscar_aliquotas_ncm: { type: "boolean", description: "true = busca II, IPI, PIS e COFINS pelo NCM do item (como o botão da aba Estimativa). Valores informados no mesmo item prevalecem." },
             },
             required: ["id"],
             additionalProperties: false,
