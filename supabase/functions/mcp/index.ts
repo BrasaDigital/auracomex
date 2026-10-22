@@ -25,7 +25,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.10.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.10.2" };
 
 // ---------- helpers ----------
 
@@ -290,6 +290,14 @@ async function listarCotacoes(ctx: Ctx, a: Args) {
   return ok({ total: data?.length ?? 0, cotacoes: data ?? [] });
 }
 
+async function consultarRastreioDhl(ctx: Ctx, a: Args) {
+  const codigo = String(a.codigo ?? "").replace(/\s/g, "");
+  if (!/^[A-Za-z0-9]{6,40}$/.test(codigo)) throw new ToolError("Código de rastreio inválido.");
+  const { data, error } = await ctx.sb.functions.invoke("dhl-tracking", { body: { tracking_number: codigo } });
+  if (error) throw new ToolError("Falha ao consultar a DHL. Tente novamente mais tarde.");
+  return ok(data);
+}
+
 // ---------- escrita ----------
 // Regras: só o que o usuário já pode fazer no app (RLS + role), nunca
 // publica no rastreio do cliente (visible_tracking sempre false) e respeita o bloqueio de
@@ -313,7 +321,7 @@ const CONFIRMAR_PROP = {
 };
 
 const DIARY_CATEGORIES = ["booking", "origin", "transit", "customs", "delivery", "billing", "update"];
-const NOTE_PREFIX = "[via Claude] ";
+const NOTE_PREFIX = "[via AuraComexAI] ";
 
 // Localiza um processo pela referência EXATA, respeitando o escopo do vendedor.
 async function findShipmentByRef(ctx: Ctx, ref: string, cols: string) {
@@ -640,7 +648,7 @@ async function adicionarCarga(ctx: Ctx, a: Args) {
   if (error) throw new ToolError(`Não foi possível registrar a carga: ${error.message.slice(0, 200)}`);
   await ctx.sb.from("shipment_audit_log").insert({
     shipment_id: sh.id, quote_id: q.id, company_id: sh.company_id, user_id: ctx.userId,
-    field_name: "cargo_items", old_value: null, new_value: `${itens.length} item(ns) de carga adicionados via Claude`,
+    field_name: "cargo_items", old_value: null, new_value: `${itens.length} item(ns) de carga adicionados via AuraComexAI`,
   });
   return ok({ adicionado: true, processo: sh.reference_number, itens_adicionados: itens.length });
 }
@@ -811,7 +819,7 @@ async function adicionarTaxas(ctx: Ctx, a: Args) {
   await syncQuoteTotals(ctx, quoteId);
   await ctx.sb.from("shipment_audit_log").insert(taxas.map((t) => ({
     shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: "charge", old_value: null,
-    new_value: `${t.descricao} (${[t.compra > 0 ? `compra ${t.moedaCompra} ${t.compra.toFixed(2)}` : "", t.venda > 0 ? `venda ${t.moedaVenda} ${t.venda.toFixed(2)}` : ""].filter(Boolean).join(" / ")}) via Claude`,
+    new_value: `${t.descricao} (${[t.compra > 0 ? `compra ${t.moedaCompra} ${t.compra.toFixed(2)}` : "", t.venda > 0 ? `venda ${t.moedaVenda} ${t.venda.toFixed(2)}` : ""].filter(Boolean).join(" / ")}) via AuraComexAI`,
   })));
   return ok({ adicionado: true, processo: sh.reference_number, taxas_adicionadas: taxas.length, linhas_criadas: rows.length });
 }
@@ -868,7 +876,7 @@ async function atualizarTaxa(ctx: Ctx, a: Args) {
   await ctx.sb.from("shipment_audit_log").insert({
     shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: "charge",
     old_value: `${row.description}: ${mudou.map((k) => `${k}=${str(row[k]) || "-"}`).join(", ")}`,
-    new_value: `${row.description}: ${mudou.map((k) => `${k}=${str(upd[k]) || "-"}`).join(", ")} (via Claude)`,
+    new_value: `${row.description}: ${mudou.map((k) => `${k}=${str(upd[k]) || "-"}`).join(", ")} (via AuraComexAI)`,
   });
   return ok({ alterado: true, processo: sh.reference_number, taxa: row.description, mudancas });
 }
@@ -996,7 +1004,7 @@ async function atualizarCarga(ctx: Ctx, a: Args) {
   }
   await ctx.sb.from("shipment_audit_log").insert(mudancas.flatMap((m) => m.campos.map(([k, v]) => ({
     shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: `cargo.${k}`,
-    old_value: `${m.item}: ${str(m.antes[k]) || "-"}`, new_value: `${m.item}: ${str(v) || "-"} (via Claude)`,
+    old_value: `${m.item}: ${str(m.antes[k]) || "-"}`, new_value: `${m.item}: ${str(v) || "-"} (via AuraComexAI)`,
   }))));
   return ok({ alterado: true, processo: sh.reference_number, itens_alterados: mudancas.length, totais_no_app: cargoAppTotals(depois, volumes) });
 }
@@ -1039,7 +1047,7 @@ async function atualizarCargaFisica(ctx: Ctx, a: Args) {
   if (error) throw new ToolError(`Não foi possível salvar: ${error.message.slice(0, 200)}`);
   await ctx.sb.from("shipment_audit_log").insert(mudou.map(([k, v]) => ({
     shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: `cargo_fisica.${k}`,
-    old_value: str((cur as Record<string, unknown> | null)?.[k]) || null, new_value: `${str(v) || "-"} (via Claude)`,
+    old_value: str((cur as Record<string, unknown> | null)?.[k]) || null, new_value: `${str(v) || "-"} (via AuraComexAI)`,
   })));
   return ok({ alterado: true, processo: sh.reference_number, mudancas });
 }
@@ -1090,7 +1098,7 @@ async function atualizarVolumesCarga(ctx: Ctx, a: Args) {
   }
   await ctx.sb.from("shipment_audit_log").insert({
     shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: "cargo_volumes",
-    old_value: `${volumes.length} linha(s) de volume`, new_value: `${novos.length} linha(s) de volume (via Claude)`,
+    old_value: `${volumes.length} linha(s) de volume`, new_value: `${novos.length} linha(s) de volume (via AuraComexAI)`,
   });
   return ok({ alterado: true, processo: sh.reference_number, linhas: novos.length, totais_no_app: depois });
 }
@@ -1115,7 +1123,7 @@ async function removerCarga(ctx: Ctx, a: Args) {
   if (error) throw new ToolError(`Não foi possível remover: ${error.message.slice(0, 200)}`);
   await ctx.sb.from("shipment_audit_log").insert({
     shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: "cargo_items",
-    old_value: alvo.map((r) => String(r.commodity ?? r.id)).join("; "), new_value: `${alvo.length} item(ns) removidos via Claude`,
+    old_value: alvo.map((r) => String(r.commodity ?? r.id)).join("; "), new_value: `${alvo.length} item(ns) removidos via AuraComexAI`,
   });
   return ok({ removido: true, processo: sh.reference_number, itens_removidos: alvo.length, totais_no_app: cargoAppTotals(resto, volumes) });
 }
@@ -1281,7 +1289,7 @@ async function removerTaxa(ctx: Ctx, a: Args) {
   await syncQuoteTotals(ctx, quoteId);
   await ctx.sb.from("shipment_audit_log").insert({
     shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: "charge",
-    old_value: String(row.description ?? ""), new_value: "removida via Claude",
+    old_value: String(row.description ?? ""), new_value: "removida via AuraComexAI",
   });
   return ok({ removido: true, processo: sh.reference_number, taxa: row.description });
 }
@@ -1410,8 +1418,8 @@ async function atualizarEstimativa(ctx: Ctx, a: Args) {
     if (error) throw new ToolError(`Não foi possível salvar o item "${u.nome}": ${error.message.slice(0, 200)}`);
   }
   await ctx.sb.from("shipment_audit_log").insert([
-    ...hdrChanges.map(([k, v]) => ({ shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: `estimate.${k}`, old_value: str(est[k]) || null, new_value: `${str(v)} (via Claude)` })),
-    ...itemChanges.flatMap((u) => u.changes.map(([k, v]) => ({ shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: `estimate.item.${k}`, old_value: `${u.nome}: ${str(u.row[k]) || "-"}`, new_value: `${u.nome}: ${str(v)} (via Claude)` }))),
+    ...hdrChanges.map(([k, v]) => ({ shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: `estimate.${k}`, old_value: str(est[k]) || null, new_value: `${str(v)} (via AuraComexAI)` })),
+    ...itemChanges.flatMap((u) => u.changes.map(([k, v]) => ({ shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: `estimate.item.${k}`, old_value: `${u.nome}: ${str(u.row[k]) || "-"}`, new_value: `${u.nome}: ${str(v)} (via AuraComexAI)` }))),
   ]);
   return ok({ alterado: true, processo: sh.reference_number, campos_alterados: hdrChanges.length, itens_alterados: itemChanges.length });
 }
@@ -1541,7 +1549,7 @@ async function criarProcesso(ctx: Ctx, a: Args) {
   }
   await ctx.sb.from("shipment_audit_log").insert({
     shipment_id: novo.id, quote_id: cot.id, company_id: ctx.companyId, user_id: ctx.userId,
-    field_name: "conversion", old_value: "Cotação (quoting)", new_value: `Embarque criado (${novo.reference_number}) via Claude`,
+    field_name: "conversion", old_value: "Cotação (quoting)", new_value: `Embarque criado (${novo.reference_number}) via AuraComexAI`,
   });
 
   let cargaRegistrada = 0;
@@ -1761,9 +1769,22 @@ const TOOLS: Tool[] = [
     run: listarCotacoes,
   },
   {
+    name: "consultar_rastreio_dhl",
+    description:
+      "Consulta na DHL (API oficial de rastreio) o status de um código de rastreio DHL Express: último evento, local, data/hora e entrega estimada. Somente leitura; não grava nada no Aura.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        codigo: { type: "string", description: "Código de rastreio DHL (waybill), ex.: 8719621050." },
+      },
+      required: ["codigo"],
+    },
+    run: consultarRastreioDhl,
+  },
+  {
     name: "adicionar_observacao",
     description:
-      "Adiciona uma observação ao diário interno de um processo (fica registrada com o seu usuário e o prefixo \"[via Claude]\"). Não aparece no rastreio do cliente. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
+      "Adiciona uma observação ao diário interno de um processo (fica registrada com o seu usuário e o prefixo \"[via AuraComexAI]\"). Não aparece no rastreio do cliente. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
