@@ -49,7 +49,10 @@ export interface MappedEstimate {
   ignored: Array<{ description: string; currency: string; amount: number }>;
 }
 
-const ADUANEIRA_KEYWORDS = ['ARMAZENAGEM', 'DESEMBARAÇO', 'DESEMBARACO', 'CAPATAZIA', 'ISPS', 'THC', 'TAXAS DE DESTINO'];
+const ADUANEIRA_KEYWORDS = ['ARMAZENAGEM', 'DESEMBARAÇO', 'DESEMBARACO', 'CAPATAZIA', 'ISPS', 'THC'];
+// "Taxas de Destino" (destination charges do agente) NUNCA é aduaneira — não entra na base do ICMS,
+// nem por palavra-chave, mesmo que a descrição contenha termos como THC.
+const NAO_ADUANEIRA_KEYWORDS = ['TAXAS DE DESTINO', 'TAXA DE DESTINO'];
 const FRETE_KEYWORDS = ['FRETE', 'FREIGHT', 'OCEAN FREIGHT', 'AIR FREIGHT'];
 const SEGURO_KEYWORDS = ['SEGURO', 'INSURANCE'];
 
@@ -113,7 +116,7 @@ export function mapChargesToEstimate(
     // Frete com leg 'origin'/'destination' é doméstico e NÃO entra no VMLD nem no ICMS.
     const isFrete = !isSeguro && c.leg === 'freight' && (hasKeyword(desc, FRETE_KEYWORDS) || c.charge_type === 'freight');
     const isFreteDomestico = hasKeyword(desc, FRETE_KEYWORDS) && c.leg !== 'freight';
-    const isAduaneira = hasKeyword(desc, ADUANEIRA_KEYWORDS);
+    const isAduaneira = !hasKeyword(desc, NAO_ADUANEIRA_KEYWORDS) && hasKeyword(desc, ADUANEIRA_KEYWORDS);
     const isPrepaid = c.payment_term === 'prepaid';
 
     // Calculamos o valor em BRL para exibição e armazenamento. Se esta taxa tem
