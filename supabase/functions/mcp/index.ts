@@ -27,7 +27,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.15.1" };
+const SERVER_INFO = { name: "auracomex", version: "0.16.0" };
 
 // ---------- helpers ----------
 
@@ -274,22 +274,26 @@ async function listarCotacoes(ctx: Ctx, a: Args) {
   requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações");
   const status = optStr(a, "status");
   const cliente = optStr(a, "cliente");
+  const numero = optStr(a, "numero");
 
   const ids = await clientFilter(ctx, cliente);
   if (ids && ids.length === 0) return ok({ total: 0, cotacoes: [] });
 
   // Custo (total_buy) só para perfis com acesso total.
-  const cols = "quote_number,status,transport_mode,origin,destination,incoterm,valid_until,currency,total_sell,created_at" +
+  const cols = "quote_number,status,transport_mode,origin,destination,incoterm,valid_until,currency,total_sell,created_at,shipment_id" +
     (FULL_ACCESS_ROLES.includes(ctx.role) ? ",total_buy" : "") +
     ",client:clients!quotes_client_id_fkey(name)";
 
   let q = ctx.sb.from("quotes").select(cols).order("created_at", { ascending: false }).limit(limitArg(a));
   if (status) q = q.eq("status", status);
+  if (numero) q = q.ilike("quote_number", `%${numero}%`);
+  if (a.sem_processo === true) q = q.is("shipment_id", null);
   if (ids) q = q.in("client_id", ids);
 
   const { data, error } = await q;
   if (error) throw new ToolError("Falha ao listar cotações.");
-  return ok({ total: data?.length ?? 0, cotacoes: data ?? [] });
+  const cotacoes = ((data ?? []) as unknown as Record<string, unknown>[]).map(({ shipment_id, ...r }) => ({ ...r, tem_processo: !!shipment_id }));
+  return ok({ total: cotacoes.length, cotacoes });
 }
 
 async function consultarRastreioDhl(ctx: Ctx, a: Args) {
@@ -724,15 +728,54 @@ const PAYMENT_TERMS = ["prepaid", "collect"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Processo + cotação ligada (as taxas ficam na cotação). Recusa processo finalizado.
+// O alvo das ferramentas de cotação/carga/estimativa é um PROCESSO ("processo") ou uma COTAÇÃO ainda sem
+// processo ("cotacao" = número da cotação). Os dois acabam numa cotação (quoteId); "sh" é o embarque ligado
+// (ou, para cotação sem processo, um registro equivalente com id = null).
+type Alvo = { sh: Record<string, any>; quoteId: string; viaCotacao: boolean }; // deno-lint-ignore no-explicit-any
+async function localizarCotacaoPorNumero(ctx: Ctx, numero: string) {
+  const ids = await scopedClientIds(ctx);
+  if (ids && ids.length === 0) throw new ToolError(`Cotação "${numero}" não encontrada.`);
+  let q = ctx.sb.from("quotes").select("id,quote_number,company_id,client_id,shipment_id,transport_mode,status").ilike("quote_number", numero).limit(2);
+  if (ids) q = q.in("client_id", ids);
+  const { data, error } = await q;
+  if (error) throw new ToolError("Falha ao localizar a cotação.");
+  if (!data || data.length === 0) throw new ToolError(`Cotação "${numero}" não encontrada (use o número exato; listar_cotacoes ajuda a achar).`);
+  if (data.length > 1) throw new ToolError(`Mais de uma cotação com o número "${numero}". Use o número completo.`);
+  return data[0] as Record<string, any>;
+}
+
+async function alvoDaCotacao(ctx: Ctx, a: Args, write: boolean, shCols: string): Promise<Alvo> {
+  const proc = optStr(a, "processo");
+  const cot = optStr(a, "cotacao");
+  if (proc && cot) throw new ToolError('Informe só um: "processo" (número do processo) OU "cotacao" (número da cotação).');
+  if (!proc && !cot) throw new ToolError('Informe "processo" (número exato do processo) ou "cotacao" (número exato da cotação, para cotação ainda sem processo).');
+  if (proc) {
+    const sh = await findShipmentByRef(ctx, proc, shCols);
+    if (write && sh.is_finalized) throw new ToolError(`O processo ${sh.reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
+    const { data: q } = await ctx.sb.from("quotes").select("id").eq("shipment_id", sh.id).limit(1).maybeSingle();
+    if (!q?.id) throw new ToolError(`O processo ${sh.reference_number} não tem cotação ligada, então não há onde registrar taxas ou carga.`);
+    return { sh, quoteId: q.id as string, viaCotacao: false };
+  }
+  const q = await localizarCotacaoPorNumero(ctx, cot!);
+  if (q.shipment_id) {
+    // Cotação já virou processo: vale a trava do processo (finalizado).
+    const { data: sh } = await ctx.sb.from("shipments").select(shCols).eq("id", q.shipment_id).maybeSingle();
+    if (sh) {
+      if (write && (sh as Record<string, any>).is_finalized) throw new ToolError(`O processo ${(sh as Record<string, any>).reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
+      return { sh: sh as Record<string, any>, quoteId: q.id as string, viaCotacao: true };
+    }
+  }
+  return {
+    sh: { id: null, reference_number: q.quote_number, company_id: q.company_id, client_id: q.client_id, is_finalized: false, transport_mode: q.transport_mode },
+    quoteId: q.id as string,
+    viaCotacao: true,
+  };
+}
+
 async function processoComCotacao(ctx: Ctx, a: Args, write: boolean) {
   requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações e taxas");
-  const ref = optStr(a, "processo");
-  if (!ref) throw new ToolError('Informe "processo" (número de referência exato).');
-  const sh = await findShipmentByRef(ctx, ref, "id,reference_number,company_id,client_id,is_finalized");
-  if (write && sh.is_finalized) throw new ToolError(`O processo ${sh.reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
-  const { data: q } = await ctx.sb.from("quotes").select("id").eq("shipment_id", sh.id).limit(1).maybeSingle();
-  if (!q?.id) throw new ToolError(`O processo ${sh.reference_number} não tem cotação ligada, então não há onde registrar taxas.`);
-  return { sh, quoteId: q.id as string };
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, write, "id,reference_number,company_id,client_id,is_finalized");
+  return { sh, quoteId };
 }
 
 const NOVA_EMPRESA_DICA = ` Empresa nova: pergunte ao usuário se é cliente, fornecedor (e qual categoria) ou embarcador e cadastre com cadastrar_empresa (prévia + confirmação) antes de continuar.`;
@@ -958,18 +1001,13 @@ const shapeVolume = (v: Record<string, unknown>) => ({
 
 // ---- Carga: listar / editar / remover itens existentes ----
 async function cargaDoProcesso(ctx: Ctx, a: Args, write: boolean) {
-  requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos");
-  const ref = optStr(a, "processo");
-  if (!ref) throw new ToolError('Informe "processo" (número de referência exato).');
-  const sh = await findShipmentByRef(ctx, ref, "id,reference_number,company_id,is_finalized,transport_mode");
-  if (write && sh.is_finalized) throw new ToolError(`O processo ${sh.reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
-  const { data: q } = await ctx.sb.from("quotes").select("id").eq("shipment_id", sh.id).limit(1).maybeSingle();
-  if (!q?.id) throw new ToolError(`O processo ${sh.reference_number} não tem cotação ligada, então não há carga registrada.`);
-  const { data: itens, error } = await ctx.sb.from("quote_items").select("*").eq("quote_id", q.id).order("created_at");
+  requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos e cotações");
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, write, "id,reference_number,company_id,is_finalized,transport_mode");
+  const { data: itens, error } = await ctx.sb.from("quote_items").select("*").eq("quote_id", quoteId).order("created_at");
   if (error) throw new ToolError("Falha ao carregar a carga.");
   const mode = String(sh.transport_mode ?? "");
-  const volumes = await loadVolumes(ctx, q.id as string, mode);
-  return { sh, quoteId: q.id as string, itens: (itens ?? []) as Record<string, unknown>[], mode, volumes };
+  const volumes = await loadVolumes(ctx, quoteId, mode);
+  return { sh, quoteId, itens: (itens ?? []) as Record<string, unknown>[], mode, volumes };
 }
 
 // O conector enxerga TUDO do item (todas as colunas, inclusive as vazias = null), menos ids internos.
@@ -1399,7 +1437,7 @@ async function criarEstimativa(ctx: Ctx, a: Args) {
   const [{ data: q }, { data: itens }, { data: emb }] = await Promise.all([
     ctx.sb.from("quotes").select("incoterm,origin,destination,transit_time").eq("id", quoteId).maybeSingle(),
     ctx.sb.from("quote_items").select("id,ncm_code,commodity,weight_kg,pieces,packages,container_qty").eq("quote_id", quoteId).order("created_at"),
-    ctx.sb.from("shipments").select("carrier,etd,eta").eq("id", sh.id).maybeSingle(),
+    sh.id ? ctx.sb.from("shipments").select("carrier,etd,eta").eq("id", sh.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   let transito: string | undefined;
   if (emb?.etd && emb?.eta) {
@@ -1739,6 +1777,84 @@ async function criarProcesso(ctx: Ctx, a: Args) {
   });
 }
 
+// Cria uma COTAÇÃO sem processo (status "quoting"), para o fluxo comercial. Depois use adicionar_carga,
+// adicionar_taxas e criar_estimativa com "cotacao". Número oficial digitado pelo usuário (como em criar_processo).
+const COTACAO_CAMPOS = ["origin_port", "destination_port", "transshipment", "incoterm", "client_reference", "free_time"];
+async function criarCotacao(ctx: Ctx, a: Args) {
+  requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações");
+  const cliente = optStr(a, "cliente");
+  if (!cliente) throw new ToolError('Informe "cliente" (nome, ou parte do nome, do cliente já cadastrado).');
+  const modal = typeof a.modal === "string" ? a.modal : "";
+  if (!TRANSPORT_MODES.includes(modal)) throw new ToolError(`Informe "modal": ${TRANSPORT_MODES.join(", ")}.`);
+  const manual = optStr(a, "referencia", 40);
+  if (!manual) throw new ToolError('Informe a "referencia" da cotação (número oficial na sequência da empresa, ex.: 26/345). Pergunte ao usuário qual número usar; o sistema não gera esse número automaticamente.');
+
+  const extra = (a.campos ?? {}) as Record<string, unknown>;
+  if (typeof extra !== "object" || Array.isArray(extra)) throw new ToolError('"campos" deve ser um objeto.');
+  const fora = Object.keys(extra).filter((k) => !COTACAO_CAMPOS.includes(k));
+  if (fora.length) throw new ToolError(`Campo(s) não aceitos na cotação: ${fora.join(", ")}. Aceitos: ${COTACAO_CAMPOS.join(", ")}.`);
+  const novos = prepareFields(extra, {});
+  const itensCarga = a.itens_carga === undefined || a.itens_carga === null ? [] : parseCargo(a.itens_carga, modal);
+  const direcao = a.direcao === "EXP" ? "EXP" : "IMP";
+
+  const externa = optStr(a, "referencia_externa", 60);
+  if (externa) {
+    const { data: ja } = await ctx.sb.from("quotes").select("quote_number,status").eq("company_id", ctx.companyId).eq("external_ref", externa).maybeSingle();
+    if (ja) return ok({ criado: false, ja_existia: true, nada_foi_gravado: true, referencia_externa: externa, cotacao: ja.quote_number, status: ja.status, proximo_passo: "Esta cotação já foi criada antes com a mesma referencia_externa. NÃO crie outra: continue com ela usando o número acima em \"cotacao\"." });
+  }
+
+  const ids = await clientFilter(ctx, cliente);
+  if (!ids || ids.length === 0) {
+    if (ids) throw new ToolError(`Nenhum cliente seu encontrado com o nome "${cliente}".`);
+    throw new ToolError(`Cliente "${cliente}" não encontrado.${NOVA_EMPRESA_DICA}`);
+  }
+  const { data: cls, error: ec } = await ctx.sb.from("clients").select("id,name").in("id", ids).limit(10);
+  if (ec) throw new ToolError("Falha ao buscar o cliente.");
+  const exato = (cls ?? []).filter((c: { name: string }) => c.name.toLowerCase() === cliente.toLowerCase());
+  const cand = exato.length === 1 ? exato : (cls ?? []);
+  if (cand.length !== 1) throw new ToolError(`Cliente "${cliente}" é ambíguo ou não existe. Opções: ${(cls ?? []).map((c: { name: string }) => c.name).join("; ") || "nenhuma"}.`);
+
+  const exists = async (n: string) => {
+    const [{ data: q }, { data: sh }] = await Promise.all([
+      ctx.sb.from("quotes").select("id").eq("company_id", ctx.companyId).ilike("quote_number", n).limit(1),
+      ctx.sb.from("shipments").select("id").eq("company_id", ctx.companyId).ilike("reference_number", n).limit(1),
+    ]);
+    return !!(q?.length || sh?.length);
+  };
+  if (await exists(manual)) throw new ToolError(`Já existe cotação ou processo com a referência "${manual}". Escolha outra.`);
+
+  if (!confirmado(a)) {
+    return previa({
+      como_era: "Esta cotação ainda não existe.",
+      como_vai_ficar: {
+        cotacao: manual, referencia_externa: externa ?? null, cliente: cand[0].name, modal, direcao,
+        status_inicial: "quoting", cria_processo: false, campos: novos, itens_de_carga: itensCarga, totais_no_app: cargoAppTotals(itensCarga),
+      },
+    });
+  }
+
+  const { data: cot, error: eq } = await ctx.sb.from("quotes").insert({
+    company_id: ctx.companyId, quote_number: manual, base_reference: manual, transport_mode: modal, client_id: cand[0].id,
+    origin: novos.origin_port ?? null, destination: novos.destination_port ?? null, transshipment: novos.transshipment ?? null,
+    incoterm: novos.incoterm ?? null, client_reference: novos.client_reference ?? null, free_time: novos.free_time ?? null,
+    direction: direcao, created_by: ctx.userId, status: "quoting", external_ref: externa ?? null,
+  }).select("id,quote_number,status").single();
+  if (eq || !cot) {
+    if (externa && eq?.code === "23505") {
+      const { data: ja } = await ctx.sb.from("quotes").select("quote_number,status").eq("company_id", ctx.companyId).eq("external_ref", externa).maybeSingle();
+      if (ja) return ok({ criado: false, ja_existia: true, nada_foi_gravado: true, referencia_externa: externa, cotacao: ja.quote_number, status: ja.status });
+    }
+    throw new ToolError(`Não foi possível criar a cotação: ${(eq?.message ?? "").slice(0, 200)}`);
+  }
+  let cargaRegistrada = 0;
+  if (itensCarga.length) {
+    const { error: ei } = await ctx.sb.from("quote_items").insert(itensCarga.map((it) => ({ ...it, quote_id: cot.id, company_id: ctx.companyId })));
+    if (ei) throw new ToolError(`A cotação ${cot.quote_number} foi criada, mas a carga não foi registrada (${ei.message.slice(0, 150)}). Use adicionar_carga com "cotacao" para tentar de novo.`);
+    cargaRegistrada = itensCarga.length;
+  }
+  return ok({ criado: true, cotacao: cot.quote_number, referencia_externa: externa ?? null, status: cot.status, itens_carga_registrados: cargaRegistrada, cliente: cand[0].name, modal, proximo_passo: 'Use "cotacao" com adicionar_carga, adicionar_taxas e criar_estimativa para completar.' });
+}
+
 async function atualizarProcesso(ctx: Ctx, a: Args) {
   requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos");
   const ref = optStr(a, "processo");
@@ -1871,6 +1987,7 @@ const nullableProps = (p: Record<string, Record<string, unknown>>) =>
 
 const limiteProp ={ type: "integer", minimum: 1, maximum: 50, description: "Máximo de itens (padrão 20)." };
 
+const COTACAO_PROP = { type: "string", description: "Número exato da cotação (para cotação ainda sem processo). Use este OU \"processo\"." };
 const TOOLS: Tool[] = [
   {
     name: "listar_processos",
@@ -1923,12 +2040,14 @@ const TOOLS: Tool[] = [
   },
   {
     name: "listar_cotacoes",
-    description: "Lista cotações da empresa, mais recentes primeiro.",
+    description: "Lista cotações da empresa, mais recentes primeiro (com o número exato de cada uma e se já virou processo). Use o número em \"cotacao\" nas ferramentas de taxas, carga e estimativa.",
     inputSchema: {
       type: "object",
       properties: {
         status: { type: "string", description: "draft, sent, approved, rejected, converted ou quoting." },
         cliente: { type: "string", description: "Parte do nome do cliente." },
+        numero: { type: "string", description: "Parte do número da cotação." },
+        sem_processo: { type: "boolean", description: "true = só cotações que ainda não viraram processo." },
         limite: limiteProp,
       },
     },
@@ -1981,6 +2100,27 @@ const TOOLS: Tool[] = [
     write: true,
   },
   {
+    name: "criar_cotacao",
+    description:
+      "Cria uma COTAÇÃO nova para um cliente já cadastrado, sem criar processo (status \"quoting\"), com o número oficial informado em \"referencia\" (obrigatório: pergunte ao usuário, o sistema não gera o número). Opcional: \"campos\" (origin_port, destination_port com código de porto, transshipment, incoterm, client_reference, free_time) e \"itens_carga\". Se informar \"referencia_externa\" e já existir cotação com ela, não cria outra: devolve a existente. Depois complete com adicionar_carga, adicionar_taxas e criar_estimativa usando \"cotacao\". Esta ferramenta não cria processo (a conversão da cotação em processo é feita no AuraComex). Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cliente: { type: "string", description: "Nome (ou parte) do cliente já cadastrado." },
+        modal: { type: "string", enum: TRANSPORT_MODES },
+        referencia: { type: "string", description: "OBRIGATÓRIO. Número oficial da cotação, na sequência da empresa (ex.: 26/345). Pergunte ao usuário." },
+        referencia_externa: { type: "string", maxLength: 60, description: "Chave do chamador (ex.: ID do dossiê) para não duplicar a cotação se a chamada for repetida." },
+        direcao: { type: "string", enum: ["IMP", "EXP"], description: "Padrão IMP." },
+        campos: { type: "object", additionalProperties: true, description: "origin_port, destination_port, transshipment, incoterm, client_reference, free_time." },
+        itens_carga: CARGO_SCHEMA,
+        confirmar: CONFIRMAR_PROP,
+      },
+      required: ["cliente", "modal", "referencia"],
+    },
+    run: criarCotacao,
+    write: true,
+  },
+  {
     name: "criar_processo",
     description:
       "Cria um processo (embarque) novo para um cliente já cadastrado, junto com a cotação ligada a ele (como no fluxo normal do app), com o número oficial informado em \"referencia\" (obrigatório: pergunte ao usuário, o sistema não gera o número) e status inicial \"approved\". Informe cliente, modal e, se já souber, outros dados em \"campos\" (mesmos campos de atualizar_processo; portos pelo código, ex.: CNSHA, BRSSZ) e a carga em \"itens_carga\" (mercadoria, NCM, peças, peso total, volume total, volumes, valor). Se informar \"referencia_externa\" e já existir processo com ela, não cria outro: devolve o existente. Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
@@ -2008,11 +2148,11 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         itens_carga: CARGO_SCHEMA,
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "itens_carga"],
+      required: ["itens_carga"],
     },
     run: adicionarCarga,
     write: true,
@@ -2023,8 +2163,7 @@ const TOOLS: Tool[] = [
       "Lista as taxas (frete, origem, destino) da cotação ligada a um processo: descrição, etapa, unidade, moeda, venda, empresa, forma de pagamento e o id de cada linha. Compra e venda são linhas separadas. O custo (compra) só aparece para perfis com acesso total.",
     inputSchema: {
       type: "object",
-      properties: { processo: { type: "string", description: "Número de referência exato do processo." } },
-      required: ["processo"],
+      properties: { processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP },
     },
     run: listarTaxas,
   },
@@ -2035,7 +2174,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         taxas: {
           type: "array",
           maxItems: 40,
@@ -2061,7 +2200,7 @@ const TOOLS: Tool[] = [
         },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "taxas"],
+      required: ["taxas"],
     },
     run: adicionarTaxas,
     write: true,
@@ -2073,12 +2212,12 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         id_taxa: { type: "string", description: "Id da taxa (de listar_taxas)." },
         campos: { type: "object", additionalProperties: true, description: "Campos a alterar: " + TAXA_EDIT_KEYS.join(", ") + "." },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "id_taxa", "campos"],
+      required: ["id_taxa", "campos"],
     },
     run: atualizarTaxa,
     write: true,
@@ -2086,7 +2225,7 @@ const TOOLS: Tool[] = [
   {
     name: "listar_carga",
     description: "Lista a carga de um processo: itens comerciais com o id de cada linha (mercadoria, NCM, peças, valor, containers), os volumes físicos do embarque (quantidade, tipo, medidas, peso e cubagem por unidade), os totais do embarque (pallets, caixas, valor total da invoice) e os totais de peso/cubagem que o app mostra.",
-    inputSchema: { type: "object", properties: { processo: { type: "string", description: "Número de referência exato do processo." } }, required: ["processo"] },
+    inputSchema: { type: "object", properties: { processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP } },
     run: listarCarga,
   },
   {
@@ -2096,11 +2235,11 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         itens: { type: "array", maxItems: 50, items: { ...CARGO_SCHEMA.items, properties: { id: { type: "string", description: "Id do item (de listar_carga)." }, ...nullableProps(CARGO_SCHEMA.items.properties) }, required: ["id"] } },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "itens"],
+      required: ["itens"],
     },
     run: atualizarCarga,
     write: true,
@@ -2112,7 +2251,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         pallets: { type: ["integer", "null"], description: "Total de pallets do embarque." },
         caixas: { type: ["integer", "null"], description: "Total de caixas/volumes do embarque (na unidade de tipo_volume)." },
         tipo_volume: { type: ["string", "null"], enum: [...PACKAGE_TYPE_KEYS, null], description: "Tipo do volume contado em caixas." },
@@ -2120,7 +2259,6 @@ const TOOLS: Tool[] = [
         moeda_valor: { type: ["string", "null"], description: "Moeda do valor_total (3 letras, ex.: USD)." },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo"],
     },
     run: atualizarCargaFisica,
     write: true,
@@ -2132,7 +2270,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         volumes: {
           type: "array",
           maxItems: 30,
@@ -2153,7 +2291,7 @@ const TOOLS: Tool[] = [
         },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "volumes"],
+      required: ["volumes"],
     },
     run: atualizarVolumesCarga,
     write: true,
@@ -2164,11 +2302,11 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         ids: { type: "array", maxItems: 50, items: { type: "string" }, description: "Ids dos itens a remover." },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "ids"],
+      required: ["ids"],
     },
     run: removerCarga,
     write: true,
@@ -2201,11 +2339,11 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         id_taxa: { type: "string", description: "Id da taxa (de listar_taxas)." },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "id_taxa"],
+      required: ["id_taxa"],
     },
     run: removerTaxa,
     write: true,
@@ -2217,12 +2355,12 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         usd_brl: { type: "number", description: "Câmbio fiscal USD→BRL (ex.: 5.42). Pergunte ao usuário." },
         eur_brl: { type: "number", description: "Opcional. Câmbio EUR→BRL." },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "usd_brl"],
+      required: ["usd_brl"],
     },
     run: criarEstimativa,
     write: true,
@@ -2233,8 +2371,7 @@ const TOOLS: Tool[] = [
       "Mostra a Estimativa de custo do processo (aba Estimativa): cabeçalho (incoterm, câmbio, rateio, acréscimos/deduções, frete/seguro internacional, Siscomex, AFRMM), itens com VMCV unitário, alíquotas e destinação, e as despesas. Os totais e impostos são calculados pelo app na tela. Só perfis de acesso total.",
     inputSchema: {
       type: "object",
-      properties: { processo: { type: "string", description: "Número de referência exato do processo." } },
-      required: ["processo"],
+      properties: { processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP },
     },
     run: verEstimativa,
   },
@@ -2245,7 +2382,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         campos: { type: "object", additionalProperties: true, description: "Campos do cabeçalho a alterar." },
         itens: {
           type: "array",
@@ -2265,7 +2402,6 @@ const TOOLS: Tool[] = [
         },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo"],
     },
     run: atualizarEstimativa,
     write: true,
@@ -2308,7 +2444,9 @@ const AVISO_TOKEN =
   " TRAVA DO SERVIDOR: a prévia devolve token_confirmacao; para gravar, repita a chamada com os mesmos parâmetros, confirmar: true e esse token_confirmacao (sem ele, ou com parâmetros diferentes, a gravação é recusada).";
 const TOOL_LIST = TOOLS.map(({ name, description, inputSchema, write }) => ({
   name,
-  description: write ? description + AVISO_TOKEN : description,
+  description: (inputSchema as { properties?: Record<string, unknown> }).properties?.cotacao
+    ? description + ' Alvo: "processo" (número do processo) OU "cotacao" (número da cotação, para cotação ainda sem processo; veja listar_cotacoes).' + (write ? AVISO_TOKEN : "")
+    : write ? description + AVISO_TOKEN : description,
   inputSchema: write
     ? { ...inputSchema, properties: { ...(inputSchema as { properties: Record<string, unknown> }).properties, token_confirmacao: TOKEN_PROP } }
     : inputSchema,
