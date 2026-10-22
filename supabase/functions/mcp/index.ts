@@ -25,7 +25,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.12.1" };
+const SERVER_INFO = { name: "auracomex", version: "0.13.0" };
 
 // ---------- helpers ----------
 
@@ -1566,13 +1566,16 @@ async function criarProcesso(ctx: Ctx, a: Args) {
     return !!(q?.length || s?.length);
   };
   const manual = optStr(a, "referencia", 40);
+  // A numeração dos processos da Atlas é digitada pelo usuário (ex.: 26/345); o contador do
+  // sistema não acompanha essa sequência. Por isso a referência é obrigatória aqui.
+  if (!manual) throw new ToolError('Informe a "referencia" do processo (número oficial na sequência da empresa, ex.: 26/345). Pergunte ao usuário qual número usar; o sistema não gera esse número automaticamente.');
   const direcao = a.direcao === "EXP" ? "EXP" : "IMP";
   if (!confirmado(a)) {
     if (manual && await exists(manual)) throw new ToolError(`Já existe cotação ou processo com a referência "${manual}". Escolha outra.`);
     return previa({
       como_era: "Este processo ainda não existe.",
       como_vai_ficar: {
-        referencia: manual ?? "próximo número da sequência da empresa (definido ao confirmar)",
+        referencia: manual,
         referencia_externa: externa ?? null,
         cliente: cand[0].name,
         modal,
@@ -1916,20 +1919,20 @@ const TOOLS: Tool[] = [
   {
     name: "criar_processo",
     description:
-      "Cria um processo (embarque) novo para um cliente já cadastrado, junto com a cotação ligada a ele (como no fluxo normal do app), com número gerado pelo sistema (ou informado em \"referencia\") e status inicial \"approved\". Informe cliente, modal e, se já souber, outros dados em \"campos\" (mesmos campos de atualizar_processo; portos pelo código, ex.: CNSHA, BRSSZ) e a carga em \"itens_carga\" (mercadoria, NCM, peças, peso total, volume total, volumes, valor). Se informar \"referencia_externa\" e já existir processo com ela, não cria outro: devolve o existente. Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
+      "Cria um processo (embarque) novo para um cliente já cadastrado, junto com a cotação ligada a ele (como no fluxo normal do app), com o número oficial informado em \"referencia\" (obrigatório: pergunte ao usuário, o sistema não gera o número) e status inicial \"approved\". Informe cliente, modal e, se já souber, outros dados em \"campos\" (mesmos campos de atualizar_processo; portos pelo código, ex.: CNSHA, BRSSZ) e a carga em \"itens_carga\" (mercadoria, NCM, peças, peso total, volume total, volumes, valor). Se informar \"referencia_externa\" e já existir processo com ela, não cria outro: devolve o existente. Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
         cliente: { type: "string", description: "Nome (ou parte do nome) do cliente cadastrado." },
         modal: { type: "string", enum: TRANSPORT_MODES, description: "ocean_fcl, ocean_lcl, air, road ou multimodal." },
-        referencia: { type: "string", description: "Opcional. Número manual (ex.: 26/256). Sem ele, o sistema gera o próximo da sequência." },
+        referencia: { type: "string", description: "OBRIGATÓRIO. Número oficial do processo, na sequência da empresa (ex.: 26/345). Pergunte ao usuário; o sistema não gera esse número." },
         referencia_externa: { type: "string", maxLength: 60, description: "Opcional, recomendado em automações. Chave do seu lado (ex.: ID do dossiê ATL-2026-0142) que evita duplicar: se já existir processo com ela, nada é criado e o existente é devolvido. A referência oficial continua sendo a do Aura." },
         direcao: { type: "string", enum: ["IMP", "EXP"], description: "Importação (padrão) ou exportação." },
         campos: { type: "object", description: "Opcional. Campos iniciais, como em atualizar_processo.", additionalProperties: true },
         itens_carga: CARGO_SCHEMA,
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["cliente", "modal"],
+      required: ["cliente", "modal", "referencia"],
     },
     run: criarProcesso,
     write: true,
