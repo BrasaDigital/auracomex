@@ -25,7 +25,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.10.2" };
+const SERVER_INFO = { name: "auracomex", version: "0.11.0" };
 
 // ---------- helpers ----------
 
@@ -1426,6 +1426,30 @@ async function atualizarEstimativa(ctx: Ctx, a: Args) {
 
 // Cria um processo novo (mesmo caminho do "criação rápida" do app): referência sequencial
 // do banco (next_reference), status inicial "approved", created_by = usuário.
+// Idempotência: "referencia_externa" é a chave do chamador (ex.: ID do dossiê do squad), guardada em
+// shipments.external_ref (única por empresa). A referência OFICIAL continua sendo a do Aura.
+type ProcessoExistente = { reference_number: string; status: string; is_finalized: boolean; client: { name?: string } | null };
+async function processoPorChaveExterna(ctx: Ctx, chave: string): Promise<ProcessoExistente | null> {
+  const { data, error } = await ctx.sb.from("shipments")
+    .select("reference_number,status,is_finalized,client:clients!shipments_client_id_fkey(name)")
+    .eq("company_id", ctx.companyId).eq("external_ref", chave).maybeSingle();
+  if (error) throw new ToolError("Falha ao verificar se o processo já existe.");
+  return (data as unknown as ProcessoExistente | null) ?? null;
+}
+function respostaJaExiste(p: ProcessoExistente, chave: string) {
+  return ok({
+    criado: false,
+    ja_existia: true,
+    nada_foi_gravado: true,
+    referencia_externa: chave,
+    processo: p.reference_number,
+    status: p.status,
+    finalizado: p.is_finalized,
+    cliente: p.client?.name ?? null,
+    proximo_passo: "Este processo já foi criado antes com a mesma referencia_externa. NÃO crie outro: continue com ele (atualizar_processo, adicionar_carga, adicionar_taxas etc.) usando a referência oficial acima.",
+  });
+}
+
 async function criarProcesso(ctx: Ctx, a: Args) {
   requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos");
   const cliente = optStr(a, "cliente");
@@ -1440,6 +1464,13 @@ async function criarProcesso(ctx: Ctx, a: Args) {
   if (desconhecidos.length) throw new ToolError(`Campo(s) não editáveis: ${desconhecidos.join(", ")}.`);
   const novos = prepareFields(extra, {});
   const itensCarga = a.itens_carga === undefined || a.itens_carga === null ? [] : parseCargo(a.itens_carga, modal);
+
+  // Chave de idempotência: se já existe processo com ela, devolve o existente (prévia ou não) e não cria outro.
+  const externa = optStr(a, "referencia_externa", 60);
+  if (externa) {
+    const ja = await processoPorChaveExterna(ctx, externa);
+    if (ja) return respostaJaExiste(ja, externa);
+  }
 
   // Cliente: tem que existir e ser único (e, para vendedor, ser dele).
   const ids = await clientFilter(ctx, cliente);
@@ -1481,6 +1512,7 @@ async function criarProcesso(ctx: Ctx, a: Args) {
       como_era: "Este processo ainda não existe.",
       como_vai_ficar: {
         referencia: manual ?? "próximo número da sequência da empresa (definido ao confirmar)",
+        referencia_externa: externa ?? null,
         cliente: cand[0].name,
         modal,
         direcao,
@@ -1536,9 +1568,14 @@ async function criarProcesso(ctx: Ctx, a: Args) {
     transport_mode: modal,
     status: "approved",
     created_by: ctx.userId,
+    external_ref: externa ?? null,
   }).select("id,reference_number,status").single();
   if (error || !novo) {
     await ctx.sb.from("quotes").delete().eq("id", cot.id); // desfaz a cotação recém-criada, sem deixar órfã
+    if (externa && error?.code === "23505") { // corrida: outra chamada criou com a mesma chave um instante antes
+      const ja = await processoPorChaveExterna(ctx, externa);
+      if (ja) return respostaJaExiste(ja, externa);
+    }
     throw new ToolError(`Não foi possível criar o processo: ${(error?.message ?? "").slice(0, 200)}`);
   }
 
@@ -1564,6 +1601,7 @@ async function criarProcesso(ctx: Ctx, a: Args) {
   return ok({
     criado: true,
     processo: novo.reference_number,
+    referencia_externa: externa ?? null,
     itens_carga_registrados: cargaRegistrada,
     cotacao_ligada: true,
     cliente: cand[0].name,
@@ -1817,13 +1855,14 @@ const TOOLS: Tool[] = [
   {
     name: "criar_processo",
     description:
-      "Cria um processo (embarque) novo para um cliente já cadastrado, junto com a cotação ligada a ele (como no fluxo normal do app), com número gerado pelo sistema (ou informado em \"referencia\") e status inicial \"approved\". Informe cliente, modal e, se já souber, outros dados em \"campos\" (mesmos campos de atualizar_processo; portos pelo código, ex.: CNSHA, BRSSZ) e a carga em \"itens_carga\" (mercadoria, NCM, peças, peso total, volume total, volumes, valor). Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
+      "Cria um processo (embarque) novo para um cliente já cadastrado, junto com a cotação ligada a ele (como no fluxo normal do app), com número gerado pelo sistema (ou informado em \"referencia\") e status inicial \"approved\". Informe cliente, modal e, se já souber, outros dados em \"campos\" (mesmos campos de atualizar_processo; portos pelo código, ex.: CNSHA, BRSSZ) e a carga em \"itens_carga\" (mercadoria, NCM, peças, peso total, volume total, volumes, valor). Se informar \"referencia_externa\" e já existir processo com ela, não cria outro: devolve o existente. Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
         cliente: { type: "string", description: "Nome (ou parte do nome) do cliente cadastrado." },
         modal: { type: "string", enum: TRANSPORT_MODES, description: "ocean_fcl, ocean_lcl, air, road ou multimodal." },
         referencia: { type: "string", description: "Opcional. Número manual (ex.: 26/256). Sem ele, o sistema gera o próximo da sequência." },
+        referencia_externa: { type: "string", maxLength: 60, description: "Opcional, recomendado em automações. Chave do seu lado (ex.: ID do dossiê ATL-2026-0142) que evita duplicar: se já existir processo com ela, nada é criado e o existente é devolvido. A referência oficial continua sendo a do Aura." },
         direcao: { type: "string", enum: ["IMP", "EXP"], description: "Importação (padrão) ou exportação." },
         campos: { type: "object", description: "Opcional. Campos iniciais, como em atualizar_processo.", additionalProperties: true },
         itens_carga: CARGO_SCHEMA,
