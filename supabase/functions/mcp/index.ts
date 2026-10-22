@@ -25,7 +25,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.12.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.12.1" };
 
 // ---------- helpers ----------
 
@@ -2220,9 +2220,11 @@ const TOKEN_PROP = {
   type: "string",
   description: "Token devolvido pela prévia (campo token_confirmacao). Obrigatório junto com confirmar: true; sem ele o servidor recusa a gravação.",
 };
+const AVISO_TOKEN =
+  " TRAVA DO SERVIDOR: a prévia devolve token_confirmacao; para gravar, repita a chamada com os mesmos parâmetros, confirmar: true e esse token_confirmacao (sem ele, ou com parâmetros diferentes, a gravação é recusada).";
 const TOOL_LIST = TOOLS.map(({ name, description, inputSchema, write }) => ({
   name,
-  description,
+  description: write ? description + AVISO_TOKEN : description,
   inputSchema: write
     ? { ...inputSchema, properties: { ...(inputSchema as { properties: Record<string, unknown> }).properties, token_confirmacao: TOKEN_PROP } }
     : inputSchema,
