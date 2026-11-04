@@ -27,7 +27,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.17.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.18.0" };
 
 // ---------- helpers ----------
 
@@ -1909,6 +1909,80 @@ async function criarCotacao(ctx: Ctx, a: Args) {
   return ok({ criado: true, cotacao: cot.quote_number, referencia_externa: externa ?? null, status: cot.status, itens_carga_registrados: cargaRegistrada, cliente: cand[0].name, modal, proximo_passo: 'Use "cotacao" com adicionar_carga, adicionar_taxas e criar_estimativa para completar.' });
 }
 
+// Troca o CLIENTE de um processo e/ou cotação (mesma regra do app: QuoteDetail > handleChangeClient).
+// Atualiza quotes.client_id e, se houver processo ligado, shipments.client_id. NÃO muda em cascata taxas,
+// notas de débito, contas a receber nem parceiros já lançados no nome do cliente anterior: o app só avisa,
+// e aqui notas de débito/contas a receber BLOQUEIAM a troca (já há cobrança emitida no nome do cliente antigo).
+async function resolverClienteUnico(ctx: Ctx, nome: string) {
+  const ids = await clientFilter(ctx, nome);
+  if (!ids || ids.length === 0) {
+    if (ids) throw new ToolError(`Nenhum cliente seu encontrado com o nome "${nome}".`);
+    throw new ToolError(`Cliente "${nome}" não encontrado.${NOVA_EMPRESA_DICA}`);
+  }
+  const { data: cls, error } = await ctx.sb.from("clients").select("id,name").in("id", ids).limit(10);
+  if (error) throw new ToolError("Falha ao buscar o cliente.");
+  const exato = (cls ?? []).filter((c: { name: string }) => c.name.toLowerCase() === nome.toLowerCase());
+  const cand = exato.length === 1 ? exato : (cls ?? []);
+  if (cand.length !== 1) throw new ToolError(`Cliente "${nome}" é ambíguo ou não existe. Opções: ${(cls ?? []).map((c: { name: string }) => c.name).join("; ") || "nenhuma"}.`);
+  return cand[0] as { id: string; name: string };
+}
+
+async function alterarCliente(ctx: Ctx, a: Args) {
+  requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações e processos");
+  const nomeNovo = optStr(a, "cliente");
+  if (!nomeNovo) throw new ToolError('Informe "cliente" (nome do NOVO cliente, já cadastrado).');
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, true, "id,reference_number,company_id,client_id,is_finalized");
+  const novo = await resolverClienteUnico(ctx, nomeNovo);
+
+  const { data: cot, error: eq } = await ctx.sb.from("quotes").select("client_id,client:clients!quotes_client_id_fkey(name)").eq("id", quoteId).maybeSingle();
+  if (eq || !cot) throw new ToolError("Falha ao carregar a cotação.");
+  const antigoId = (cot.client_id as string | null) ?? null;
+  const antigoNome = (cot.client as unknown as { name?: string } | null)?.name ?? null;
+  const rotulo = String(sh.reference_number);
+  if (antigoId === novo.id) return ok({ alterado: false, alvo: rotulo, motivo: `O cliente já é ${novo.name}.` });
+
+  // Lançamentos feitos no nome do cliente atual (as mesmas checagens do app).
+  let avisos: string[] = [];
+  if (antigoId) {
+    const cnt = async (tabela: string, col: string) => {
+      const { count } = await ctx.sb.from(tabela).select("id", { count: "exact", head: true }).eq("quote_id", quoteId).eq(col, antigoId);
+      return count ?? 0;
+    };
+    const [taxas, nd, cr, parc] = await Promise.all([cnt("quote_charges", "partner_id"), cnt("debit_notes", "client_id"), cnt("accounts_receivable", "client_id"), cnt("quote_partners", "client_id")]);
+    if (nd > 0 || cr > 0) {
+      throw new ToolError(`Troca bloqueada: ${rotulo} já tem ${nd ? `${nd} nota(s) de débito` : ""}${nd && cr ? " e " : ""}${cr ? `${cr} conta(s) a receber` : ""} no nome de ${antigoNome ?? "o cliente atual"}. Isso não é transferido sozinho; trate no AuraComex.`);
+    }
+    if (taxas) avisos.push(`${taxas} taxa(s) lançada(s) no nome do cliente anterior (continuam nele; ajuste com atualizar_taxa, campo empresa, se for o caso)`);
+    if (parc) avisos.push(`${parc} vínculo(s) de parceiro da cotação com o cliente anterior (não mudam)`);
+  }
+
+  if (!confirmado(a)) {
+    return previa({
+      alvo: rotulo,
+      como_era: { cliente: antigoNome },
+      como_vai_ficar: { cliente: novo.name },
+      altera: sh.id ? "cotação e processo ligados" : "cotação (ainda sem processo)",
+      avisos,
+      nota: "O câmbio da agência (spread do cliente) e demais dados do cliente são recalculados pelo app ao abrir a aba Estimativa.",
+    });
+  }
+
+  const { error: e1 } = await ctx.sb.from("quotes").update({ client_id: novo.id }).eq("id", quoteId);
+  if (e1) throw new ToolError(`Não foi possível trocar o cliente da cotação: ${e1.message.slice(0, 200)}`);
+  if (sh.id) {
+    const { error: e2 } = await ctx.sb.from("shipments").update({ client_id: novo.id, updated_at: new Date().toISOString() }).eq("id", sh.id as string);
+    if (e2) {
+      await ctx.sb.from("quotes").update({ client_id: antigoId }).eq("id", quoteId); // desfaz, para cotação e processo não ficarem em clientes diferentes
+      throw new ToolError(`Não foi possível trocar o cliente do processo (nada foi alterado): ${e2.message.slice(0, 200)}`);
+    }
+  }
+  await ctx.sb.from("shipment_audit_log").insert({
+    shipment_id: sh.id ?? null, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId,
+    field_name: "client_id", old_value: antigoId, new_value: novo.id,
+  });
+  return ok({ alterado: true, alvo: rotulo, cliente_anterior: antigoNome, cliente_novo: novo.name, processo_atualizado: !!sh.id, avisos });
+}
+
 async function atualizarProcesso(ctx: Ctx, a: Args) {
   requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos");
   const ref = optStr(a, "processo");
@@ -2471,6 +2545,22 @@ const TOOLS: Tool[] = [
       },
     },
     run: atualizarEstimativa,
+    write: true,
+  },
+  {
+    name: "alterar_cliente",
+    description:
+      "Troca o CLIENTE de um processo ou de uma cotação (o cliente já deve estar cadastrado; informe o nome do novo cliente em \"cliente\"). Atualiza a cotação e, se houver, o processo ligado, como o app faz. Não transfere taxas, parceiros, notas de débito nem contas a receber já lançados no nome do cliente anterior: a prévia avisa o que ficou para trás, e a troca é BLOQUEADA se já houver nota de débito ou conta a receber no nome do cliente atual. Não edita processo finalizado. Escrita em 2 etapas: sem confirmar só devolve a prévia (cliente atual → novo, com avisos); troque (confirmar: true) só depois que o usuário aprovar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
+        cliente: { type: "string", description: "Nome (ou parte) do NOVO cliente, já cadastrado." },
+        confirmar: CONFIRMAR_PROP,
+      },
+      required: ["cliente"],
+    },
+    run: alterarCliente,
     write: true,
   },
   {
