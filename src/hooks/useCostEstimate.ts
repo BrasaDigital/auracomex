@@ -167,7 +167,30 @@ export function useCostEstimate(quoteId: string, companyId: string | undefined) 
  * Sincroniza Frete/Seguro/Acréscimos/Deduções e Despesas Nacionais a partir das charges.
  * Preserva despesas adicionadas manualmente (sem source_charge_id).
  */
-export async function syncEstimateFromCharges(
+// Fila por estimativa: o sync faz "apaga despesas das taxas → insere de novo", que não é atômico.
+// Duas execuções simultâneas (efeito de auto-sync + ação manual, ou mount duplo) apagavam as duas
+// e inseriam as duas, duplicando todas as despesas (ex.: cotação 26/349). Serializamos por estimateId.
+const syncQueues = new Map<string, Promise<unknown>>();
+
+export function syncEstimateFromCharges(
+  estimateId: string,
+  companyId: string,
+  charges: ChargeLike[],
+  fx: FxRates,
+  getMultiplier: (unit: string) => number,
+): Promise<{ ignoredCount: number }> {
+  const prev = syncQueues.get(estimateId) ?? Promise.resolve();
+  const run = prev
+    .catch(() => undefined)
+    .then(() => syncEstimateFromChargesUnsafe(estimateId, companyId, charges, fx, getMultiplier));
+  syncQueues.set(estimateId, run);
+  run.finally(() => {
+    if (syncQueues.get(estimateId) === run) syncQueues.delete(estimateId);
+  }).catch(() => undefined);
+  return run;
+}
+
+async function syncEstimateFromChargesUnsafe(
   estimateId: string,
   companyId: string,
   charges: ChargeLike[],
@@ -210,7 +233,11 @@ export async function syncEstimateFromCharges(
       is_prepaid: e.is_prepaid,
       ordem: 1000 + idx, // após despesas manuais
     }));
-    const { error: insErr } = await (supabase as any).from('cost_estimate_expenses').insert(payload);
+    // upsert + índice único (estimate_id, source_charge_id): rede de segurança caso outra aba/sessão
+    // rode o sync ao mesmo tempo — nunca mais duas linhas pra mesma taxa.
+    const { error: insErr } = await (supabase as any)
+      .from('cost_estimate_expenses')
+      .upsert(payload, { onConflict: 'estimate_id,source_charge_id' });
     if (insErr) throw insErr;
   }
 
