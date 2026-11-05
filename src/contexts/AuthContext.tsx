@@ -211,9 +211,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mySessionIdRef.current = marker;
       localStorage.setItem(sessionMarkerKey(data.user.id), marker);
       await supabase.from('profiles').update({ active_session_id: marker } as any).eq('user_id', data.user.id);
-      // Defesa extra: revoga os refresh tokens de qualquer outra sessão ativa
-      // dessa conta, para que não consigam renovar o login depois.
-      await supabase.auth.signOut({ scope: 'others' }).catch(() => {});
+      // Defesa extra: revoga os refresh tokens das outras sessões WEB dessa conta,
+      // para que não consigam renovar o login depois. Usa uma função própria em vez
+      // de signOut({ scope: 'others' }) porque esta derrubava também as sessões do
+      // conector MCP/agentes (OAuth), que precisam continuar ativas.
+      await supabase.rpc('revoke_other_web_sessions' as any).then(() => {}, () => {});
     }
     return { error: error as Error | null };
   }
@@ -239,7 +241,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mySessionIdRef.current = null;
 
     try {
-      await supabase.auth.signOut();
+      // 'local': encerra só esta sessão. O signOut() padrão é global e revogaria
+      // também as sessões do conector MCP/agentes dessa conta.
+      await supabase.auth.signOut({ scope: 'local' });
     } catch {
       // Mesmo se a revogação no servidor falhar (ex: sem rede), limpa a sessão local.
       await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
