@@ -27,7 +27,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.18.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.19.0" };
 
 // ---------- helpers ----------
 
@@ -181,25 +181,15 @@ async function buscarProcesso(ctx: Ctx, a: Args) {
 
 async function listarDocumentos(ctx: Ctx, a: Args) {
   requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "documentos de processos");
-  const ref = optStr(a, "processo");
-  if (!ref) throw new ToolError('Informe "processo" (número de referência do processo).');
-
-  const ids = await scopedClientIds(ctx);
-  if (ids && ids.length === 0) return ok({ total: 0, documentos: [] });
-
-  let sq = ctx.sb.from("shipments").select("id,reference_number").ilike("reference_number", ref).limit(1);
-  if (ids) sq = sq.in("client_id", ids);
-  const { data: sh, error: e1 } = await sq;
-  if (e1) throw new ToolError("Falha ao localizar o processo.");
-  if (!sh || sh.length === 0) throw new ToolError(`Processo "${ref}" não encontrado (use a referência exata).`);
-
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, false, "id,reference_number");
+  const filtro = sh.id ? `shipment_id.eq.${sh.id},quote_id.eq.${quoteId}` : `quote_id.eq.${quoteId}`;
   const { data, error } = await ctx.sb.from("documents")
     .select("id,name,document_type,custom_category,created_at,expires_at,visible_tracking")
-    .eq("shipment_id", sh[0].id)
+    .or(filtro)
     .order("created_at", { ascending: false })
     .limit(limitArg(a, 50, 100));
   if (error) throw new ToolError("Falha ao listar documentos.");
-  return ok({ processo: sh[0].reference_number, total: data?.length ?? 0, documentos: data ?? [] });
+  return ok({ alvo: sh.reference_number, total: data?.length ?? 0, documentos: data ?? [] });
 }
 
 const MAX_DOC_BYTES = 8 * 1024 * 1024;
@@ -344,7 +334,7 @@ function canonico(v: unknown): unknown {
 }
 
 async function assinar(ctx: Ctx, tool: string, args: Args, exp: number): Promise<string> {
-  const { confirmar: _c, token_confirmacao: _t, ...resto } = args;
+  const { confirmar: _c, token_confirmacao: _t, sha256_esperado: _s, ...resto } = args;
   const segredo = Deno.env.get("MCP_CONFIRM_SECRET") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!segredo) throw new ToolError("Trava de confirmação indisponível (chave do servidor ausente).");
   const key = await crypto.subtle.importKey("raw", enc.encode("mcp-confirm:" + segredo), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -1983,6 +1973,126 @@ async function alterarCliente(ctx: Ctx, a: Args) {
   return ok({ alterado: true, alvo: rotulo, cliente_anterior: antigoNome, cliente_novo: novo.name, processo_atualizado: !!sh.id, avisos });
 }
 
+// ---- Anexar documento (aba Documentos) ----
+// O arquivo chega por "url" (https público, baixado pelo servidor) ou por "conteudo_base64" (arquivos pequenos).
+// Mesmo caminho do app: bucket shipment-documents, path empresa/alvo/timestamp_nome, linha em "documents".
+// Nunca fica visível no tracking do cliente (visible_tracking = false). Prévia mostra nome, tamanho e SHA-256;
+// ao confirmar, para "url" o SHA-256 da prévia (sha256_esperado) tem de bater com o que o servidor baixa de novo.
+const ANEXO_EXT = ["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "docx", "doc", "csv", "txt", "xml", "eml", "msg", "zip"];
+const ANEXO_TIPOS = ["bl", "invoice", "packing_list", "certificate_origin", "customs_declaration", "insurance", "dta", "other"];
+const ANEXO_MAX_URL = 10 * 1024 * 1024;
+const ANEXO_MAX_B64_CHARS = 400_000;
+
+function nomeSeguro(nome: string): string {
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "").slice(-120) || "arquivo";
+}
+
+function urlPublicaHttps(raw: string): URL {
+  let u: URL;
+  try { u = new URL(raw); } catch { throw new ToolError('"url" inválida.'); }
+  if (u.protocol !== "https:") throw new ToolError('"url" precisa ser https.');
+  const h = u.hostname.toLowerCase();
+  const m4 = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  const privado = h === "localhost" || h.startsWith("[") || !h.includes(".") || /\.(local|internal|localhost|lan|home)$/.test(h) ||
+    (m4 && (() => { const [a, b] = [Number(m4[1]), Number(m4[2])]; return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224; })());
+  if (privado) throw new ToolError('"url" aponta para endereço interno/privado: não permitido.');
+  return u;
+}
+
+async function baixarArquivo(raw: string): Promise<{ bytes: Uint8Array; contentType: string; nomeUrl: string }> {
+  let u = urlPublicaHttps(raw);
+  for (let salto = 0; salto < 4; salto++) {
+    let r: Response;
+    try { r = await fetch(u.toString(), { redirect: "manual", signal: AbortSignal.timeout(20000), headers: { "User-Agent": "AuraComex-MCP" } }); }
+    catch { throw new ToolError("Não foi possível baixar o arquivo da url (tempo esgotado ou endereço inacessível)."); }
+    if ([301, 302, 303, 307, 308].includes(r.status)) {
+      const loc = r.headers.get("location");
+      if (!loc) throw new ToolError("Redirecionamento inválido ao baixar o arquivo.");
+      u = urlPublicaHttps(new URL(loc, u).toString());
+      continue;
+    }
+    if (!r.ok || !r.body) throw new ToolError(`Falha ao baixar o arquivo (status ${r.status}).`);
+    const decl = Number(r.headers.get("content-length") ?? 0);
+    if (decl > ANEXO_MAX_URL) throw new ToolError(`Arquivo maior que o limite de ${ANEXO_MAX_URL / 1048576} MB.`);
+    const partes: Uint8Array[] = []; let total = 0;
+    const rd = r.body.getReader();
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (done) break;
+      total += value.length;
+      if (total > ANEXO_MAX_URL) { await rd.cancel(); throw new ToolError(`Arquivo maior que o limite de ${ANEXO_MAX_URL / 1048576} MB.`); }
+      partes.push(value);
+    }
+    const bytes = new Uint8Array(total); let o = 0;
+    for (const p of partes) { bytes.set(p, o); o += p.length; }
+    return { bytes, contentType: (r.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase(), nomeUrl: decodeURIComponent(u.pathname.split("/").pop() ?? "") };
+  }
+  throw new ToolError("Redirecionamentos demais ao baixar o arquivo.");
+}
+
+function conferirAssinatura(ext: string, b: Uint8Array) {
+  const h = (...x: number[]) => x.every((v, i) => b[i] === v);
+  const ok = ext === "pdf" ? h(0x25, 0x50, 0x44, 0x46) : ext === "png" ? h(0x89, 0x50, 0x4e, 0x47) : (ext === "jpg" || ext === "jpeg") ? h(0xff, 0xd8, 0xff)
+    : (ext === "xlsx" || ext === "docx" || ext === "zip") ? h(0x50, 0x4b) : true;
+  if (!ok) throw new ToolError(`O conteúdo não parece um arquivo .${ext} válido.`);
+}
+
+async function anexarDocumento(ctx: Ctx, a: Args) {
+  requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "documentos");
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, true, "id,reference_number,company_id,is_finalized");
+  const url = typeof a.url === "string" ? a.url.trim() : "";
+  const b64 = typeof a.conteudo_base64 === "string" ? a.conteudo_base64.replace(/\s+/g, "") : "";
+  if ((url ? 1 : 0) + (b64 ? 1 : 0) !== 1) throw new ToolError('Informe o arquivo por "url" (https) OU por "conteudo_base64" (só arquivos pequenos), não os dois.');
+  const tipo = typeof a.tipo_documento === "string" ? a.tipo_documento : "";
+  if (!ANEXO_TIPOS.includes(tipo)) throw new ToolError(`Informe "tipo_documento": ${ANEXO_TIPOS.join(", ")}.`);
+  const categoria = optStr(a, "categoria_personalizada", 60);
+  if (categoria && tipo !== "other") throw new ToolError('"categoria_personalizada" só vale com tipo_documento "other".');
+  const vencimento = optDate(a, "vencimento");
+
+  let bytes: Uint8Array; let nomeUrl = "";
+  if (url) {
+    const r = await baixarArquivo(url); bytes = r.bytes; nomeUrl = r.nomeUrl;
+  } else {
+    if (b64.length > ANEXO_MAX_B64_CHARS) throw new ToolError(`conteudo_base64 grande demais (limite ~${Math.floor(ANEXO_MAX_B64_CHARS * 0.75 / 1024)} KB). Para arquivos maiores use "url".`);
+    try { bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); } catch { throw new ToolError("conteudo_base64 inválido."); }
+  }
+  if (bytes.length === 0) throw new ToolError("O arquivo está vazio.");
+  const nome = clean(a.nome_arquivo ?? nomeUrl, 150).replace(/\//g, "-");
+  const ext = (nome.split(".").pop() ?? "").toLowerCase();
+  if (!nome || !ANEXO_EXT.includes(ext)) throw new ToolError(`Informe "nome_arquivo" com extensão permitida: ${ANEXO_EXT.join(", ")}.`);
+  conferirAssinatura(ext, bytes);
+  const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map((x) => x.toString(16).padStart(2, "0")).join("");
+
+  const colAlvo = sh.id ? "shipment_id" : "quote_id";
+  const { data: dup } = await ctx.sb.from("documents").select("id").eq(colAlvo, (sh.id ?? quoteId) as string).eq("name", nome).eq("file_size", bytes.length).limit(1);
+  if (dup && dup.length) throw new ToolError(`${sh.reference_number} já tem um documento "${nome}" com o mesmo tamanho. Nada foi enviado.`);
+
+  if (!confirmado(a)) {
+    return previa({
+      alvo: sh.reference_number,
+      arquivo: { nome, tamanho_kb: Math.round(bytes.length / 102.4) / 10, sha256: sha, origem: url ? new URL(url).hostname : "conteúdo enviado" },
+      tipo_documento: tipo, categoria_personalizada: categoria ?? null, vencimento: vencimento ?? null,
+      visivel_no_tracking_do_cliente: false,
+      nota: url ? "Ao confirmar, repita a chamada com os mesmos parâmetros, confirmar: true, o token_confirmacao e sha256_esperado = o sha256 acima." : undefined,
+    });
+  }
+  if (url && a.sha256_esperado !== sha) throw new ToolError("O arquivo da url mudou desde a prévia, ou faltou sha256_esperado (use o sha256 da prévia). Nada foi enviado; gere uma nova prévia.");
+
+  const path = `${ctx.companyId}/${sh.id ?? quoteId}/${Date.now()}_${nomeSeguro(nome)}`;
+  const mime: Record<string, string> = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", csv: "text/csv", txt: "text/plain", xml: "application/xml", zip: "application/zip" };
+  const { error: eu } = await ctx.sb.storage.from("shipment-documents").upload(path, bytes, { contentType: mime[ext] ?? "application/octet-stream" });
+  if (eu) throw new ToolError(`Não foi possível enviar o arquivo: ${eu.message.slice(0, 160)}`);
+  const { data: doc, error: ed } = await ctx.sb.from("documents").insert({
+    shipment_id: sh.id ?? null, quote_id: quoteId, company_id: ctx.companyId, name: nome, file_url: path, file_size: bytes.length,
+    uploaded_by: ctx.userId, document_type: tipo, custom_category: categoria ?? null, expires_at: vencimento ?? null,
+  }).select("id").single();
+  if (ed || !doc) {
+    await ctx.sb.storage.from("shipment-documents").remove([path]);
+    throw new ToolError(`Não foi possível registrar o documento (nada foi enviado): ${(ed?.message ?? "").slice(0, 160)}`);
+  }
+  return ok({ anexado: true, alvo: sh.reference_number, documento: nome, tipo_documento: tipo, tamanho_kb: Math.round(bytes.length / 102.4) / 10, visivel_no_tracking_do_cliente: false });
+}
+
 async function atualizarProcesso(ctx: Ctx, a: Args) {
   requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos");
   const ref = optStr(a, "processo");
@@ -2145,14 +2255,13 @@ const TOOLS: Tool[] = [
   },
   {
     name: "listar_documentos",
-    description: "Lista os documentos anexados a um processo (nome, tipo, datas). Não devolve links de arquivo.",
+    description: "Lista os documentos anexados a um processo ou cotação (nome, tipo, datas). Não devolve links de arquivo.",
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         limite: { ...limiteProp, maximum: 100 },
       },
-      required: ["processo"],
     },
     run: listarDocumentos,
   },
@@ -2561,6 +2670,28 @@ const TOOLS: Tool[] = [
       required: ["cliente"],
     },
     run: alterarCliente,
+    write: true,
+  },
+  {
+    name: "anexar_documento",
+    description:
+      "Anexa um arquivo à aba Documentos de um processo ou cotação (invoice, packing list, BL, certificado etc.). O arquivo vem por \"url\" (https público, até 10 MB; o servidor baixa) OU por \"conteudo_base64\" (só arquivos pequenos, ~300 KB). Informe nome_arquivo com extensão (pdf, png, jpg, xlsx, xls, docx, doc, csv, txt, xml, eml, msg, zip) e tipo_documento. Nunca fica visível no tracking do cliente. Recusa duplicado (mesmo nome e tamanho) e processo finalizado. Escrita em 2 etapas: a prévia mostra nome, tamanho e sha256; para gravar, repita com confirmar: true, o token_confirmacao e (se usou url) sha256_esperado = o sha256 da prévia.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
+        url: { type: "string", description: "Endereço https público para baixar o arquivo." },
+        conteudo_base64: { type: "string", description: "Conteúdo do arquivo em base64 (só arquivos pequenos)." },
+        nome_arquivo: { type: "string", description: "Nome com extensão, ex.: invoice_123.pdf." },
+        tipo_documento: { type: "string", enum: ANEXO_TIPOS },
+        categoria_personalizada: { type: "string", description: "Só com tipo_documento = other." },
+        vencimento: { type: "string", description: "Opcional, AAAA-MM-DD (validade do documento)." },
+        sha256_esperado: { type: "string", description: "Na confirmação com url: o sha256 devolvido pela prévia." },
+        confirmar: CONFIRMAR_PROP,
+      },
+      required: ["tipo_documento", "nome_arquivo"],
+    },
+    run: anexarDocumento,
     write: true,
   },
   {
