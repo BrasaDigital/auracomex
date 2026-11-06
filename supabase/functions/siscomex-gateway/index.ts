@@ -79,9 +79,11 @@ serve(async (req) => {
       const iiAliquota = ncmData?.ii?.aliquota != null ? parseFloat(ncmData.ii.aliquota) : null;
       const ipiAliquota = ncmData?.ipi?.aliquota != null ? parseFloat(ncmData.ipi.aliquota) : null;
 
-      if (iiAliquota === null || ipiAliquota === null) {
-        throw new Error(`Alíquota de II/IPI indisponível para o NCM ${cleanNcm} na fonte consultada.`);
+      if (iiAliquota === null) {
+        throw new Error(`Alíquota de II indisponível para o NCM ${cleanNcm} na fonte consultada.`);
       }
+      // IPI pode vir null na fonte (ex: NCM com IPI variando por subcódigo da TIPI).
+      // Nesse caso NÃO assumimos valor: devolvemos ipi=null e o front mantém o IPI atual.
 
       // PIS/COFINS-Importação: não há uma API pública gratuita de alíquota
       // por NCM equivalente à do II/IPI (o regime monofásico/diferenciado
@@ -99,6 +101,7 @@ serve(async (req) => {
         success: true,
         source: 'II/IPI: Tabelas Fiscais (dados oficiais Siscomex/Receita Federal/MDIC-Gecex) — PIS/COFINS: alíquota geral do regime de importação (Lei 10.865/2004), não específica por NCM',
         ncm_descricao: ncmData?.descricao || null,
+        ipi_indisponivel: ipiAliquota === null,
         timestamp: new Date().toISOString(),
         rates,
       }), {

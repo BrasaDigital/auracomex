@@ -196,12 +196,18 @@ export function CostEstimateTab({
 
       if (error) throw error;
       if (data?.success && data.rates) {
+        const ipiIndisponivel = data.rates.ipi == null;
         patchItem(itemId, {
           aliq_ii: data.rates.ii,
-          aliq_ipi: data.rates.ipi,
+          // IPI null na fonte: mantém o valor atual do item (não sobrescreve com null/0)
+          ...(ipiIndisponivel ? {} : { aliq_ipi: data.rates.ipi }),
           aliq_pis: data.rates.pis,
           aliq_cofins: data.rates.cofins
         });
+        if (ipiIndisponivel) {
+          toast.warning(`NCM ${ncm}: II atualizado (TEC). A fonte não informa IPI para este NCM (varia por subcódigo da TIPI) — o IPI foi mantido, confira na TIPI. PIS/COFINS aplicados na alíquota geral do regime.`);
+          return;
+        }
         toast.success(`NCM ${ncm}: II/IPI atualizados com dados oficiais (TEC/TIPI). PIS/COFINS aplicados na alíquota geral do regime — confira se o produto tem enquadramento monofásico/diferenciado.`);
 
       } else {
