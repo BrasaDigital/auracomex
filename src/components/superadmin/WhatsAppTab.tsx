@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Send, Bot, Clock } from "lucide-react";
 
 interface WhatsappContact {
   id: string;
@@ -17,6 +17,8 @@ interface WhatsappContact {
   status: "lead" | "client" | "descartado";
   last_message_at: string | null;
   source: string | null;
+  ai_paused: boolean | null;
+  triage_step: string | null;
 }
 
 interface WhatsappMessage {
@@ -57,10 +59,10 @@ export function WhatsAppTab() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("whatsapp_contacts")
-        .select("id, phone, name, status, last_message_at, source")
+        .select("id, phone, name, status, last_message_at, source, ai_paused, triage_step")
         .order("last_message_at", { ascending: false, nullsFirst: false });
       if (error) throw error;
-      return data as WhatsappContact[];
+      return data as unknown as WhatsappContact[];
     },
   });
 
@@ -113,6 +115,15 @@ export function WhatsAppTab() {
     [contacts, selectedContactId],
   );
 
+  // Janela de 24h: texto livre só é aceito até 24h após a última mensagem do cliente.
+  const windowHoursLeft = useMemo(() => {
+    const lastInbound = [...messages].reverse().find((m) => m.direction === "inbound");
+    if (!lastInbound) return 0;
+    const left = 24 - (Date.now() - new Date(lastInbound.created_at).getTime()) / 3600000;
+    return Math.max(0, left);
+  }, [messages]);
+  const windowOpen = windowHoursLeft > 0;
+
   const sendMutation = useMutation({
     mutationFn: async () => {
       if (!selectedContact) throw new Error("Nenhum contato selecionado");
@@ -134,7 +145,7 @@ export function WhatsAppTab() {
   });
 
   return (
-    <div className="flex flex-1 min-h-[420px] border rounded-lg overflow-hidden bg-card">
+    <div className="flex flex-1 min-h-0 md:min-h-[420px] md:border md:rounded-lg overflow-hidden bg-card">
       {/* Lista de contatos — some no celular quando uma conversa está aberta */}
       <div
         className={cn(
@@ -142,9 +153,9 @@ export function WhatsAppTab() {
           selectedContactId ? "hidden md:flex" : "flex",
         )}
       >
-        <div className="p-4 border-b">
+        <div className="px-4 py-3 border-b bg-[#008069] text-white">
           <h3 className="font-semibold">Conversas</h3>
-          <p className="text-sm text-muted-foreground">Prospecção e atendimento AuraComex</p>
+          <p className="text-xs text-white/80">Prospecção e atendimento AuraComex</p>
         </div>
         <ScrollArea className="flex-1">
           {loadingContacts && <p className="p-4 text-sm text-muted-foreground">Carregando...</p>}
@@ -174,9 +185,17 @@ export function WhatsAppTab() {
                   )}
                 </div>
               </div>
-              <Badge variant={contact.status === "client" ? "default" : "secondary"} className="shrink-0">
-                {contact.status === "client" ? "Cliente" : contact.status === "lead" ? "Lead" : "Descartado"}
-              </Badge>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <Badge variant={contact.status === "client" ? "default" : "secondary"}>
+                  {contact.status === "client" ? "Cliente" : contact.status === "lead" ? "Lead" : "Descartado"}
+                </Badge>
+                {contact.triage_step && contact.triage_step !== "done" && (
+                  <span className="text-[10px] text-amber-600 font-medium">em triagem</span>
+                )}
+                {contact.triage_step === "done" && (
+                  <span className="text-[10px] text-emerald-600 font-medium">triado</span>
+                )}
+              </div>
             </button>
           ))}
           {!loadingContacts && contacts.length === 0 && (
@@ -189,62 +208,86 @@ export function WhatsAppTab() {
       <div className={cn("flex-1 flex-col min-w-0", selectedContactId ? "flex" : "hidden md:flex")}>
         {selectedContact ? (
           <>
-            <div className="p-4 border-b shrink-0 flex items-center gap-2">
+            <div className="px-3 py-2.5 border-b shrink-0 flex items-center gap-2 bg-[#008069] text-white">
               <Button
                 variant="ghost"
                 size="icon"
-                className="md:hidden -ml-2 shrink-0"
+                className="md:hidden shrink-0 text-white hover:bg-white/10 hover:text-white"
                 onClick={() => setSelectedContactId(null)}
               >
-                <ArrowLeft className="w-4 h-4" />
+                <ArrowLeft className="w-5 h-5" />
               </Button>
-              <div className="min-w-0">
-                <p className="font-medium truncate">{selectedContact.name ?? formatPhone(selectedContact.phone)}</p>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-sm text-muted-foreground">{formatPhone(selectedContact.phone)}</p>
-                  {selectedContact.source && (
-                    <span className="text-[10px] text-muted-foreground/70 border rounded px-1">
-                      {selectedContact.source}
-                    </span>
-                  )}
-                </div>
+              <Avatar className="h-9 w-9 shrink-0">
+                <AvatarFallback className="bg-white/20 text-white text-xs">
+                  {(selectedContact.name ?? selectedContact.phone).slice(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium truncate leading-tight">{selectedContact.name ?? formatPhone(selectedContact.phone)}</p>
+                <p className="text-xs text-white/80 truncate">
+                  {formatPhone(selectedContact.phone)}
+                  {selectedContact.source && ` · ${selectedContact.source}`}
+                </p>
               </div>
+              {selectedContact.ai_paused && (
+                <span className="text-[10px] flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 shrink-0">
+                  <Bot className="w-3 h-3" /> IA pausada
+                </span>
+              )}
             </div>
-            <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+            <div
+              className={cn(
+                "px-3 py-1 text-[11px] flex items-center gap-1.5 shrink-0",
+                windowOpen ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+              )}
+            >
+              <Clock className="w-3 h-3" />
+              {windowOpen
+                ? `Janela de resposta aberta — ${Math.floor(windowHoursLeft)}h${String(Math.floor((windowHoursLeft % 1) * 60)).padStart(2, "0")} restantes (grátis)`
+                : "Janela de 24h fechada — só dá para enviar template aprovado"}
+            </div>
+            <ScrollArea className="flex-1 p-3 bg-[#efeae2] dark:bg-zinc-900" ref={scrollRef}>
               <div className="flex flex-col gap-2">
                 {messages.map((msg) => (
                   <div
                     key={msg.id}
                     className={cn(
-                      "max-w-[70%] rounded-lg px-3 py-2 text-sm",
+                      "max-w-[85%] md:max-w-[70%] rounded-lg px-3 py-1.5 text-sm shadow-sm text-zinc-900",
                       msg.direction === "outbound"
-                        ? "self-end bg-primary text-primary-foreground"
-                        : "self-start bg-muted",
+                        ? "self-end bg-[#d9fdd3] rounded-tr-none"
+                        : "self-start bg-white rounded-tl-none",
                     )}
                   >
-                    <p className="whitespace-pre-wrap break-words">{msg.body}</p>
-                    <p className="text-[10px] opacity-70 mt-1">
+                    <p className="whitespace-pre-wrap break-words">{msg.body ?? (msg.message_type !== "text" ? `[${msg.message_type}]` : "")}</p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5 text-right">
                       {new Date(msg.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                      {msg.direction === "outbound" && ` · ${msg.status}`}
+                      {msg.direction === "outbound" && ` · ${msg.status === "read" ? "✓✓ lida" : msg.status === "delivered" ? "✓✓" : msg.status === "failed" ? "falhou" : "✓"}`}
                     </p>
                   </div>
                 ))}
               </div>
             </ScrollArea>
-            <div className="p-4 border-t flex gap-2 shrink-0">
+            <div className="p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t flex gap-2 items-center shrink-0 bg-[#f0f2f5] dark:bg-zinc-800">
               <Input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="Escreva uma mensagem..."
+                placeholder={windowOpen ? "Mensagem" : "Janela fechada"}
+                disabled={!windowOpen}
+                className="rounded-full bg-white dark:bg-zinc-900"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && draft.trim()) {
+                  if (e.key === "Enter" && !e.shiftKey && draft.trim() && windowOpen) {
                     e.preventDefault();
                     sendMutation.mutate();
                   }
                 }}
               />
-              <Button onClick={() => sendMutation.mutate()} disabled={!draft.trim() || sendMutation.isPending}>
-                Enviar
+              <Button
+                size="icon"
+                className="rounded-full shrink-0 bg-[#008069] hover:bg-[#006d59] text-white"
+                onClick={() => sendMutation.mutate()}
+                disabled={!draft.trim() || !windowOpen || sendMutation.isPending}
+              >
+                <Send className="w-4 h-4" />
               </Button>
             </div>
           </>

@@ -7,9 +7,9 @@ export default function WhatsAppAdmin() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-[100dvh] bg-background flex flex-col">
       <header className="border-b border-border bg-card shrink-0">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-3">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 py-3 md:py-4 flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate('/admin')} className="-ml-2">
             <ArrowLeft className="w-4 h-4" />
           </Button>
@@ -18,7 +18,7 @@ export default function WhatsAppAdmin() {
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 max-w-6xl mx-auto px-6 py-6 w-full flex flex-col">
+      <div className="flex-1 min-h-0 max-w-6xl mx-auto md:px-6 md:py-6 w-full flex flex-col">
         <WhatsAppTab />
       </div>
     </div>
