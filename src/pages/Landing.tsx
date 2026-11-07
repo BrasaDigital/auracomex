@@ -37,7 +37,7 @@ function buildWhatsappLink(): string {
     // window indisponível (SSR/teste) — segue sem origem
   }
 
-  const message = origem ? `${WHATSAPP_MESSAGE}\n\n[origem: ${origem}]` : WHATSAPP_MESSAGE;
+  const message = `${WHATSAPP_MESSAGE}\n\n[origem: ${origem ?? "site"}]`;
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
 }
 
