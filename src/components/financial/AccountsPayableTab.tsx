@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2 } from 'lucide-react';
-import { format, isBefore, addDays, startOfDay } from 'date-fns';
+import { format, isBefore, addDays, addMonths, startOfDay } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
@@ -57,7 +58,8 @@ export default function AccountsPayableTab() {
   // (paid_at) — não pela data de vencimento/lançamento (due_date). Contas
   // ainda em aberto/atrasadas não têm data de pagamento, então continuam
   // localizadas pelo vencimento, já que é a única data que têm.
-  const [monthFilter, setMonthFilter] = useState<string>('');
+  // 'todos' = sem filtro de mês; senão 'yyyy-MM'. Começa no mês atual.
+  const [monthFilter, setMonthFilter] = useState<string>(() => format(new Date(), 'yyyy-MM'));
   const [searchDesc, setSearchDesc] = useState('');
   const [searchDescOpen, setSearchDescOpen] = useState(false);
   const [searchPartner, setSearchPartner] = useState('');
@@ -145,12 +147,30 @@ export default function AccountsPayableTab() {
       const ref = (r.shipment_id ? shipmentMap.get(r.shipment_id) : null) || (r.quote_id ? quoteMap.get(r.quote_id) : null) || '';
       if (!ref.toLowerCase().includes(searchProcess.toLowerCase())) return false;
     }
-    if (monthFilter) {
+    if (monthFilter && monthFilter !== 'todos') {
       const relevant = r.status === 'pago' ? r.paid_at : r.due_date;
       if (!relevant || relevant.slice(0, 7) !== monthFilter) return false;
     }
     return true;
   });
+
+  // Opções do seletor de mês: janela de 12 meses atrás até 2 à frente, mais
+  // qualquer mês que já tenha lançamento (pra nunca esconder dado antigo).
+  const monthOptions = useMemo(() => {
+    const set = new Set<string>();
+    const base = new Date();
+    for (let i = -2; i <= 12; i++) set.add(format(addMonths(base, -i), 'yyyy-MM'));
+    for (const r of rows) {
+      const d = r.status === 'pago' ? r.paid_at : r.due_date;
+      if (d) set.add(d.slice(0, 7));
+    }
+    return Array.from(set)
+      .sort((a, b) => b.localeCompare(a))
+      .map((ym) => {
+        const label = format(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1), 'MMMM/yyyy', { locale: ptBR });
+        return { value: ym, label: label.charAt(0).toUpperCase() + label.slice(1) };
+      });
+  }, [rows]);
 
   // Os KPIs somam linhas em moedas diferentes (USD, EUR, BRL) — sem converter
   // pra uma moeda comum antes de somar, o total exibido como "R$" na verdade
@@ -270,16 +290,17 @@ export default function AccountsPayableTab() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Valores a Pagar</CardTitle>
           <div className="flex items-center gap-2">
-            <Input
-              type="month"
-              className="w-40"
-              value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
-              title="Filtra pagos pela data de pagamento; em aberto/atrasados pelo vencimento"
-            />
-            {monthFilter && (
-              <Button variant="ghost" size="sm" onClick={() => setMonthFilter('')}>Limpar</Button>
-            )}
+            <Select value={monthFilter} onValueChange={setMonthFilter}>
+              <SelectTrigger className="w-44" title="Filtra pagos pela data de pagamento; em aberto/atrasados pelo vencimento">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos os meses</SelectItem>
+                {monthOptions.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>

@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { DateField } from '@/components/shared/DateField';
 
 interface Props {
   clientId: string;
@@ -116,23 +117,7 @@ export function ClientDocumentsSection({ clientId, companyId }: Props) {
         {/* Data de validade, aplicada ao(s) próximo(s) upload(s) */}
         <div className="space-y-1 max-w-xs">
           <Label className="text-xs">Data de validade (opcional)</Label>
-          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" type="button" className={cn('w-full justify-start text-left font-normal', !expiresAt && 'text-muted-foreground')}>
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {expiresAt ? format(expiresAt, 'dd/MM/yyyy') : 'Sem validade...'}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={expiresAt}
-                onSelect={(d) => { setExpiresAt(d); setCalendarOpen(false); }}
-                initialFocus
-                className="p-3 pointer-events-auto"
-              />
-            </PopoverContent>
-          </Popover>
+          <DateField value={expiresAt} onChange={setExpiresAt} placeholder="Sem validade" />
         </div>
         {expiresAt && (
           <p className="text-xs text-muted-foreground -mt-1 flex items-center gap-1">

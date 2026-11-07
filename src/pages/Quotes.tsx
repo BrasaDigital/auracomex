@@ -17,6 +17,8 @@ import { AiImportQuoteModal } from '@/components/quotes/AiImportQuoteModal';
 import { useAddonGate } from '@/components/billing/ModuleGate';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ColumnFilter } from '@/components/shared/ColumnFilter';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -130,6 +132,10 @@ export default function Quotes() {
   const [duplicateQuote, setDuplicateQuote] = useState<any>(null);
   const [rejectQuote, setRejectQuote] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'active' | 'rejected'>('active');
+  // Filtro de Status (multi-seleção, vazio = todos). Só faz sentido na aba
+  // Ativas; na Rejeitadas todas têm o mesmo status.
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
 
   // Mesmo ajuste do Shipments.tsx: clicar em "Cotações" no menu enquanto já
   // se está em /quotes não muda de rota, então sem isso a cotação aberta
@@ -253,8 +259,21 @@ export default function Quotes() {
     const matchesClient = !searchClient || (q.clients as any)?.name?.toLowerCase().includes(searchClient.toLowerCase());
     const matchesOrigin = !searchOrigin || q.origin?.toLowerCase().includes(searchOrigin.toLowerCase());
     const matchesDestination = !searchDestination || q.destination?.toLowerCase().includes(searchDestination.toLowerCase());
-    return matchesNumber && matchesClient && matchesOrigin && matchesDestination;
+    const matchesStatus = activeTab !== 'active' || statusFilter.length === 0 || statusFilter.includes(q.status);
+    return matchesNumber && matchesClient && matchesOrigin && matchesDestination && matchesStatus;
   });
+
+  // Opções do filtro = status presentes na lista, na ordem do fluxo da cotação.
+  const STATUS_ORDER = ['draft', 'quoting', 'sent'];
+  const statusOptions = Array.from(new Set<string>(quotes.map((q: any) => q.status).filter(Boolean)))
+    .sort((a, b) => {
+      const ia = STATUS_ORDER.indexOf(a); const ib = STATUS_ORDER.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    })
+    .map((v) => ({ value: v, label: t(`quote_status.${v}`) }));
+  const statusFilterActive = statusFilter.length > 0;
+  const toggleStatusFilter = (v: string) =>
+    setStatusFilter((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
 
   const { sorted, sortState, toggleSort } = useTableSort<any>(filtered, {
     quote_number: (r) => r.quote_number,
@@ -408,7 +427,23 @@ export default function Quotes() {
                 />
                 <SortableHeader label="Lucro Estimado" sortKey="profit" state={sortState} onToggle={toggleSort} className="h-8 px-4 text-sm text-right" align="right" />
                 <SortableHeader label={t('quotes.valid_until')} sortKey="valid_until" state={sortState} onToggle={toggleSort} className="h-8 px-4 text-sm" />
-                <SortableHeader label={t('shipments.status')} sortKey="status" state={sortState} onToggle={toggleSort} className="h-8 px-4 text-sm" />
+                <SortableHeader
+                  label={t('shipments.status')}
+                  sortKey="status"
+                  state={sortState}
+                  onToggle={toggleSort}
+                  className="h-8 px-4 text-sm"
+                  right={activeTab === 'active' ? (
+                    <ColumnFilter open={statusFilterOpen} onOpenChange={setStatusFilterOpen} active={statusFilterActive} title="Status" onClear={() => setStatusFilter([])}>
+                      {statusOptions.map((o) => (
+                        <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <Checkbox checked={statusFilter.includes(o.value)} onCheckedChange={() => toggleStatusFilter(o.value)} />
+                          <span className="truncate">{o.label}</span>
+                        </label>
+                      ))}
+                    </ColumnFilter>
+                  ) : undefined}
+                />
                 <TableHead className="w-28 h-8 px-4"></TableHead>
               </TableRow>
             </TableHeader>

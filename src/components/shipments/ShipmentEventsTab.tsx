@@ -14,6 +14,7 @@ import { Plus, Trash2, Radio, CalendarIcon, NotebookPen } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { DateField } from '@/components/shared/DateField';
 
 interface Props {
   shipmentId: string;
@@ -133,17 +134,7 @@ export function ShipmentEventsTab({ shipmentId, companyId, isFinalized }: Props)
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Data</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start text-left font-normal h-10">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {format(eventDate, 'dd/MM/yyyy')}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={eventDate} onSelect={(d) => d && setEventDate(d)} initialFocus className="p-3 pointer-events-auto" />
-                </PopoverContent>
-              </Popover>
+              <DateField value={eventDate} onChange={(d) => d && setEventDate(d)} allowClear={false} />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Categoria</Label>

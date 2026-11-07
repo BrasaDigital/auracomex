@@ -19,6 +19,7 @@ import { format, differenceInCalendarDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { DOC_TYPE_LABELS } from '@/lib/documentCategory';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
+import { DateField } from '@/components/shared/DateField';
 
 // Valor especial do Select que abre o campo de texto para digitar uma
 // categoria nova (não confundir com o document_type "other" salvo no banco).
@@ -359,23 +360,7 @@ export function DocumentsTab({ shipmentId, companyId, isQuoteMode, quoteId, onGe
 
             <div className="space-y-1.5">
               <Label className="text-xs">Data de validade (opcional)</Label>
-              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" type="button" className={cn('w-full justify-start text-left font-normal', !expiresAt && 'text-muted-foreground')}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {expiresAt ? format(expiresAt, 'dd/MM/yyyy') : 'Sem validade...'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={expiresAt}
-                    onSelect={(d) => { setExpiresAt(d); setCalendarOpen(false); }}
-                    initialFocus
-                    className="p-3 pointer-events-auto"
-                  />
-                </PopoverContent>
-              </Popover>
+              <DateField value={expiresAt} onChange={setExpiresAt} placeholder="Sem validade" />
               {expiresAt && (
                 <button
                   type="button"

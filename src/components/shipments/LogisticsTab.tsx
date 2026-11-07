@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { getCourierTrackingUrl } from '@/lib/courierTracking';
 import { STATUS_CATEGORY_OPTIONS, DEFAULT_STATUS_OPTIONS, type StatusCategory } from '@/lib/shipmentStatusCategory';
 import { parseContainerNumbers, parseContainerDates } from '@/lib/containerNumbers';
+import { DateField as TypedDateField } from '@/components/shared/DateField';
 
 interface Props {
   shipment: any;
@@ -695,23 +696,7 @@ export function LogisticsTab({ shipment, quoteId, onUpdate, clientOptions, onCli
     return (
       <div className="space-y-1">
         <Label className="text-xs">{label}</Label>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className={cn("w-full justify-start text-left font-normal h-10", !dateValue && "text-muted-foreground")}>
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {dateValue ? format(dateValue, 'dd/MM/yyyy') : 'Selecionar...'}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={dateValue}
-              onSelect={(d) => updateField(fieldKey, d ? d.toISOString() : '')}
-              initialFocus
-              className="p-3 pointer-events-auto"
-            />
-          </PopoverContent>
-        </Popover>
+        <TypedDateField value={dateValue} onChange={(d) => updateField(fieldKey, d ? d.toISOString() : '')} />
       </div>
     );
   }
@@ -724,23 +709,7 @@ export function LogisticsTab({ shipment, quoteId, onUpdate, clientOptions, onCli
     return (
       <div className="space-y-1">
         <Label className="text-[11px] text-muted-foreground">{label}</Label>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className={cn("w-full justify-start text-left font-normal h-8 text-xs", !dateValue && "text-muted-foreground")}>
-              <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
-              {dateValue ? format(dateValue, 'dd/MM/yyyy') : 'Selecionar...'}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={dateValue}
-              onSelect={(d) => onChange(d ? d.toISOString() : '')}
-              initialFocus
-              className="p-3 pointer-events-auto"
-            />
-          </PopoverContent>
-        </Popover>
+        <TypedDateField size="sm" value={dateValue} onChange={(d) => onChange(d ? d.toISOString() : '')} />
       </div>
     );
   }
