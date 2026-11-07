@@ -29,6 +29,7 @@ interface WhatsappMessage {
   message_type: string;
   status: string;
   created_at: string;
+  sent_by_name: string | null;
 }
 
 function formatPhone(phone: string) {
@@ -72,11 +73,11 @@ export function WhatsAppTab() {
       if (!selectedContactId) return [];
       const { data, error } = await supabase
         .from("whatsapp_messages")
-        .select("id, contact_id, direction, body, message_type, status, created_at")
+        .select("id, contact_id, direction, body, message_type, status, created_at, sent_by_name")
         .eq("contact_id", selectedContactId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return data as WhatsappMessage[];
+      return data as unknown as WhatsappMessage[];
     },
     enabled: !!selectedContactId,
   });
@@ -258,6 +259,11 @@ export function WhatsAppTab() {
                         : "self-start bg-white rounded-tl-none",
                     )}
                   >
+                    {msg.direction === "outbound" && (
+                      <p className="text-[11px] font-semibold text-[#008069] mb-0.5">
+                        {msg.sent_by_name ?? (msg.message_type === "template" ? "Template" : "🤖 Automático")}
+                      </p>
+                    )}
                     <p className="whitespace-pre-wrap break-words">{msg.body ?? (msg.message_type !== "text" ? `[${msg.message_type}]` : "")}</p>
                     <p className="text-[10px] text-zinc-500 mt-0.5 text-right">
                       {new Date(msg.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
