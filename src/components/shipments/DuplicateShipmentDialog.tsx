@@ -94,11 +94,23 @@ export function DuplicateShipmentDialog({ shipment, onClose, onDuplicated }: Pro
       } else {
         // Derive base_reference from shipment reference (strip trailing -XY sufix if present)
         baseRef = (shipment.reference_number || '').replace(/-[AFLRM][IE]$/, '') || shipment.reference_number;
-        const modeLetter = MODE_LETTER[mode] || 'F';
-        const dirLetter = DIRECTION_LETTER[direction] || 'I';
-        // Garante que a referência gerada não colide com uma já existente
-        // (ex: duplicar o mesmo embarque mais de uma vez no mesmo modo/direção).
-        quoteNum = await findFreeQuoteNumber(profile.company_id, `${baseRef}-${modeLetter}${dirLetter}`);
+        // Mesma configuração da criação: com "incluir modal na referência"
+        // desligado, mantém a referência sem letras (o modal vai na coluna "Modal").
+        const { data: companyRow } = await supabase
+          .from('companies')
+          .select('quote_include_mode')
+          .eq('id', profile.company_id)
+          .single();
+        const includeMode = (companyRow as any)?.quote_include_mode !== false;
+        if (includeMode) {
+          const modeLetter = MODE_LETTER[mode] || 'F';
+          const dirLetter = DIRECTION_LETTER[direction] || 'I';
+          // Garante que a referência gerada não colide com uma já existente
+          // (ex: duplicar o mesmo embarque mais de uma vez no mesmo modo/direção).
+          quoteNum = await findFreeQuoteNumber(profile.company_id, `${baseRef}-${modeLetter}${dirLetter}`);
+        } else {
+          quoteNum = baseRef;
+        }
       }
 
       const { data: newQuote, error: qErr } = await supabase.from('quotes').insert([{

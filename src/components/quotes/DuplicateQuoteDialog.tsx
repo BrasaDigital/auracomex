@@ -109,11 +109,24 @@ export function DuplicateQuoteDialog({ quote, onClose, onDuplicated }: Props) {
       } else {
         // Derive base_reference from original quote
         baseRef = quote.base_reference || quote.quote_number.replace(/-[AFLRM][IE]$/, '');
-        const modeLetter = MODE_LETTER[mode] || 'F';
-        const dirLetter = DIRECTION_LETTER[direction] || 'I';
-        // Garante que a referência gerada não colide com uma já existente
-        // (ex: duplicar o mesmo modo/direção mais de uma vez).
-        quoteNum = await findFreeQuoteNumber(profile.company_id, `${baseRef}-${modeLetter}${dirLetter}`);
+        // Mesma configuração da criação (Configurações > "incluir modal na
+        // referência"): desligada, o clone mantém a referência sem letras e o
+        // modal aparece só na coluna "Modal" da lista de Cotações.
+        const { data: companyRow } = await supabase
+          .from('companies')
+          .select('quote_include_mode')
+          .eq('id', profile.company_id)
+          .single();
+        const includeMode = (companyRow as any)?.quote_include_mode !== false;
+        if (includeMode) {
+          const modeLetter = MODE_LETTER[mode] || 'F';
+          const dirLetter = DIRECTION_LETTER[direction] || 'I';
+          // Garante que a referência gerada não colide com uma já existente
+          // (ex: duplicar o mesmo modo/direção mais de uma vez).
+          quoteNum = await findFreeQuoteNumber(profile.company_id, `${baseRef}-${modeLetter}${dirLetter}`);
+        } else {
+          quoteNum = baseRef;
+        }
       }
 
       // Insert new quote

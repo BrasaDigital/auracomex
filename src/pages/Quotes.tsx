@@ -31,6 +31,22 @@ import { useTableSort } from '@/hooks/useTableSort';
 import { SortableHeader } from '@/components/shared/SortableHeader';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
 
+// Texto da coluna Modal: "LCL · Importação", "Aéreo · Exportação" etc. Substitui
+// as letras (LI/FI/AI/RI) que eram digitadas no fim da referência.
+const MODE_SHORT: Record<string, string> = {
+  ocean_fcl: 'FCL',
+  ocean_lcl: 'LCL',
+  air: 'Aéreo',
+  road: 'Rodoviário',
+  multimodal: 'Multimodal',
+};
+const DIRECTION_LABEL: Record<string, string> = { IMP: 'Importação', EXP: 'Exportação' };
+function modeLabel(q: any): string {
+  const mode = MODE_SHORT[q.transport_mode] || q.transport_mode || '-';
+  const dir = DIRECTION_LABEL[q.direction];
+  return dir ? `${mode} · ${dir}` : mode;
+}
+
 function getSentIconColor(quote: any): string {
   if (quote.sent_at) return 'text-status-completed';
   const created = new Date(quote.created_at).getTime();
@@ -163,7 +179,7 @@ export default function Quotes() {
     queryFn: async () => {
       let query = supabase
         .from('quotes')
-        .select('id, quote_number, status, transport_mode, origin, destination, valid_until, created_at, sent_at, client_id, currency, clients(name), quote_charges(id, sell_amount, buy_amount, currency, billing_unit, payment_term), quote_items(container_type, container_qty, weight_kg, volume_cbm, chargeable_weight, length_cm, width_cm, height_cm, packages, commodity, dangerous_goods, vehicle_type), quote_cargo_volumes(qty, package_type, length_cm, width_cm, height_cm, weight_kg, volume_cbm)')
+        .select('id, quote_number, status, transport_mode, direction, origin, destination, valid_until, created_at, sent_at, client_id, currency, clients(name), quote_charges(id, sell_amount, buy_amount, currency, billing_unit, payment_term), quote_items(container_type, container_qty, weight_kg, volume_cbm, chargeable_weight, length_cm, width_cm, height_cm, packages, commodity, dangerous_goods, vehicle_type), quote_cargo_volumes(qty, package_type, length_cm, width_cm, height_cm, weight_kg, volume_cbm)')
         .order('created_at', { ascending: false });
 
       if (activeTab === 'rejected') {
@@ -277,6 +293,7 @@ export default function Quotes() {
 
   const { sorted, sortState, toggleSort } = useTableSort<any>(filtered, {
     quote_number: (r) => r.quote_number,
+    mode: (r) => modeLabel(r),
     client: (r) => r.clients?.name,
     origin: (r) => r.origin,
     destination: (r) => r.destination,
@@ -401,6 +418,7 @@ export default function Quotes() {
                   className="h-8 px-4 text-sm"
                   right={<ColumnSearch value={searchNumber} onChange={setSearchNumber} open={searchNumberOpen} onOpenChange={setSearchNumberOpen} />}
                 />
+                <SortableHeader label="Modal" sortKey="mode" state={sortState} onToggle={toggleSort} className="h-8 px-4 text-sm" />
                 <SortableHeader
                   label={t('shipments.client')}
                   sortKey="client"
@@ -449,7 +467,7 @@ export default function Quotes() {
             </TableHeader>
             <TableBody>
               {sorted.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-12 text-muted-foreground">{t('common.no_data')}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9}className="text-center py-12 text-muted-foreground">{t('common.no_data')}</TableCell></TableRow>
               ) : (
                 sorted.map((q: any) => (
                   <TableRow
@@ -458,6 +476,12 @@ export default function Quotes() {
                     onClick={() => setSelectedQuoteId(q.id)}
                   >
                     <TableCell className="py-0.5 px-4 font-mono font-medium">{q.quote_number}</TableCell>
+                    <TableCell className="py-0.5 px-4">
+                      <span className="inline-flex items-center gap-1.5" title={modeLabel(q)}>
+                        <ModeIcon mode={q.transport_mode} />
+                        <span className="text-xs">{modeLabel(q)}</span>
+                      </span>
+                    </TableCell>
                     <TableCell className="py-0.5 px-4 max-w-[180px] truncate">{(q.clients as any)?.name || '-'}</TableCell>
                     <TableCell className="py-0.5 px-4">{q.origin || '-'}</TableCell>
                     <TableCell className="py-0.5 px-4">{q.destination || '-'}</TableCell>
