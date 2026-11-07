@@ -31,7 +31,7 @@ import { useTableSort } from '@/hooks/useTableSort';
 import { SortableHeader } from '@/components/shared/SortableHeader';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
 
-// Texto da coluna Modal: "LCL · Importação", "Aéreo · Exportação" etc. Substitui
+// Texto da coluna Modal: "LCL · IMP", "Aéreo · EXP" etc. Substitui
 // as letras (LI/FI/AI/RI) que eram digitadas no fim da referência.
 const MODE_SHORT: Record<string, string> = {
   ocean_fcl: 'FCL',
@@ -40,7 +40,7 @@ const MODE_SHORT: Record<string, string> = {
   road: 'Rodoviário',
   multimodal: 'Multimodal',
 };
-const DIRECTION_LABEL: Record<string, string> = { IMP: 'Importação', EXP: 'Exportação' };
+const DIRECTION_LABEL: Record<string, string> = { IMP: 'IMP', EXP: 'EXP' };
 function modeLabel(q: any): string {
   const mode = MODE_SHORT[q.transport_mode] || q.transport_mode || '-';
   const dir = DIRECTION_LABEL[q.direction];
