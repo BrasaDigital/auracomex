@@ -47,6 +47,7 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
   const [company, setCompany] = useState<any>(null);
   const [client, setClient] = useState<any>(null);
   const [bank, setBank] = useState<any>(null);
+  const [deposits, setDeposits] = useState<{ id: string; deposit_date: string; amount_brl: number; note: string | null }[]>([]);
 
   useEffect(() => {
     if (!open || !quote?.company_id) return;
@@ -58,10 +59,31 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
     }
   }, [open, quote?.company_id, quote?.client_id]);
 
+  // Depósitos do cliente (caixa do processo) — entram no PDF e definem o resultado
+  // quando o valor orçado está oculto.
+  useEffect(() => {
+    if (!open || !quote?.id) { setDeposits([]); return; }
+    (supabase as any)
+      .from('process_deposits')
+      .select('id, deposit_date, amount_brl, note')
+      .eq('quote_id', quote.id)
+      .order('deposit_date', { ascending: true })
+      .then((r: any) => setDeposits(r.data || []));
+  }, [open, quote?.id]);
+
   // Dados bancários só fazem sentido quando sobra valor a cobrar do cliente
   // (mesmo critério/conta do Numerário em EstimatePdfDialog.tsx): conta padrão
   // em BRL; sem uma marcada como padrão, cai na primeira conta BRL ativa.
-  const precisaCobrarCliente = Number(accountability?.diferenca_brl || 0) > 0;
+  // Por empresa: mostrar (ou não) ao cliente o valor orçado no pedido do Numerário.
+  const showBudget = company?.accountability_show_budget !== false;
+  const totalDepositado = deposits.reduce((s, d) => s + Number(d.amount_brl || 0), 0);
+  const temDepositos = deposits.length > 0;
+  // Orçado visível: resultado = pago − orçado. Orçado oculto: resultado vem dos
+  // depósitos (depositado − pago), pra não revelar o orçado de forma indireta.
+  const saldoDepositos = totalDepositado - Number(accountability?.total_pago_brl || 0);
+  const precisaCobrarCliente = showBudget
+    ? Number(accountability?.diferenca_brl || 0) > 0
+    : temDepositos && saldoDepositos < 0;
   useEffect(() => {
     if (!open || !quote?.company_id || !precisaCobrarCliente) { setBank(null); return; }
     supabase
@@ -229,9 +251,9 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
               <thead>
                 <tr>
                   <th style={{ ...th, background: BRAND, color: '#fff' }}>DESCRIÇÃO</th>
-                  <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>ORÇADO (R$)</th>
+                  {showBudget && <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>ORÇADO (R$)</th>}
                   <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>PAGO REAL (R$)</th>
-                  <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>DIFERENÇA (R$)</th>
+                  {showBudget && <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>DIFERENÇA (R$)</th>}
                 </tr>
               </thead>
               <tbody>
@@ -241,36 +263,75 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
                   return (
                     <tr key={item.id}>
                       <td style={td}>[{categoriaLabels[item.categoria] || item.categoria}] {item.descricao}</td>
-                      <td style={tdR}>{fmtBRL(item.valor_orcado_brl)}</td>
+                      {showBudget && <td style={tdR}>{fmtBRL(item.valor_orcado_brl)}</td>}
                       <td style={tdR}>{fmtBRL(pago)}</td>
-                      <td style={{ ...tdR, color: diff > 0 ? '#b91c1c' : diff < 0 ? '#047857' : undefined }}>
-                        {diff > 0 ? '+' : ''}{fmtBRL(diff)}
-                      </td>
+                      {showBudget && (
+                        <td style={{ ...tdR, color: diff > 0 ? '#b91c1c' : diff < 0 ? '#047857' : undefined }}>
+                          {diff > 0 ? '+' : ''}{fmtBRL(diff)}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
                 <tr style={{ background: '#f5f5f5', fontWeight: 700 }}>
                   <td style={td}>TOTAL</td>
-                  <td style={tdR}>{fmtBRL(totalOrcado)}</td>
+                  {showBudget && <td style={tdR}>{fmtBRL(totalOrcado)}</td>}
                   <td style={tdR}>{fmtBRL(totalPago)}</td>
-                  <td style={{ ...tdR, color: diferenca > 0 ? '#b91c1c' : diferenca < 0 ? '#047857' : undefined }}>
-                    {diferenca > 0 ? '+' : ''}{fmtBRL(diferenca)}
-                  </td>
+                  {showBudget && (
+                    <td style={{ ...tdR, color: diferenca > 0 ? '#b91c1c' : diferenca < 0 ? '#047857' : undefined }}>
+                      {diferenca > 0 ? '+' : ''}{fmtBRL(diferenca)}
+                    </td>
+                  )}
                 </tr>
               </tbody>
             </table>
 
-            <div style={{ border: `2px solid ${BRAND}`, marginBottom: 10 }}>
-              <div style={{ background: BRAND, color: '#fff', padding: '4px 12px', fontSize: 10, fontWeight: 700 }}>
-                RESULTADO DA PRESTAÇÃO DE CONTAS
-              </div>
-              <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: BRAND }}>
-                  {diferenca > 0 ? 'ADICIONAL A COBRAR DO CLIENTE' : diferenca < 0 ? 'SALDO A DEVOLVER AO CLIENTE' : 'SEM DIFERENÇA — VALORES CONFEREM'}
+            {/* Depósitos do cliente (caixa do processo) */}
+            {temDepositos && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 15 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...th, background: BRAND, color: '#fff' }}>DEPÓSITOS DO CLIENTE</th>
+                    <th style={{ ...th, background: BRAND, color: '#fff' }}>OBSERVAÇÃO</th>
+                    <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>VALOR (R$)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deposits.map(d => (
+                    <tr key={d.id}>
+                      <td style={td}>{new Date(d.deposit_date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                      <td style={td}>{d.note || ''}</td>
+                      <td style={tdR}>{fmtBRL(d.amount_brl)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: '#f5f5f5', fontWeight: 700 }}>
+                    <td style={td} colSpan={2}>TOTAL DEPOSITADO</td>
+                    <td style={tdR}>{fmtBRL(totalDepositado)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+
+            {(showBudget || temDepositos) && (() => {
+              // Orçado visível: resultado = pago − orçado (como sempre foi).
+              // Orçado oculto: resultado = depositado − pago (positivo = devolver).
+              const aCobrar = showBudget ? diferenca > 0 : saldoDepositos < 0;
+              const aDevolver = showBudget ? diferenca < 0 : saldoDepositos > 0;
+              const valor = showBudget ? Math.abs(diferenca) : Math.abs(saldoDepositos);
+              return (
+                <div style={{ border: `2px solid ${BRAND}`, marginBottom: 10 }}>
+                  <div style={{ background: BRAND, color: '#fff', padding: '4px 12px', fontSize: 10, fontWeight: 700 }}>
+                    RESULTADO DA PRESTAÇÃO DE CONTAS
+                  </div>
+                  <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: BRAND }}>
+                      {aCobrar ? 'ADICIONAL A COBRAR DO CLIENTE' : aDevolver ? 'SALDO A DEVOLVER AO CLIENTE' : 'SEM DIFERENÇA — VALORES CONFEREM'}
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: BRAND }}>R$ {fmtBRL(valor)}</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: BRAND }}>R$ {fmtBRL(Math.abs(diferenca))}</div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Só quando sobra valor a cobrar do cliente — mesmo box do Numerário,
                 pra ele já ter como pagar sem precisar pedir os dados de novo. */}
@@ -296,7 +357,7 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
             )}
 
             <div style={{ fontSize: 8, color: '#888', fontStyle: 'italic' }}>
-              Valores orçados conforme Numerário aprovado em {new Date(accountability.created_at).toLocaleDateString('pt-BR')}. Câmbio de referência: R$ {(accountability.usd_brl || 0).toLocaleString('pt-BR', { minimumFractionDigits: 4 })}.
+              {showBudget ? `Valores orçados conforme Numerário aprovado em ${new Date(accountability.created_at).toLocaleDateString('pt-BR')}. ` : ''}Câmbio de referência: R$ {(accountability.usd_brl || 0).toLocaleString('pt-BR', { minimumFractionDigits: 4 })}.
             </div>
           </section>
         </div>

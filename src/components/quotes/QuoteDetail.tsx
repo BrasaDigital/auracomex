@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Plus, Trash2, Save, Copy, FileText, Building2, Bell, CheckCircle, Send, MapPin, Package, Info, Users, ShoppingCart, Undo2, Calculator, HelpCircle, ChevronRight, ChevronLeft, Sparkles, ListChecks, Building, Wallet, History, NotebookPen, Receipt, Truck } from 'lucide-react';
 import { CostEstimateTab } from './estimate/CostEstimateTab';
 import { AccountabilityTab } from './estimate/AccountabilityTab';
+import { FinanceiroTab } from './estimate/FinanceiroTab';
 import { useAccountability } from '@/hooks/useAccountability';
 import { FloatingSaveButton } from './estimate/FloatingSaveButton';
 import { QuotePdfPreviewDialog } from './QuotePdfPreviewDialog';
@@ -754,14 +755,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
       setActiveTab(isShipmentMode ? 'logistics' : 'general');
     }
   }, [estimateEnabled, activeTab, isShipmentMode]);
-
-  // Se a Prestação de Contas for excluída (destravando a Estimativa) enquanto
-  // o usuário está nela, a aba some — volta pra Estimativa.
-  useEffect(() => {
-    if (!accountability && activeTab === 'accountability') {
-      setActiveTab('estimate');
-    }
-  }, [accountability, activeTab]);
 
   // Onboarding da aba Taxas: mostra automaticamente na primeira vez que o usuário abre a aba.
   useEffect(() => {
@@ -2056,9 +2049,9 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                     <Calculator className={iconCls} /> Estimativa
                   </TabsTrigger>
                 )}
-                {estimateEnabled && accountability && (
+                {estimateEnabled && (
                   <TabsTrigger value="accountability" className={triggerCls}>
-                    <Receipt className={iconCls} /> Prestação de Contas
+                    <Receipt className={iconCls} /> Financeiro
                   </TabsTrigger>
                 )}
                 {/* Documents tab available in both modes */}
@@ -3115,10 +3108,11 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
           </TabsContent>
         )}
 
-        {/* Prestação de Contas: só existe depois que o Numerário é aprovado. */}
-        {estimateEnabled && accountability && (
+        {/* Financeiro: caixa do cliente (depósitos + saldo) e, embaixo, a Prestação de
+            Contas (que só existe depois que o Numerário é aprovado). */}
+        {estimateEnabled && (
           <TabsContent value="accountability">
-            <AccountabilityTab
+            <FinanceiroTab
               quoteId={quoteId}
               quote={quote}
               companyId={profile?.company_id}

@@ -56,6 +56,7 @@ export default function SettingsPage() {
     quotePrefix: '',
     quoteStartNumberRaw: '1',
     quoteIncludeMode: true,
+    accountabilityShowBudget: true,
     brandPrimary: '#1a1a2e',
     brandSecondary: '#1e40af',
     documentAlertEmail: '',
@@ -113,6 +114,7 @@ export default function SettingsPage() {
         quotePrefix: c.quote_prefix === 'FF' ? '' : (c.quote_prefix || ''),
         quoteStartNumberRaw: raw,
         quoteIncludeMode: c.quote_include_mode !== false,
+        accountabilityShowBudget: c.accountability_show_budget !== false,
         brandPrimary: c.brand_primary_color || '#1a1a2e',
         brandSecondary: c.brand_secondary_color || '#1e40af',
         documentAlertEmail: c.document_alert_email || '',
@@ -172,6 +174,7 @@ export default function SettingsPage() {
           quote_start_number: startNumber,
           quote_number_width: width,
           quote_include_mode: form.quoteIncludeMode,
+          accountability_show_budget: form.accountabilityShowBudget,
           brand_primary_color: form.brandPrimary,
           brand_secondary_color: form.brandSecondary,
           document_alert_email: form.documentAlertEmail.trim() || null,
@@ -638,6 +641,23 @@ export default function SettingsPage() {
                 <Switch
                   checked={form.quoteIncludeMode}
                   onCheckedChange={(v) => setForm({ ...form, quoteIncludeMode: v })}
+                />
+              </div>
+
+              <div className="flex items-start justify-between gap-3 rounded-md border border-border/50 bg-muted/20 p-3">
+                <div className="space-y-1">
+                  <Label className="text-sm">
+                    {language === 'pt' ? 'Mostrar valor previsto na Prestação de Contas' : 'Show budgeted amount in the Accountability report'}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {language === 'pt'
+                      ? 'Ligado, o PDF enviado ao cliente traz o valor orçado no Numerário, o pago e a diferença. Desligado, traz só o pago e o saldo dos depósitos do cliente.'
+                      : 'On, the PDF sent to the client shows budgeted, paid and difference. Off, it shows only paid amounts and the balance of the client deposits.'}
+                  </p>
+                </div>
+                <Switch
+                  checked={form.accountabilityShowBudget}
+                  onCheckedChange={(v) => setForm({ ...form, accountabilityShowBudget: v })}
                 />
               </div>
 
