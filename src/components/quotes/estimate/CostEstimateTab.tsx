@@ -952,8 +952,8 @@ export function CostEstimateTab({
         <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm">
           <Info className="w-4 h-4 shrink-0" />
           <span>
-            <strong>Estimativa travada para edição:</strong> o Numerário já foi aprovado e a Prestação de Contas foi gerada.
-            Para editar a Estimativa, exclua a Prestação de Contas na aba correspondente.
+            <strong>Desembaraço travado para edição:</strong> o Numerário já foi aprovado e a Prestação de Contas foi gerada.
+            Para editar esta aba, exclua a Prestação de Contas na aba Financeiro.
           </span>
         </div>
       )}
@@ -1682,7 +1682,7 @@ export function CostEstimateTab({
                   armazenagemBrl: armazenagemDestinoBrl,
                   userId: profile?.user_id,
                 });
-                toast.success('Prestação de Contas criada. A Estimativa foi travada para edição.');
+                toast.success('Prestação de Contas criada. A aba Desembaraço foi travada para edição.');
               }
             : undefined
         }

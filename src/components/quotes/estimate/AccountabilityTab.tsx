@@ -52,7 +52,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
     return (
       <Card className="glass">
         <CardContent className="py-12 text-center text-muted-foreground">
-          Nenhuma Prestação de Contas gerada. Aprove o Numerário na aba Estimativa para criar.
+          Nenhuma Prestação de Contas gerada. Aprove o Numerário na aba Desembaraço para criar.
         </CardContent>
       </Card>
     );
@@ -140,7 +140,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
                 setDeleteOpen(true);
               }}
             >
-              <Trash2 className="w-3.5 h-3.5 mr-1" /> Excluir Prestação (destrava Estimativa)
+              <Trash2 className="w-3.5 h-3.5 mr-1" /> Excluir Prestação (destrava Desembaraço)
             </Button>
           </div>
         </CardHeader>
@@ -249,7 +249,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir esta Prestação de Contas?</AlertDialogTitle>
             <AlertDialogDescription>
-              Todos os valores pagos confirmados serão perdidos e a Estimativa voltará a ficar editável. Esta ação não pode ser desfeita.
+              Todos os valores pagos confirmados serão perdidos e a aba Desembaraço voltará a ficar editável. Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -263,7 +263,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
                 setDeleting(true);
                 try {
                   await removeAccountability(accountability.id);
-                  toast.success('Prestação de Contas excluída. Estimativa destravada.');
+                  toast.success('Prestação de Contas excluída. Desembaraço destravado.');
                   setDeleteOpen(false);
                 } catch (err: any) {
                   toast.error(err.message || 'Erro ao excluir prestação de contas');

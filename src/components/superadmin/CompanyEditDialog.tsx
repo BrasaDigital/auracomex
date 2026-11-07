@@ -119,8 +119,8 @@ export function CompanyEditDialog({ open, onOpenChange, editForm, setEditForm, o
           </div>
           <div className="flex items-center justify-between rounded-md border border-border/60 bg-secondary/30 px-3 py-2">
             <div>
-              <Label className="cursor-pointer">Aba Estimativa (custo estimado)</Label>
-              <p className="text-xs text-muted-foreground">Habilita a aba Estimativa dentro das cotações desta empresa.</p>
+              <Label className="cursor-pointer">Aba Desembaraço (custo estimado)</Label>
+              <p className="text-xs text-muted-foreground">Habilita a aba Desembaraço (antes Estimativa) dentro das cotações desta empresa.</p>
             </div>
             <Switch checked={editForm.estimateEnabled} onCheckedChange={(v) => setEditForm({ ...editForm, estimateEnabled: v })} />
           </div>

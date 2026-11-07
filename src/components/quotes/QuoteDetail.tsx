@@ -2046,7 +2046,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                 </TabsTrigger>
                 {estimateEnabled && (
                   <TabsTrigger value="estimate" className={triggerCls}>
-                    <Calculator className={iconCls} /> Estimativa
+                    <Calculator className={iconCls} /> Desembaraço
                   </TabsTrigger>
                 )}
                 {estimateEnabled && (
@@ -2446,7 +2446,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                 <div className="rounded-md border border-primary/30 bg-primary/5 text-xs px-3 py-2 flex items-center gap-2">
                   <Info className="w-4 h-4 shrink-0 text-primary" />
                   <span>
-                    Esta cotação tem uma Estimativa de custo preenchida: o <strong>peso total</strong> usado para calcular as taxas por kg vem da aba Estimativa, não daqui. Volume (m³) e containers continuam vindo desta aba.
+                    Esta cotação tem uma Estimativa de custo preenchida: o <strong>peso total</strong> usado para calcular as taxas por kg vem da aba Desembaraço, não daqui. Volume (m³) e containers continuam vindo desta aba.
                   </span>
                 </div>
               )}
