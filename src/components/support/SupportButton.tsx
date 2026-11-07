@@ -4,6 +4,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TicketForm } from './TicketForm';
 import { TicketList } from './TicketList';
+import { WhatsAppSupport } from './WhatsAppSupport';
 
 interface SupportSheetProps {
   open: boolean;
@@ -11,7 +12,7 @@ interface SupportSheetProps {
 }
 
 export function SupportSheet({ open, onOpenChange }: SupportSheetProps) {
-  const [tab, setTab] = useState('new');
+  const [tab, setTab] = useState('whatsapp');
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -22,10 +23,14 @@ export function SupportSheet({ open, onOpenChange }: SupportSheetProps) {
           </SheetTitle>
         </SheetHeader>
         <Tabs value={tab} onValueChange={setTab} className="mt-4">
-          <TabsList className="grid grid-cols-2 w-full">
-            <TabsTrigger value="new">Novo ticket</TabsTrigger>
+          <TabsList className="grid grid-cols-3 w-full">
+            <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
+            <TabsTrigger value="new">Ticket</TabsTrigger>
             <TabsTrigger value="mine">Meus tickets</TabsTrigger>
           </TabsList>
+          <TabsContent value="whatsapp" className="mt-4">
+            <WhatsAppSupport onSent={() => onOpenChange(false)} />
+          </TabsContent>
           <TabsContent value="new" className="mt-4">
             <TicketForm onSuccess={() => setTab('mine')} />
           </TabsContent>

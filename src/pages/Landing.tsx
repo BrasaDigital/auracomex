@@ -4,13 +4,13 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Check, Menu, MessageCircle, Minus, X } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import ShipmentPanel from "@/components/landing/ShipmentPanel";
+import { AURA_WHATSAPP_NUMBER as WHATSAPP_NUMBER } from "@/lib/whatsapp";
 import "@/styles/landing.css";
 
 const TITULO = "Aura Comex | Gestão de embarques e cotações para agentes de carga";
 const DESCRICAO =
   "Aura Comex: plataforma para agentes de carga gerenciarem embarques, cotações, documentos e financeiro em um só lugar. Teste grátis por 14 dias.";
 
-const WHATSAPP_NUMBER = "5511961573287";
 const WHATSAPP_MESSAGE = "Olá! Vi a página do Aura Comex e quero saber mais.";
 
 /**
