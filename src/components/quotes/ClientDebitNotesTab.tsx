@@ -18,7 +18,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ClientDebitNotePdfDialog } from './ClientDebitNotePdfDialog';
-import { deleteClientDn } from '@/lib/debitNotes';
+import { deleteClientDn, cancelClientDn } from '@/lib/debitNotes';
 
 type DN = {
   id: string;
@@ -67,6 +67,8 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
   const [payDn, setPayDn] = useState<DN | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const { data: notes = [] } = useQuery({
     queryKey: ['client_debit_notes', quoteId],
@@ -137,12 +139,16 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
   }
 
   async function cancelDn(id: string) {
-    const { error } = await supabase.from('debit_notes' as any).update({ status: 'cancelada' }).eq('id', id);
-    if (error) return toast.error(error.message);
-    await supabase.from('accounts_receivable' as any).update({ status: 'cancelado' }).eq('debit_note_id', id);
-    toast.success('DN cancelada');
+    setCancelling(true);
+    const result = await cancelClientDn({ dnId: id, companyId, quoteId, userId: user?.id });
+    setCancelling(false);
+    if (result.ok === false) return toast.error('Erro ao cancelar', { description: result.error });
+    toast.success('ND cancelada — taxas liberadas para uma nova ND');
+    setConfirmCancelId(null);
     qc.invalidateQueries({ queryKey: ['client_debit_notes', quoteId] });
     qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
+    qc.invalidateQueries({ queryKey: ['quote-charges', quoteId] });
+    qc.invalidateQueries({ queryKey: ['quote_sell_charges', quoteId] });
   }
 
   return (
@@ -187,7 +193,7 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
                       {dn.status !== 'paga' && dn.status !== 'cancelada' && (
                         <>
                           <Button variant="ghost" size="icon" title="Marcar como paga" onClick={() => setPayDn(dn)}><CheckCircle className="w-4 h-4 text-emerald-400" /></Button>
-                          <Button variant="ghost" size="icon" title="Cancelar" onClick={() => cancelDn(dn.id)}><XCircle className="w-4 h-4 text-amber-400" /></Button>
+                          <Button variant="ghost" size="icon" title="Cancelar ND" onClick={() => setConfirmCancelId(dn.id)}><XCircle className="w-4 h-4 text-amber-400" /></Button>
                         </>
                       )}
                       <Button variant="ghost" size="icon" title="Excluir" onClick={() => setConfirmDeleteId(dn.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
@@ -241,6 +247,25 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!confirmCancelId} onOpenChange={(o) => !cancelling && !o && setConfirmCancelId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar esta ND?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A ND fica no histórico como cancelada, a conta a receber vinculada também é cancelada no
+              Financeiro e as taxas que estavam nela voltam a ficar livres para uma nova ND. ND já paga
+              não pode ser cancelada.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelling}>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => confirmCancelId && cancelDn(confirmCancelId)} disabled={cancelling}>
+              {cancelling ? 'Cancelando…' : 'Cancelar ND'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!confirmDeleteId} onOpenChange={(o) => !deleting && !o && setConfirmDeleteId(null)}>
         <AlertDialogContent>

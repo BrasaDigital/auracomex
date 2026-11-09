@@ -115,3 +115,55 @@ export async function deleteClientDn({
 
   return { ok: true };
 }
+
+/**
+ * Cancela uma ND ao cliente já emitida: a ND fica no histórico com status
+ * "cancelada", a conta a receber vinculada passa a "cancelado" e as taxas de
+ * venda presas nela voltam a ficar livres (editáveis e prontas pra entrar numa
+ * ND nova). Diferente de `deleteClientDn`, o registro NÃO é apagado.
+ * ND já paga não pode ser cancelada (o recebimento precisa ser tratado antes).
+ */
+export async function cancelClientDn({
+  dnId,
+  companyId,
+  quoteId,
+  userId,
+  clientName,
+}: {
+  dnId: string;
+  companyId: string;
+  quoteId?: string | null;
+  userId?: string | null;
+  clientName?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: dn, error: dnErr } = await supabase
+    .from('debit_notes' as any)
+    .select('id, dn_number, status, quote_id')
+    .eq('id', dnId)
+    .maybeSingle();
+  if (dnErr) return { ok: false, error: dnErr.message };
+  if (!dn) return { ok: false, error: 'Nota de Débito não encontrada.' };
+  if ((dn as any).status === 'paga') {
+    return { ok: false, error: 'Esta ND já foi paga e não pode ser cancelada.' };
+  }
+  if ((dn as any).status === 'cancelada') {
+    return { ok: false, error: 'Esta ND já está cancelada.' };
+  }
+
+  const { error: upErr } = await supabase.from('debit_notes' as any).update({ status: 'cancelada' }).eq('id', dnId);
+  if (upErr) return { ok: false, error: upErr.message };
+
+  await supabase.from('accounts_receivable' as any).update({ status: 'cancelado' }).eq('debit_note_id', dnId);
+  await supabase.from('quote_charges' as any).update({ sent_in_debit_note_id: null }).eq('sent_in_debit_note_id', dnId);
+
+  await logAuditEvent({
+    quoteId: quoteId || (dn as any).quote_id || null,
+    companyId,
+    userId,
+    field_name: 'debit_note',
+    old_value: `${clientName ? clientName + ' — ' : ''}ND ${(dn as any).dn_number}`,
+    new_value: 'cancelada',
+  });
+
+  return { ok: true };
+}
