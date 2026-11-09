@@ -64,7 +64,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
         ) : (
           <>
             <div style={{ background: '#fff', padding: 24 }}>
-              <div ref={ref} style={{ width: 780, boxSizing: 'border-box', background: '#fff', color: '#111', fontFamily: 'Arial, sans-serif', fontSize: 11, margin: '0 auto', padding: 32 }}>
+              <div ref={ref} style={{ width: 700, boxSizing: 'border-box', background: '#fff', color: '#111', fontFamily: 'Arial, sans-serif', fontSize: 11, margin: '0 auto', padding: 32 }}>
                 {/* Header */}
                 <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
                   <tbody>
