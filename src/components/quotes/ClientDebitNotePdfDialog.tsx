@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Download, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { generatePdfFromElement, pdfSafeStyles } from '@/lib/pdf-utils';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { transportModeLabel } from '@/lib/transportMode';
 
 interface Props {
   open: boolean;
@@ -63,7 +64,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
         ) : (
           <>
             <div style={{ background: '#fff', padding: 24 }}>
-              <div ref={ref} style={{ width: 780, background: '#fff', color: '#111', fontFamily: 'Arial, sans-serif', fontSize: 11, margin: '0 auto', padding: 32 }}>
+              <div ref={ref} style={{ width: 780, boxSizing: 'border-box', background: '#fff', color: '#111', fontFamily: 'Arial, sans-serif', fontSize: 11, margin: '0 auto', padding: 32 }}>
                 {/* Header */}
                 <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
                   <tbody>
@@ -81,8 +82,8 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                         </div>
                         <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 13 }}>Nº {data.dn.dn_number}</div>
                         <div style={{ fontSize: 10, color: '#555' }}>
-                          Emissão: {format(new Date(data.dn.issue_date), 'dd/MM/yyyy')}<br />
-                          Vencimento: {data.dn.due_date ? format(new Date(data.dn.due_date), 'dd/MM/yyyy') : '-'}
+                          Emissão: {format(parseISO(data.dn.issue_date), 'dd/MM/yyyy')}<br />
+                          Vencimento: {data.dn.due_date ? format(parseISO(data.dn.due_date), 'dd/MM/yyyy') : '-'}
                         </div>
                       </td>
                     </tr>
@@ -117,7 +118,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                 <div style={{ background: '#f5f7fa', padding: 8, marginBottom: 12, fontSize: 10 }}>
                   <strong>REFERÊNCIA:</strong> {data.quote?.quote_number}
                   {data.quote?.origin && data.quote?.destination && <> — {data.quote.origin} → {data.quote.destination}</>}
-                  {data.quote?.transport_mode && <> · {data.quote.transport_mode}</>}
+                  {data.quote?.transport_mode && <> · {transportModeLabel(data.quote.transport_mode)}</>}
                 </div>
 
                 {/* Itens */}

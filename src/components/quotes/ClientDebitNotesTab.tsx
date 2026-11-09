@@ -16,9 +16,9 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Plus, Trash2, FileText, CheckCircle, XCircle, DollarSign } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { ClientDebitNotePdfDialog } from './ClientDebitNotePdfDialog';
-import { deleteClientDn, cancelClientDn } from '@/lib/debitNotes';
+import { deleteClientDn, cancelClientDn, DEFAULT_CLIENT_ND_NOTES } from '@/lib/debitNotes';
 
 type DN = {
   id: string;
@@ -183,8 +183,8 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
               {notes.map(dn => (
                 <TableRow key={dn.id}>
                   <TableCell className="font-medium">{dn.dn_number}</TableCell>
-                  <TableCell>{format(new Date(dn.issue_date), 'dd/MM/yyyy')}</TableCell>
-                  <TableCell>{dn.due_date ? format(new Date(dn.due_date), 'dd/MM/yyyy') : '-'}</TableCell>
+                  <TableCell>{format(parseISO(dn.issue_date), 'dd/MM/yyyy')}</TableCell>
+                  <TableCell>{dn.due_date ? format(parseISO(dn.due_date), 'dd/MM/yyyy') : '-'}</TableCell>
                   <TableCell className="text-right tabular-nums">{dn.currency} {Number(dn.total_amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                   <TableCell><Badge className={STATUS_COLOR[dn.status] || 'bg-slate-500/20'} variant="secondary">{STATUS_LABEL[dn.status] || dn.status}</Badge></TableCell>
                   {!readOnly && (
@@ -363,7 +363,7 @@ function CreateClientDnDialog({
   const [issueDate, setIssueDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [dueDate, setDueDate] = useState(format(new Date(Date.now() + 15 * 86400000), 'yyyy-MM-dd'));
   const [bankId, setBankId] = useState<string>('');
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(DEFAULT_CLIENT_ND_NOTES);
   const [saving, setSaving] = useState(false);
 
   // Modo de câmbio

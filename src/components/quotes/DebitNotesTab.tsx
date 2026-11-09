@@ -16,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Plus, Trash2, Upload, CheckCircle, FileText, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { deleteSupplierDn } from '@/lib/debitNotes';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 
@@ -211,8 +211,8 @@ export function DebitNotesTab({ quoteId, companyId, partners, pendingFile, onPen
                     <TableRow key={n.id} className={readOnly ? '' : 'cursor-pointer'} onClick={() => !readOnly && setActiveDnId(n.id)}>
                       <TableCell className="font-medium">{n.dn_number}</TableCell>
                       <TableCell>{partner?.name ?? '—'}</TableCell>
-                      <TableCell>{n.issue_date ? format(new Date(n.issue_date), 'dd/MM/yyyy') : '—'}</TableCell>
-                      <TableCell>{n.due_date ? format(new Date(n.due_date), 'dd/MM/yyyy') : '—'}</TableCell>
+                      <TableCell>{n.issue_date ? format(parseISO(n.issue_date), 'dd/MM/yyyy') : '—'}</TableCell>
+                      <TableCell>{n.due_date ? format(parseISO(n.due_date), 'dd/MM/yyyy') : '—'}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {n.currency} {Number(n.total_amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
@@ -668,8 +668,8 @@ function DnDetailDialog({
         </DialogHeader>
 
         <div className="text-xs text-muted-foreground grid grid-cols-4 gap-2">
-          <div>Emissão: {dn.issue_date ? format(new Date(dn.issue_date), 'dd/MM/yyyy') : '—'}</div>
-          <div>Vencimento: {dn.due_date ? format(new Date(dn.due_date), 'dd/MM/yyyy') : '—'}</div>
+          <div>Emissão: {dn.issue_date ? format(parseISO(dn.issue_date), 'dd/MM/yyyy') : '—'}</div>
+          <div>Vencimento: {dn.due_date ? format(parseISO(dn.due_date), 'dd/MM/yyyy') : '—'}</div>
           <div>Moeda: {dn.currency}</div>
           <div>Câmbio: {dn.exchange_rate ?? 1}</div>
         </div>

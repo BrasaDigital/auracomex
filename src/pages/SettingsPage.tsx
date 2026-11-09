@@ -20,6 +20,7 @@ import { PortalUnicoConfigWizard } from '@/components/settings/PortalUnicoConfig
 import { BankAccountsSection } from '@/components/settings/BankAccountsSection';
 import { BackupSection } from '@/components/settings/BackupSection';
 import Billing from './Billing';
+import { trimImageMargins } from '@/lib/imageTrim';
 
 
 function formatCnpj(value: string) {
@@ -228,12 +229,14 @@ export default function SettingsPage() {
 
     setUploadingLogo(true);
     try {
-      const ext = file.name.split('.').pop();
+      // Recorta margens vazias da imagem — senão o logo aparece minúsculo no site e nos PDFs.
+      const trimmed = await trimImageMargins(file);
+      const ext = trimmed.name.split('.').pop();
       const path = `${profile.company_id}/logo.${ext}`;
 
       const { error: uploadError } = await supabase.storage
         .from('company-logos')
-        .upload(path, file, { upsert: true });
+        .upload(path, trimmed, { upsert: true, contentType: trimmed.type });
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage

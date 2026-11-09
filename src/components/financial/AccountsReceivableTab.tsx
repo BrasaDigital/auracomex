@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2 } from 'lucide-react';
-import { format, isBefore, addDays, startOfDay } from 'date-fns';
+import { format, isBefore, addDays, startOfDay, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
@@ -124,7 +124,7 @@ export default function AccountsReceivableTab() {
 
   const today = startOfDay(new Date());
   const enriched = rows.map((r) => {
-    const overdue = r.status === 'aberto' && !!r.due_date && isBefore(new Date(r.due_date), today);
+    const overdue = r.status === 'aberto' && !!r.due_date && isBefore(parseISO(r.due_date), today);
     return { ...r, status: overdue ? ('atrasado' as const) : r.status };
   });
 
@@ -173,7 +173,7 @@ export default function AccountsReceivableTab() {
       else if (r.status === 'atrasado') vencidos += amt;
       else if (r.status === 'aberto') {
         aberto += amt;
-        if (r.due_date && isBefore(new Date(r.due_date), in7)) aVencer += amt;
+        if (r.due_date && isBefore(parseISO(r.due_date), in7)) aVencer += amt;
       }
     }
     return { vencidos, aVencer, recebidos, aberto };
@@ -328,7 +328,7 @@ export default function AccountsReceivableTab() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {r.due_date ? format(new Date(r.due_date), 'dd/MM/yyyy') : <span className="text-muted-foreground">—</span>}
+                      {r.due_date ? format(parseISO(r.due_date), 'dd/MM/yyyy') : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {(() => {

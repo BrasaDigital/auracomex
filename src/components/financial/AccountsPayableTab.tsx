@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2 } from 'lucide-react';
-import { format, isBefore, addDays, addMonths, startOfDay } from 'date-fns';
+import { format, isBefore, addDays, addMonths, startOfDay, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
@@ -131,7 +131,7 @@ export default function AccountsPayableTab() {
 
   const today = startOfDay(new Date());
   const enriched = rows.map((r) => {
-    const due = new Date(r.due_date);
+    const due = parseISO(r.due_date);
     const overdue = r.status === 'aberto' && isBefore(due, today);
     return { ...r, status: overdue ? ('atrasado' as const) : r.status };
   });
@@ -200,7 +200,7 @@ export default function AccountsPayableTab() {
       else if (r.status === 'atrasado') vencidos += amt;
       else if (r.status === 'aberto') {
         aberto += amt;
-        if (isBefore(new Date(r.due_date), in7)) aVencer += amt;
+        if (isBefore(parseISO(r.due_date), in7)) aVencer += amt;
       }
     }
     return { vencidos, aVencer, pagos, aberto };
@@ -365,10 +365,10 @@ export default function AccountsPayableTab() {
                         <Badge variant="secondary" className="bg-muted text-muted-foreground text-xs">Sem vínculo</Badge>
                       )}
                     </TableCell>
-                    <TableCell>{format(new Date(r.due_date), 'dd/MM/yyyy')}</TableCell>
+                    <TableCell>{format(parseISO(r.due_date), 'dd/MM/yyyy')}</TableCell>
                     <TableCell>
                       {r.paid_at ? (
-                        <span className="text-emerald-300">{format(new Date(r.paid_at), 'dd/MM/yyyy')}</span>
+                        <span className="text-emerald-300">{format(parseISO(r.paid_at), 'dd/MM/yyyy')}</span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}

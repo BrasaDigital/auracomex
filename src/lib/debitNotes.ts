@@ -167,3 +167,10 @@ export async function cancelClientDn({
 
   return { ok: true };
 }
+
+/**
+ * Texto padrão das observações da ND ao cliente (editável na hora de emitir).
+ * Evita que o cliente pague uma ND vencida: pede a atualização antes.
+ */
+export const DEFAULT_CLIENT_ND_NOTES =
+  'Esta Nota de Débito é válida até a data de vencimento. Caso o vencimento seja ultrapassado, não efetue o pagamento: entre em contato conosco para solicitar a atualização do documento.';
