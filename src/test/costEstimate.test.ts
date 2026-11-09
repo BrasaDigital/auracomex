@@ -100,16 +100,22 @@ describe('calcEstimativa', () => {
     expect(out.itemBreakdowns[1].frete_usd).toBeCloseTo(50, 2);
   });
 
-  it('Classificação automática (aduaneira não definida, null): ARMAZENAGEM ZONA PRIMÁRIA entra na base do ICMS', () => {
-    const semAdu = calcEstimativa(baseInput({
-      items: [{ nome: 'X', peso: 1, quantidade: 1, vmcv_unit_usd: 1000, aliq_ii: 0, aliq_ipi: 0, aliq_pis: 0, aliq_cofins: 0, aliq_icms: 18 }],
+  it('Classificação automática (null): Armazenagem e Honorários de desembaraço NÃO entram na base do ICMS; Siscomex/THC entram', () => {
+    const item = { nome: 'X', peso: 1, quantidade: 1, vmcv_unit_usd: 1000, aliq_ii: 0, aliq_ipi: 0, aliq_pis: 0, aliq_cofins: 0, aliq_icms: 18 };
+    const fora = calcEstimativa(baseInput({
+      items: [item],
+      expenses: [
+        { descricao: 'ARMAZENAGEM', valor_brl: 400, aduaneira: null, category: 'destination' },
+        { descricao: 'HONORÁRIOS DE DESEMBARAÇO', valor_brl: 850, aduaneira: null, category: 'destination' },
+        { descricao: 'TAXA DE EXPEDIENTE', valor_brl: 250, aduaneira: null, category: 'destination' },
+      ],
     }));
-    const comAdu = calcEstimativa(baseInput({
-      items: [{ nome: 'X', peso: 1, quantidade: 1, vmcv_unit_usd: 1000, aliq_ii: 0, aliq_ipi: 0, aliq_pis: 0, aliq_cofins: 0, aliq_icms: 18 }],
-      expenses: [{ descricao: 'ARMAZENAGEM ZONA PRIMÁRIA', valor_brl: 500, aduaneira: null, category: 'destination' }],
+    expect(fora.despesas_aduaneiras_brl).toBe(0);
+    const dentro = calcEstimativa(baseInput({
+      items: [item],
+      expenses: [{ descricao: 'THC DESTINO', valor_brl: 500, aduaneira: null, category: 'destination' }],
     }));
-    expect(comAdu.icms_usd).toBeGreaterThan(semAdu.icms_usd);
-    expect(comAdu.despesas_aduaneiras_brl).toBe(500);
+    expect(dentro.despesas_aduaneiras_brl).toBe(500);
   });
 
   it('Classificação automática (aduaneira não definida, null): ARMAZENAGEM ZONA SECUNDÁRIA e FRETE RODOVIÁRIO ficam FORA da base', () => {

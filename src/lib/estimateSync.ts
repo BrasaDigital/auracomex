@@ -50,10 +50,12 @@ export interface MappedEstimate {
   ignored: Array<{ description: string; currency: string; amount: number }>;
 }
 
-const ADUANEIRA_KEYWORDS = ['ARMAZENAGEM', 'DESEMBARAÇO', 'DESEMBARACO', 'CAPATAZIA', 'ISPS', 'THC'];
+// Honorários de desembaraço e Armazenagem NÃO entram por padrão (a base do ICMS da DUIMP/DARE só
+// leva Siscomex/AFRMM e custos portuários) — o usuário pode forçar "Aduaneira: Sim" manualmente.
+const ADUANEIRA_KEYWORDS = ['CAPATAZIA', 'ISPS', 'THC'];
 // "Taxas de Destino" (destination charges do agente) NUNCA é aduaneira — não entra na base do ICMS,
 // nem por palavra-chave, mesmo que a descrição contenha termos como THC.
-const NAO_ADUANEIRA_KEYWORDS = ['TAXAS DE DESTINO', 'TAXA DE DESTINO'];
+const NAO_ADUANEIRA_KEYWORDS = ['TAXAS DE DESTINO', 'TAXA DE DESTINO', 'ARMAZENAGEM', 'HONORARIO', 'HONORÁRIO', 'DESEMBARAÇO', 'DESEMBARACO'];
 const FRETE_KEYWORDS = ['FRETE', 'FREIGHT', 'OCEAN FREIGHT', 'AIR FREIGHT'];
 const SEGURO_KEYWORDS = ['SEGURO', 'INSURANCE'];
 
