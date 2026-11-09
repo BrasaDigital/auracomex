@@ -125,8 +125,8 @@ export function CostEstimateTab({
   // nacional total dela.
   const armazenagemDestinoBrl = Number((quote as any)?.storage_fee_amount || 0);
   const breakdown = useMemo(
-    () => computeBreakdown(estimate, items, expenses, armazenagemDestinoBrl),
-    [estimate, items, expenses, armazenagemDestinoBrl]
+    () => computeBreakdown(estimate, items, expenses, armazenagemDestinoBrl, quote?.transport_mode),
+    [estimate, items, expenses, armazenagemDestinoBrl, quote?.transport_mode]
   );
 
   const hasInsurance = useMemo(() => chargesHaveInsurance(charges), [charges]);
@@ -536,7 +536,7 @@ export function CostEstimateTab({
         // é clicado de novo). Frete Prepaid entra na base do AFRMM mesmo
         // não entrando no Numerário (ver computeFreteMaritimoTotalBrl).
         const afrmmBrlNow = (draftEstimate as any)?.afrmm_auto
-          ? computeAfrmmAutoBrl(draftEstimate as any, draftExpenses as any)
+          ? computeAfrmmAutoBrl(draftEstimate as any, draftExpenses as any, quote?.transport_mode)
           : Number((draftEstimate as any)?.afrmm_brl || 0);
         const taxaSiscomexUsdNow = taxaSiscomexBrlNow / usdBrl;
         const afrmmUsdNow = afrmmBrlNow / usdBrl;
@@ -724,7 +724,7 @@ export function CostEstimateTab({
   useEffect(() => {
     if (!draftEstimate || !(draftEstimate as any).afrmm_auto) return;
     if (quote?.transport_mode !== 'ocean_fcl' && quote?.transport_mode !== 'ocean_lcl') return;
-    const computed = computeAfrmmAutoBrl(draftEstimate as any, draftExpenses as any);
+    const computed = computeAfrmmAutoBrl(draftEstimate as any, draftExpenses as any, quote?.transport_mode);
     if (Number((draftEstimate as any).afrmm_brl || 0) !== computed) {
       setDraftEstimate(prev => (prev ? ({ ...prev, afrmm_brl: computed } as any) : prev));
     }
@@ -903,7 +903,7 @@ export function CostEstimateTab({
     // Mesmo cálculo do handleSave: em modo automático o AFRMM usa o frete
     // marítimo total (Prepaid + Collect), não o valor cru salvo em afrmm_brl.
     const afrmmBrlNow = (estimate as any)?.afrmm_auto
-      ? computeAfrmmAutoBrl(estimate as any, expenses as any)
+      ? computeAfrmmAutoBrl(estimate as any, expenses as any, quote?.transport_mode)
       : Number((estimate as any)?.afrmm_brl || 0);
     const taxaSiscomexUsdNow = taxaSiscomexBrlNow / usdBrl;
     const afrmmUsdNow = afrmmBrlNow / usdBrl;

@@ -443,7 +443,11 @@ export function computeFreteMaritimoTotalBrl(
 export function computeAfrmmAutoBrl(
   estimate: Pick<EstimateRow, 'frete_intl_usd' | 'usd_brl'> | null,
   expenses: Pick<EstimateExpenseRow, 'descricao' | 'valor_brl' | 'category' | 'is_prepaid'>[],
+  /** Modal do processo. AFRMM só existe em frete marítimo: aéreo/rodoviário → 0.
+   *  Sem o modal informado (undefined) mantém o cálculo antigo. */
+  transportMode?: string | null,
 ): number {
+  if (transportMode && transportMode !== 'ocean_fcl' && transportMode !== 'ocean_lcl') return 0;
   return Number((computeFreteMaritimoTotalBrl(estimate, expenses) * 0.08 + 20).toFixed(2));
 }
 
@@ -453,6 +457,7 @@ export function computeBreakdown(
   expenses: EstimateExpenseRow[],
   /** Armazenagem no destino (BRL) — vem de fora da estimativa (quotes.storage_fee_amount, aba Geral do processo), então precisa ser passada explicitamente. */
   armazenagemDestinoBrl: number = 0,
+  transportMode?: string | null,
 ): EstimateBreakdown | null {
   if (!estimate) return null;
   const input: EstimateInput = {
@@ -464,7 +469,7 @@ export function computeBreakdown(
     rateio_metodo: estimate.rateio_metodo || 'valor',
     taxa_siscomex_brl: Number((estimate as any).taxa_siscomex_brl || 0),
     afrmm_brl: (estimate as any).afrmm_auto
-      ? computeAfrmmAutoBrl(estimate, expenses)
+      ? computeAfrmmAutoBrl(estimate, expenses, transportMode)
       : Number((estimate as any).afrmm_brl || 0),
     armazenagem_destino_brl: Number(armazenagemDestinoBrl || 0),
     items: items.map(i => ({
