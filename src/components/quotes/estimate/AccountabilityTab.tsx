@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { FileDown, Trash2, Info, Paperclip, X, Loader2 } from 'lucide-react';
+import { FileDown, Trash2, Info, Paperclip, X, Loader2, Plus } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { useAccountability, AccountabilityItemRow, AccountabilityCategoria } from '@/hooks/useAccountability';
 import { DebouncedInput } from './DebouncedInput';
@@ -18,6 +20,8 @@ interface Props {
   companyId?: string;
   /** Processo Finalizado — trava edição, upload de comprovante e exclusão da prestação. */
   isFinalized?: boolean;
+  /** Exportação: sem Numerário — a Prestação de Contas é iniciada direto e os itens são lançados à mão. */
+  isExport?: boolean;
 }
 
 function fmtBRL(n: number) {
@@ -35,13 +39,17 @@ const categoriaLabels: Record<AccountabilityCategoria, string> = {
   other: 'Outro',
 };
 
-export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Props) {
-  const { data, isLoading, updateItem, setConfirmado, attachComprovante, removeComprovante, recomputeTotals, removeAccountability } = useAccountability(quoteId, companyId);
+export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isExport }: Props) {
+  const { profile } = useAuth();
+  const { data, isLoading, createManual, addItem, removeItem, updateItem, setConfirmado, attachComprovante, removeComprovante, recomputeTotals, removeAccountability } = useAccountability(quoteId, companyId);
   const locked = !!isFinalized;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [newDesc, setNewDesc] = useState('');
+  const [newValor, setNewValor] = useState('');
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const accountability = data?.accountability || null;
@@ -51,8 +59,26 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
   if (!accountability) {
     return (
       <Card className="glass">
-        <CardContent className="py-12 text-center text-muted-foreground">
-          Nenhuma Prestação de Contas gerada. Aprove o Numerário na aba Desembaraço para criar.
+        <CardContent className="py-12 text-center text-muted-foreground space-y-3">
+          {isExport ? (
+            <>
+              <p>Exportação não passa pelo Numerário. Inicie a Prestação de Contas e lance os itens direto.</p>
+              <Button
+                size="sm"
+                disabled={locked || starting}
+                onClick={async () => {
+                  setStarting(true);
+                  try { await createManual(profile?.user_id); }
+                  catch (e: any) { toast.error(e.message || 'Erro ao iniciar a Prestação de Contas.'); }
+                  finally { setStarting(false); }
+                }}
+              >
+                {starting ? 'Iniciando…' : 'Iniciar Prestação de Contas'}
+              </Button>
+            </>
+          ) : (
+            'Nenhuma Prestação de Contas gerada. Aprove o Numerário na aba Desembaraço para criar.'
+          )}
         </CardContent>
       </Card>
     );
@@ -103,6 +129,31 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
     }
   };
 
+  const handleAddItem = async () => {
+    if (locked) { toast.error('Processo finalizado — não é possível editar a prestação de contas.'); return; }
+    const valor = parseFloat(newValor.replace(/\./g, '').replace(',', '.'));
+    if (!newDesc.trim()) { toast.error('Informe a descrição do item.'); return; }
+    if (!Number.isFinite(valor) || valor <= 0) { toast.error('Informe um valor maior que zero.'); return; }
+    try {
+      await addItem(accountability.id, { categoria: 'other', descricao: newDesc.trim(), valor_orcado_brl: valor, ordem: items.length });
+      await recomputeTotals(accountability.id);
+      setNewDesc('');
+      setNewValor('');
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao adicionar item.');
+    }
+  };
+
+  const handleRemoveItem = async (item: AccountabilityItemRow) => {
+    if (locked) { toast.error('Processo finalizado — não é possível editar a prestação de contas.'); return; }
+    try {
+      await removeItem(item.id);
+      await recomputeTotals(accountability.id);
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao remover item.');
+    }
+  };
+
   const totalOrcado = Number(accountability.total_orcado_brl || 0);
   const totalPago = Number(accountability.total_pago_brl || 0);
   const diferenca = Number(accountability.diferenca_brl ?? (totalPago - totalOrcado));
@@ -140,7 +191,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
                 setDeleteOpen(true);
               }}
             >
-              <Trash2 className="w-3.5 h-3.5 mr-1" /> Excluir Prestação (destrava Desembaraço)
+              <Trash2 className="w-3.5 h-3.5 mr-1" /> {isExport ? 'Excluir Prestação' : 'Excluir Prestação (destrava Desembaraço)'}
             </Button>
           </div>
         </CardHeader>
@@ -155,6 +206,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
                 <TableHead className="py-1 text-right">Diferença (R$)</TableHead>
                 <TableHead className="py-1 text-center">Confirmado</TableHead>
                 <TableHead className="py-1">Comprovante</TableHead>
+                {isExport && <TableHead className="py-1 w-8" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -217,11 +269,26 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized }: Pr
                         </Button>
                       )}
                     </TableCell>
+                    {isExport && (
+                      <TableCell className="py-1">
+                        <button type="button" title="Remover item" onClick={() => handleRemoveItem(item)} className="text-muted-foreground hover:text-destructive">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
             </TableBody>
           </Table>
+
+          {isExport && (
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <Input className="h-8 max-w-xs text-xs" placeholder="Descrição (ex.: Taxa de THC)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
+              <Input className="h-8 w-32 text-xs text-right font-mono" inputMode="decimal" placeholder="Valor (R$)" value={newValor} onChange={(e) => setNewValor(e.target.value)} />
+              <Button type="button" size="sm" variant="outline" onClick={handleAddItem}><Plus className="w-3.5 h-3.5 mr-1" /> Adicionar item</Button>
+            </div>
+          )}
 
           <div className="mt-4 flex justify-end">
             <div className="w-full max-w-sm space-y-1 text-sm">

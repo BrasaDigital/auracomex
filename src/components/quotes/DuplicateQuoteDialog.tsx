@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PortSelect } from '@/components/shared/PortSelect';
 import { ModeIcon } from '@/components/shared/ModeIcon';
 import { cn } from '@/lib/utils';
+import { getTradeDirection } from '@/lib/tradeDirection';
 import { toast } from 'sonner';
 import { findFreeQuoteNumber, quoteNumberExists } from '@/lib/referenceUtils';
 
@@ -53,11 +54,10 @@ export function DuplicateQuoteDialog({ quote, onClose, onDuplicated }: Props) {
   const [loading, setLoading] = useState(false);
 
   // Auto-detect direction based on origin country code (same rule as create)
-  const direction = useMemo<'IMP' | 'EXP'>(() => {
-    const originIsBR = origin?.startsWith('BR') || origin?.includes('(BR)') || origin?.includes(', BR');
-    if (originIsBR) return 'EXP';
-    return 'IMP';
-  }, [origin]);
+  const direction = useMemo<'IMP' | 'EXP'>(
+    () => getTradeDirection(origin, destination),
+    [origin, destination],
+  );
 
   const incoterms = useMemo(() => INCOTERMS_BY_MODE[mode] || INCOTERMS_BY_MODE.ocean_fcl, [mode]);
   const showPort = mode !== 'road';

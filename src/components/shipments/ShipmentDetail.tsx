@@ -28,6 +28,7 @@ import { calcItemCbm, calcChargeableWeight, getEffectiveVolume } from '@/compone
 import type { CargoItem } from '@/components/quotes/ModeFields';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { groupByCurrency } from '@/lib/utils';
+import { getTradeDirection, TRADE_DIRECTION_LABEL } from '@/lib/tradeDirection';
 
 interface Props {
   id: string;
@@ -139,6 +140,14 @@ function StandaloneShipmentDetail({ id, onBack }: Props) {
             <h1 className="text-2xl font-bold font-mono">{shipment.reference_number}</h1>
             <StatusBadge status={shipment.status} />
             <ModeIcon mode={shipment.transport_mode} showLabel />
+            {(() => {
+              const dir = getTradeDirection(shipment.origin_port || shipment.origin_country, shipment.destination_port || shipment.destination_country);
+              return (
+                <span className={`inline-flex items-center rounded-full text-xs px-2 py-0.5 font-medium ${dir === 'EXP' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-sky-500/10 text-sky-700 dark:text-sky-400'}`}>
+                  {TRADE_DIRECTION_LABEL[dir]}
+                </span>
+              );
+            })()}
             {isFinalized && (
               <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs px-2 py-0.5 font-medium">
                 Finalizado — somente leitura

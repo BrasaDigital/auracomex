@@ -41,6 +41,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
 import { cn } from '@/lib/utils';
+import { getTradeDirection } from '@/lib/tradeDirection';
 import { LogisticsTab } from '@/components/shipments/LogisticsTab';
 import { ShipmentPartnersCard } from '@/components/shipments/ShipmentPartnersCard';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
@@ -749,12 +750,17 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     handleSave();
   }
 
+  // Exportação não envia Numerário (só Nota de Débito): sem aba Desembaraço/Estimativa,
+  // vai direto pra Prestação de Contas (aba Financeiro).
+  const isExport = getTradeDirection(form.origin, form.destination, ((quote as any)?.direction as any) || 'IMP') === 'EXP';
+  const showEstimateTab = estimateEnabled && !isExport;
+
   // Se a aba Estimativa estiver desabilitada para a empresa, volta para 'general'.
   useEffect(() => {
-    if (!estimateEnabled && activeTab === 'estimate') {
+    if (!showEstimateTab && activeTab === 'estimate') {
       setActiveTab(isShipmentMode ? 'logistics' : 'general');
     }
-  }, [estimateEnabled, activeTab, isShipmentMode]);
+  }, [showEstimateTab, activeTab, isShipmentMode]);
 
   // Onboarding da aba Taxas: mostra automaticamente na primeira vez que o usuário abre a aba.
   useEffect(() => {
@@ -1084,6 +1090,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         storage_fee_note: form.storage_fee_note || null,
         pickup_address: form.pickup_address || null,
         delivery_address: form.delivery_address || null,
+        direction: getTradeDirection(form.origin, form.destination, ((quote as any)?.direction as any) || 'IMP'),
         client_reference: form.client_reference || null,
         cargo_pallets: parseInt(form.cargo_pallets) || null,
         cargo_packages: parseInt(form.cargo_packages) || null,
@@ -1400,10 +1407,14 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         client_id: form.client_id || null,
         transport_mode: form.transport_mode as any,
         origin_port: form.origin || null,
-        origin_city: originCity || null,
+        // No embarque, os campos Coleta/Entrega (aba Logística) gravam em
+        // origin_city/destination_city. O endereço digitado na cotação
+        // (pickup_address/delivery_address) tem prioridade; a cidade do porto
+        // fica só como fallback quando a cotação não tem endereço.
+        origin_city: form.pickup_address?.trim() || originCity || null,
         origin_country: originCountry || null,
         destination_port: form.destination || null,
-        destination_city: destCity || null,
+        destination_city: form.delivery_address?.trim() || destCity || null,
         destination_country: destCountry || null,
         status: 'approved' as any,
         created_by: profile.user_id,
@@ -2044,7 +2055,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                 <TabsTrigger value="charges" className={triggerCls}>
                   <ShoppingCart className={iconCls} /> Taxas
                 </TabsTrigger>
-                {estimateEnabled && (
+                {showEstimateTab && (
                   <TabsTrigger value="estimate" className={triggerCls}>
                     <Calculator className={iconCls} /> Desembaraço
                   </TabsTrigger>
@@ -2646,16 +2657,43 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                     >
                       <HelpCircle className="w-4 h-4" />
                     </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setPdfPreviewOpen(true)}
-                      className="gap-2"
-                    >
-                      <FileText className="w-4 h-4" />
-                      Pré-visualizar Proposta (PDF)
-                    </Button>
+                    {(() => {
+                      // Cotação ainda em negociação → Proposta. Processo já aprovado/embarque →
+                      // o documento que faz sentido é a ND (já sai com a conta bancária pra
+                      // pagamento e lança a Conta a Receber no Financeiro).
+                      const processApproved = isShipmentMode || form.status === 'approved' || form.status === 'converted';
+                      if (!processApproved) {
+                        return (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setPdfPreviewOpen(true)}
+                            className="gap-2"
+                          >
+                            <FileText className="w-4 h-4" />
+                            Pré-visualizar Proposta (PDF)
+                          </Button>
+                        );
+                      }
+                      const clientPending = (charges as any[]).filter((c: any) =>
+                        c.leg !== undefined && Number(c.sell_amount) > 0 && c.partner_id === form.client_id && !c.sent_in_debit_note_id);
+                      const clientName = (clientPending[0] as any)?.clients?.name || 'Cliente';
+                      return (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="gap-2"
+                          disabled={!form.client_id || clientPending.length === 0 || !canSeeFinancials}
+                          title={clientPending.length === 0 ? 'Não há taxas de venda pendentes no nome do cliente (ou já foram enviadas em uma ND)' : 'Gerar Nota de Débito para o cliente (com a conta bancária para pagamento)'}
+                          onClick={() => setGenerateNdPartner({ id: form.client_id, name: clientName, charges: clientPending })}
+                        >
+                          <Send className="w-4 h-4" />
+                          Gerar ND
+                        </Button>
+                      );
+                    })()}
                     {isShipmentMode && isFullAccess && !isFinalized && (
                       <Button
                         type="button"
@@ -3091,7 +3129,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         </TabsContent>
 
         {/* Cost Estimate Tab */}
-        {estimateEnabled && (
+        {showEstimateTab && (
           <TabsContent value="estimate">
             <CostEstimateTab
               quoteId={quoteId}
@@ -3117,6 +3155,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
               quote={quote}
               companyId={profile?.company_id}
               isFinalized={isFinalized}
+              isExport={isExport}
             />
           </TabsContent>
         )}

@@ -13,6 +13,7 @@ import { PortSelect } from '@/components/shared/PortSelect';
 import { ModeFields, type CargoItem, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage } from './ModeFields';
 import { ModeIcon } from '@/components/shared/ModeIcon';
 import { cn } from '@/lib/utils';
+import { getTradeDirection } from '@/lib/tradeDirection';
 import { ArrowLeft, Copy, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { addDays, format } from 'date-fns';
@@ -250,11 +251,10 @@ export function QuoteCreateModal({ open, onClose, onCreated }: Props) {
   const incoterms = useMemo(() => INCOTERMS_BY_MODE[mode] || INCOTERMS_BY_MODE.ocean_fcl, [mode]);
 
   // Auto-detect direction based on origin/destination country codes
-  const direction = useMemo<'IMP' | 'EXP'>(() => {
-    const originIsBR = form.origin?.startsWith('BR') || form.origin?.includes('(BR)') || form.origin?.includes(', BR');
-    if (originIsBR) return 'EXP';
-    return 'IMP';
-  }, [form.origin]);
+  const direction = useMemo<'IMP' | 'EXP'>(
+    () => getTradeDirection(form.origin, form.destination),
+    [form.origin, form.destination],
+  );
 
   function handleModeSelect(newMode: string) {
     setMode(newMode);

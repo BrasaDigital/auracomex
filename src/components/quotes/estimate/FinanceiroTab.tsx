@@ -20,6 +20,8 @@ interface Props {
   companyId?: string;
   /** Processo Finalizado — trava lançamento/remoção de depósitos e comprovantes. */
   isFinalized?: boolean;
+  /** Exportação: Prestação de Contas direta, sem Numerário. */
+  isExport?: boolean;
 }
 
 function fmtBRL(n: number) {
@@ -34,7 +36,7 @@ function fmtDate(iso: string) {
 // Aba "Financeiro" do processo: o "caixa" do cliente. No topo, o saldo dos
 // depósitos; logo abaixo, os depósitos; e embaixo a Prestação de Contas, que
 // vai abatendo do saldo à medida que cada item é confirmado como pago.
-export function FinanceiroTab({ quoteId, quote, companyId, isFinalized }: Props) {
+export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport }: Props) {
   const { profile } = useAuth();
   const locked = !!isFinalized;
   const { data: accData } = useAccountability(quoteId, companyId);
@@ -240,7 +242,7 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized }: Props)
       </Card>
 
       {/* Prestação de Contas (já existente) — o "Confirmado" de cada item abate do saldo acima */}
-      <AccountabilityTab quoteId={quoteId} quote={quote} companyId={companyId} isFinalized={isFinalized} />
+      <AccountabilityTab quoteId={quoteId} quote={quote} companyId={companyId} isFinalized={isFinalized} isExport={isExport} />
     </div>
   );
 }

@@ -161,6 +161,50 @@ export function useAccountability(quoteId: string, companyId: string | undefined
     return acc as AccountabilityRow;
   };
 
+  /**
+   * Exportação: não há Estimativa/Numerário. Cria a Prestação de Contas vazia
+   * (estimate_id nulo) e os itens são lançados manualmente em addItem.
+   */
+  const createManual = async (userId?: string | null) => {
+    if (!companyId) throw new Error('Empresa não identificada');
+    const { data: acc, error } = await (supabase as any)
+      .from('accountability')
+      .insert({
+        company_id: companyId,
+        quote_id: quoteId,
+        estimate_id: null,
+        total_orcado_brl: 0,
+        total_pago_brl: 0,
+        diferenca_brl: 0,
+        created_by: userId || null,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    invalidate();
+    return acc as AccountabilityRow;
+  };
+
+  const addItem = async (accountabilityId: string, item: { categoria: AccountabilityCategoria; descricao: string; valor_orcado_brl: number; ordem: number }) => {
+    if (!companyId) throw new Error('Empresa não identificada');
+    const { error } = await (supabase as any).from('accountability_items').insert({
+      accountability_id: accountabilityId,
+      company_id: companyId,
+      ordem: item.ordem,
+      categoria: item.categoria,
+      descricao: item.descricao,
+      valor_orcado_brl: item.valor_orcado_brl,
+    });
+    if (error) throw error;
+    invalidate();
+  };
+
+  const removeItem = async (itemId: string) => {
+    const { error } = await (supabase as any).from('accountability_items').delete().eq('id', itemId);
+    if (error) throw error;
+    invalidate();
+  };
+
   const updateItem = async (itemId: string, patch: { valor_pago_brl?: number | null; confirmado?: boolean; observacao?: string | null }) => {
     const { error } = await (supabase as any).from('accountability_items').update(patch).eq('id', itemId);
     if (error) throw error;
@@ -262,5 +306,5 @@ export function useAccountability(quoteId: string, companyId: string | undefined
     invalidate();
   };
 
-  return { ...query, createFromEstimate, updateItem, setConfirmado, attachComprovante, removeComprovante, recomputeTotals, closeAccountability, removeAccountability, invalidate };
+  return { ...query, createFromEstimate, createManual, addItem, removeItem, updateItem, setConfirmado, attachComprovante, removeComprovante, recomputeTotals, closeAccountability, removeAccountability, invalidate };
 }
