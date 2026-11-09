@@ -247,7 +247,7 @@ export default function AccountsPayableTab() {
     setUnpaying(true);
     const { error } = await supabase
       .from('accounts_payable' as any)
-      .update({ status: 'aberto', paid_at: null, payment_method: null, receipt_url: null })
+      .update({ status: 'aberto', paid_at: null, payment_method: null, receipt_url: null, exchange_rate: null })
       .eq('id', unpayTarget.id);
     if (error) {
       setUnpaying(false);
