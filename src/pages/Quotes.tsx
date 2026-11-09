@@ -88,7 +88,7 @@ function computeQuoteProfitBrl(q: any, usdBrl: number, eurBrl: number): number {
     length_cm: String(v.length_cm ?? ''), width_cm: String(v.width_cm ?? ''), height_cm: String(v.height_cm ?? ''),
     weight_kg: String(v.weight_kg ?? ''), volume_cbm: String(v.volume_cbm ?? ''),
   }));
-  const calcItems = effectiveCalcItems(q.transport_mode, qItems, qVolumes);
+  const calcItems = effectiveCalcItems(q.transport_mode, qItems, qVolumes, { weight: q.cargo_weight_total_kg, cbm: q.cargo_cbm_total });
   const totalWeight = calcItems.reduce((s: number, i: any) => s + calcItemWeight(i), 0);
   const totalCbm = calcItems.reduce((s: number, i: any) => s + getEffectiveVolume(i), 0);
   const totalChargeable = calcChargeableWeight(calcItems, q.transport_mode);
@@ -179,7 +179,7 @@ export default function Quotes() {
     queryFn: async () => {
       let query = supabase
         .from('quotes')
-        .select('id, quote_number, status, transport_mode, direction, origin, destination, valid_until, created_at, sent_at, client_id, currency, clients(name), quote_charges(id, sell_amount, buy_amount, currency, billing_unit, payment_term), quote_items(container_type, container_qty, weight_kg, volume_cbm, chargeable_weight, length_cm, width_cm, height_cm, packages, commodity, dangerous_goods, vehicle_type), quote_cargo_volumes(qty, package_type, length_cm, width_cm, height_cm, weight_kg, volume_cbm)')
+        .select('id, quote_number, status, transport_mode, direction, origin, destination, valid_until, created_at, sent_at, client_id, currency, clients(name), quote_charges(id, sell_amount, buy_amount, currency, billing_unit, payment_term), quote_items(container_type, container_qty, weight_kg, volume_cbm, chargeable_weight, length_cm, width_cm, height_cm, packages, commodity, dangerous_goods, vehicle_type), quote_cargo_volumes(qty, package_type, length_cm, width_cm, height_cm, weight_kg, volume_cbm), cargo_weight_total_kg, cargo_cbm_total')
         .order('created_at', { ascending: false });
 
       if (activeTab === 'rejected') {

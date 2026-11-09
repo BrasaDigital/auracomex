@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { calcItemCbm, calcItemWeight, calcChargeableWeight, getEffectiveVolume, effectiveCalcItems, type CargoVolume } from './ModeFields';
+import { calcItemCbm, calcItemWeight, calcChargeableWeight, getEffectiveVolume, effectiveCalcItems, hasVolumeDetail, manualTotalsItem, type CargoVolume } from './ModeFields';
 import { groupByCurrency } from '@/lib/utils';
 import { generatePdfFromElement } from '@/lib/pdf-utils';
 
@@ -210,8 +210,10 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
       length_cm: String(v.length_cm ?? ''), width_cm: String(v.width_cm ?? ''), height_cm: String(v.height_cm ?? ''),
       weight_kg: String(v.weight_kg ?? ''), volume_cbm: String(v.volume_cbm ?? ''),
     }));
-    const volMode = pdfVolumes.length > 0 && quote.transport_mode !== 'ocean_fcl';
-    const calcItems = effectiveCalcItems(quote.transport_mode, cargoItems, pdfVolumes);
+    const manual = { weight: (quote as any).cargo_weight_total_kg, cbm: (quote as any).cargo_cbm_total };
+    const manualOnly = quote.transport_mode !== 'ocean_fcl' && !hasVolumeDetail(pdfVolumes) && !!manualTotalsItem(manual);
+    const volMode = (pdfVolumes.length > 0 || manualOnly) && quote.transport_mode !== 'ocean_fcl';
+    const calcItems = effectiveCalcItems(quote.transport_mode, cargoItems, pdfVolumes, manual);
     const totalWeight = volMode
       ? calcItems.reduce((s: number, i: any) => s + calcItemWeight(i), 0)
       : cargoItems.reduce((s: number, i: any) => s + (parseFloat(i.weight_kg) || 0), 0);
@@ -292,7 +294,9 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
 
     const fmt = (n: number, d = 2) => n.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
     const commoditiesAll = Array.from(new Set(items.map((i: any) => (i.commodity || '').trim()).filter(Boolean))).join(', ') || '—';
-    const totalPkg = ((data as any).volumes || []).length > 0 && quote.transport_mode !== 'ocean_fcl'
+    const totalPkg = manualOnly
+      ? (Number((quote as any).cargo_packages) || 0)
+      : ((data as any).volumes || []).length > 0 && quote.transport_mode !== 'ocean_fcl'
       ? ((data as any).volumes as any[]).reduce((s: number, v: any) => s + (Number(v.qty) || 0), 0)
       : items.reduce((s: number, i: any) => s + (Number(i.packages) || 0), 0);
     const containerSummary = (() => {

@@ -229,13 +229,34 @@ export function volumeAsCalcItem(v: CargoVolume): CargoItem {
   };
 }
 
+/** Totais digitados direto no Resumo da Carga (sem lista de volumes). */
+export interface ManualCargoTotals { weight?: string | number | null; cbm?: string | number | null }
+
+/** Alguma linha de volume tem medida/peso/cubagem (não só a quantidade). */
+export function hasVolumeDetail(volumes?: CargoVolume[] | null): boolean {
+  return (volumes || []).some((v) => !!(v.length_cm || v.width_cm || v.height_cm || v.weight_kg || v.volume_cbm));
+}
+
+/** Peso/cubagem manuais como um item único de totais (packages=1 → sem multiplicar). */
+export function manualTotalsItem(m?: ManualCargoTotals | null): CargoItem | null {
+  const w = parseFloat(String(m?.weight ?? '')) || 0;
+  const c = parseFloat(String(m?.cbm ?? '')) || 0;
+  if (w <= 0 && c <= 0) return null;
+  return { ...emptyCargoItem, packages: '1', weight_kg: w > 0 ? String(w) : '', volume_cbm: c > 0 ? String(c) : '' };
+}
+
 /**
  * Itens usados nos cálculos de peso/cubagem/peso taxado: se o embarque tem linhas de
  * volume, elas mandam; senão cai no formato antigo (medidas dentro do item).
  */
-export function effectiveCalcItems(mode: string, items: CargoItem[], volumes?: CargoVolume[] | null): CargoItem[] {
+export function effectiveCalcItems(mode: string, items: CargoItem[], volumes?: CargoVolume[] | null, manual?: ManualCargoTotals | null): CargoItem[] {
   if (!usesVolumes(mode)) return items;
-  const filled = (volumes || []).filter((v) => !isEmptyVolume(v));
+  const vols = volumes || [];
+  const filled = vols.filter((v) => !isEmptyVolume(v));
+  // Lista detalhada (medidas/peso por volume) manda; o resumo manual só vale sem detalhe.
+  if (hasVolumeDetail(vols)) return filled.map(volumeAsCalcItem);
+  const m = manualTotalsItem(manual);
+  if (m) return [m];
   return filled.length > 0 ? filled.map(volumeAsCalcItem) : items;
 }
 
@@ -438,14 +459,15 @@ export function missingPackagesMessage(positions: number[]): string {
  * (compartilhado entre QuoteCreateModal e QuoteDetail). Peso e cubagem totais
  * usam as mesmas regras da tela (peso por volume × volumes).
  */
-export function buildCargoSummaryLines(mode: string, items: CargoItem[], physical?: Partial<PhysicalCargo> | null, volumes?: CargoVolume[] | null): string[] {
+export function buildCargoSummaryLines(mode: string, items: CargoItem[], physical?: Partial<PhysicalCargo> | null, volumes?: CargoVolume[] | null, manual?: ManualCargoTotals | null): string[] {
   const showContainers = mode === 'ocean_fcl' || mode === 'multimodal';
   const filledVolumes = usesVolumes(mode) ? (volumes || []).filter((v) => !isEmptyVolume(v)) : [];
-  const volMode = filledVolumes.length > 0;
-  const calcItems = effectiveCalcItems(mode, items, volumes);
+  const volMode = filledVolumes.length > 0 && hasVolumeDetail(volumes);
+  const calcItems = effectiveCalcItems(mode, items, volumes, manual);
+  const manualOnly = usesVolumes(mode) && !hasVolumeDetail(volumes) && !!manualTotalsItem(manual);
   const totalWeight = calcItems.reduce((s, i) => s + calcItemWeight(i), 0);
   const totalVolume = calcItems.reduce((s, i) => s + getEffectiveVolume(i), 0);
-  const totalPackages = calcItems.reduce((s, i) => s + (parseInt(i.packages) || 0), 0);
+  const totalPackages = manualOnly ? (parseInt(physical?.packages || '') || 0) : calcItems.reduce((s, i) => s + (parseInt(i.packages) || 0), 0);
   const totalContainers = showContainers ? items.reduce((s, i) => s + (Number(i.container_qty) || 0), 0) : 0;
 
   const lines: string[] = ['📊 Totais da Carga:'];

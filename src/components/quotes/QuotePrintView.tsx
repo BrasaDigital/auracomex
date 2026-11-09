@@ -250,7 +250,7 @@ export default function QuotePrintView() {
         </div>
 
         {/* Volumes físicos do embarque (peso/medidas por unidade × quantidade) */}
-        {(data.volumes || []).length > 0 && quote.transport_mode !== 'ocean_fcl' && (
+        {(data.volumes || []).length > 0 && quote.transport_mode !== 'ocean_fcl' && (data.volumes || []).some((v: any) => v.length_cm || v.width_cm || v.height_cm || v.weight_kg || v.volume_cbm) && (
           <>
             <div className="section-title">Volumes</div>
             <table>

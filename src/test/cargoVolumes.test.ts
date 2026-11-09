@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  emptyCargoItem, emptyCargoVolume, effectiveCalcItems, legacyItemsToVolumes, getVolumesMissingQty,
+  emptyCargoItem, emptyCargoVolume, effectiveCalcItems, hasVolumeDetail, legacyItemsToVolumes, getVolumesMissingQty,
   calcItemWeight, getEffectiveVolume, calcChargeableWeight, buildCargoSummaryLines, type CargoVolume,
 } from '@/components/quotes/ModeFields';
 
@@ -73,5 +73,21 @@ describe('linhas de volume', () => {
     expect(lines).toContain('150 caixas');
     expect(lines).toContain('Quantidade: 15.000 pçs');
     expect(lines).not.toMatch(/Peso: 6\.9 kg\/vol/);
+  });
+});
+
+describe('totais manuais do Resumo da Carga', () => {
+  it('sem lista detalhada, usa peso/cubagem digitados como totais (sem multiplicar)', () => {
+    const vols = [{ ...emptyCargoVolume, qty: '1' }, { ...emptyCargoVolume, qty: '1' }, { ...emptyCargoVolume, qty: '1' }];
+    const c = effectiveCalcItems('lcl', [], vols, { weight: '300', cbm: '2.5' });
+    expect(c).toHaveLength(1);
+    expect(calcItemWeight(c[0])).toBe(300);
+    expect(getEffectiveVolume(c[0])).toBe(2.5);
+  });
+  it('com lista detalhada, os totais manuais são ignorados', () => {
+    const vols = [{ ...emptyCargoVolume, qty: '1', weight_kg: '10', volume_cbm: '0.1' }];
+    expect(hasVolumeDetail(vols)).toBe(true);
+    const c = effectiveCalcItems('lcl', [], vols, { weight: '300', cbm: '2.5' });
+    expect(calcItemWeight(c[0])).toBe(10);
   });
 });

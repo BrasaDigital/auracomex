@@ -28,7 +28,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { ModeIcon } from '@/components/shared/ModeIcon';
 import { PortSelect } from '@/components/shared/PortSelect';
-import { ModeFields, PACKAGE_TYPES, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage, type CargoVolume, effectiveCalcItems, legacyItemsToVolumes, usesVolumes, isEmptyVolume, getVolumesMissingQty } from './ModeFields';
+import { ModeFields, PACKAGE_TYPES, emptyCargoItem, type CargoItem, calcItemCbm, calcItemWeight, calcChargeableWeight, calcChargeableWeightFromTotals, getEffectiveVolume, buildCargoSummaryLines, getItemsMissingPackages, missingPackagesMessage, type CargoVolume, effectiveCalcItems, legacyItemsToVolumes, usesVolumes, isEmptyVolume, getVolumesMissingQty, hasVolumeDetail } from './ModeFields';
 import { CargoVolumesEditor, VolumeQtyInput, resizeVolumes, totalVolumeQty } from './CargoVolumesEditor';
 import { calcTotalCargoValueUsd } from '@/lib/cargoValue';
 import { useCostEstimate } from '@/hooks/useCostEstimate';
@@ -175,6 +175,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     cargo_pallets: '',
     cargo_packages: '',
     cargo_package_type: '',
+    cargo_weight_total: '',
+    cargo_cbm_total: '',
     cargo_value_total: '',
     cargo_value_currency: 'USD',
   });
@@ -527,7 +529,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     lines.push(`Incoterm: ${(form.incoterm && form.incoterm !== 'NONE') ? form.incoterm : '-'}`);
     if (form.client_reference) lines.push(`Ref. do Cliente: ${form.client_reference}`);
     lines.push('');
-    lines.push(...buildCargoSummaryLines(mode, cargoItems, { pallets: form.cargo_pallets, packages: form.cargo_packages, package_type: form.cargo_package_type }, cargoVolumes));
+    lines.push(...buildCargoSummaryLines(mode, cargoItems, { pallets: form.cargo_pallets, packages: form.cargo_packages, package_type: form.cargo_package_type }, cargoVolumes, { weight: form.cargo_weight_total, cbm: form.cargo_cbm_total }));
 
     if (form.notes) {
       lines.push('');
@@ -564,6 +566,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         cargo_pallets: (quote as any).cargo_pallets?.toString() || '',
         cargo_packages: (quote as any).cargo_packages?.toString() || '',
         cargo_package_type: (quote as any).cargo_package_type || '',
+        cargo_weight_total: (quote as any).cargo_weight_total_kg?.toString() || '',
+        cargo_cbm_total: (quote as any).cargo_cbm_total?.toString() || '',
         cargo_value_total: (quote as any).cargo_value_total != null ? String((quote as any).cargo_value_total) : '',
         cargo_value_currency: (quote as any).cargo_value_currency || 'USD',
       });
@@ -632,7 +636,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   const volumesChanged = volKey(cargoVolumes) !== volKey(baselineVolumes);
 
   // Itens usados em peso/cubagem/peso taxado: linhas de volume (ou formato antigo, se não houver).
-  const calcItems = useMemo(() => effectiveCalcItems(form.transport_mode, cargoItems, cargoVolumes), [form.transport_mode, cargoItems, cargoVolumes]);
+  const calcItems = useMemo(() => effectiveCalcItems(form.transport_mode, cargoItems, cargoVolumes, { weight: form.cargo_weight_total, cbm: form.cargo_cbm_total }), [form.transport_mode, cargoItems, cargoVolumes, form.cargo_weight_total, form.cargo_cbm_total]);
 
   const incoterms = useMemo(() => INCOTERMS_BY_MODE[form.transport_mode] || INCOTERMS_BY_MODE.ocean_fcl, [form.transport_mode]);
 
@@ -683,6 +687,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
       (form.cargo_pallets || '') !== ((quote as any).cargo_pallets?.toString() || '') ||
       (form.cargo_packages || '') !== ((quote as any).cargo_packages?.toString() || '') ||
       (form.cargo_package_type || '') !== ((quote as any).cargo_package_type || '') ||
+      (form.cargo_weight_total || '') !== ((quote as any).cargo_weight_total_kg?.toString() || '') ||
+      (form.cargo_cbm_total || '') !== ((quote as any).cargo_cbm_total?.toString() || '') ||
       (form.cargo_value_total || '') !== ((quote as any).cargo_value_total != null ? String((quote as any).cargo_value_total) : '') ||
       (form.cargo_value_currency || 'USD') !== ((quote as any).cargo_value_currency || 'USD');
 
@@ -1088,6 +1094,9 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         cargo_pallets: parseInt(form.cargo_pallets) || null,
         cargo_packages: parseInt(form.cargo_packages) || null,
         cargo_package_type: form.cargo_package_type || null,
+        // Totais manuais só valem sem lista detalhada; com lista, o sistema calcula.
+        cargo_weight_total_kg: hasVolumeDetail(cargoVolumes) ? null : (parseFloat(form.cargo_weight_total) || null),
+        cargo_cbm_total: hasVolumeDetail(cargoVolumes) ? null : (parseFloat(form.cargo_cbm_total) || null),
         cargo_value_total: parseFloat(form.cargo_value_total) || null,
         cargo_value_currency: parseFloat(form.cargo_value_total) ? (form.cargo_value_currency || 'USD') : null,
       } as any).eq('id', quoteId);
@@ -2449,7 +2458,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
               {/* Carga física do embarque (totais). Itens/produtos ficam abaixo, só com peças e valor. */}
               <div className="rounded-lg border border-border/60 p-3 space-y-2.5">
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Carga física do embarque · usada para cotação e frete</div>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
                   <div className="space-y-1.5">
                     <Label className="text-[11px] uppercase text-muted-foreground">Quantidade</Label>
                     {usesVolumes(form.transport_mode) ? (
@@ -2480,9 +2489,37 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                       </SelectContent>
                     </Select>
                   </div>
+                  {usesVolumes(form.transport_mode) && (() => {
+                    const detailed = hasVolumeDetail(cargoVolumes);
+                    const auto = calcItems.reduce((a, i) => ({ w: a.w + calcItemWeight(i), c: a.c + getEffectiveVolume(i) }), { w: 0, c: 0 });
+                    return (
+                      <>
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] uppercase text-muted-foreground">Cubagem (m³){detailed ? ' · auto' : ''}</Label>
+                          <Input inputMode="decimal" placeholder="0" disabled={!canEditCargo}
+                            readOnly={detailed} className={detailed ? 'bg-muted/50' : ''}
+                            title={detailed ? 'Calculada pela lista de volumes abaixo' : 'Total da carga (use quando não tiver as medidas por volume)'}
+                            value={detailed ? (auto.c > 0 ? auto.c.toFixed(4) : '') : form.cargo_cbm_total}
+                            onChange={(e) => { if (!detailed) setForm((f) => ({ ...f, cargo_cbm_total: e.target.value })); }} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] uppercase text-muted-foreground">Peso (kg){detailed ? ' · auto' : ''}</Label>
+                          <Input inputMode="decimal" placeholder="0" disabled={!canEditCargo}
+                            readOnly={detailed} className={detailed ? 'bg-muted/50' : ''}
+                            title={detailed ? 'Calculado pela lista de volumes abaixo' : 'Peso total da carga (use quando não tiver o peso por volume)'}
+                            value={detailed ? (auto.w > 0 ? String(Math.round(auto.w * 100) / 100) : '') : form.cargo_weight_total}
+                            onChange={(e) => { if (!detailed) setForm((f) => ({ ...f, cargo_weight_total: e.target.value })); }} />
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
-                {usesVolumes(form.transport_mode) && (
-                  <CargoVolumesEditor volumes={cargoVolumes} onChange={setCargoVolumes} readOnly={!canEditCargo}
+                {usesVolumes(form.transport_mode) && !(!hasVolumeDetail(cargoVolumes) && (parseFloat(form.cargo_weight_total) > 0 || parseFloat(form.cargo_cbm_total) > 0)) && (
+                  <CargoVolumesEditor volumes={cargoVolumes} onChange={(vs) => {
+                      setCargoVolumes(vs);
+                      // Ao detalhar a lista, os totais manuais saem (o sistema passa a calcular).
+                      if (hasVolumeDetail(vs) && (form.cargo_weight_total || form.cargo_cbm_total)) setForm((f) => ({ ...f, cargo_weight_total: '', cargo_cbm_total: '' }));
+                    }} readOnly={!canEditCargo}
                     valueTotal={(() => {
                       const typed = parseFloat(form.cargo_value_total) || 0;
                       if (typed > 0) return { amount: typed, currency: form.cargo_value_currency || 'USD' };
