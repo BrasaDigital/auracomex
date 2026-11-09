@@ -4388,6 +4388,7 @@ function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, part
     }
     const updates: Record<string, any> = {
       buy_amount_actual: val,
+      buy_variance_reason: reason || null,
       buy_actual_confirmed_at: new Date().toISOString(),
       buy_actual_confirmed_by: currentUserId || null,
       buy_doc_valid_until: validUntil ? format(validUntil, 'yyyy-MM-dd') : null,
@@ -4419,29 +4420,6 @@ function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, part
     <TableRow className={confirmed ? 'bg-emerald-500/5' : 'bg-muted/10'}>
       <TableCell colSpan={4} className="py-1.5 pl-8 pr-2">
         <div className="flex items-center gap-2 flex-wrap text-[11px]">
-          <span className="text-muted-foreground uppercase tracking-wide">Cobrado:</span>
-          <span className="text-muted-foreground">{cur}</span>
-          <Input
-            type="number"
-            value={inputVal}
-            disabled={sentInDn}
-            onChange={(e) => setInputVal(e.target.value)}
-            onBlur={saveActual}
-            placeholder={String(charge.buy_amount ?? '0')}
-            className="h-6 w-24 text-xs font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          />
-          {actualTotal != null && Math.abs(delta) >= 0.01 && (
-            <Select value={reason} onValueChange={saveReason} disabled={sentInDn}>
-              <SelectTrigger className="h-6 w-32 text-[11px]">
-                <SelectValue placeholder="Motivo" />
-              </SelectTrigger>
-              <SelectContent>
-                {VARIANCE_REASONS.map(r => (
-                  <SelectItem key={r} value={r}>{VARIANCE_LABELS[r]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
           <div className="ml-auto flex items-center gap-1">
             {sentInDn ? (
               <>
@@ -4471,9 +4449,11 @@ function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, part
                 </AlertDialog>
               </>
             ) : confirmed ? (
-              <Badge variant="outline" className="text-[10px] h-5 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-1">
-                <CheckCircle className="w-3 h-3" /> Conferido
-              </Badge>
+              <button type="button" onClick={openConfirm} title="Clique para revisar/editar a conferência">
+                <Badge variant="outline" className="text-[10px] h-5 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-1 cursor-pointer">
+                  <CheckCircle className="w-3 h-3" /> Conferido · {cur} {(actualTotal ?? 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Badge>
+              </button>
             ) : (
               <Button
                 size="sm"
@@ -4497,6 +4477,31 @@ function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, part
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
+              <div>
+                <Label>Cobrado pelo fornecedor ({cur}{charge.billing_unit && charge.billing_unit !== 'fixed' ? ' por unidade' : ''})</Label>
+                <Input type="number" value={inputVal} onChange={(e) => setInputVal(e.target.value)}
+                  placeholder={String(charge.buy_amount ?? '0')} className="font-mono" />
+                <p className="text-[11px] mt-1 text-muted-foreground">
+                  Cotado: {cur} {quotedTotal.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {(() => {
+                    const d = chargeLineTotal(Number(inputVal) || 0, mult, charge.billing_unit, charge.buy_min_amount) - quotedTotal;
+                    return Math.abs(d) >= 0.01 ? <span className={d < 0 ? ' text-emerald-600' : ' text-destructive'}> · diferença {d > 0 ? '+' : ''}{d.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : null;
+                  })()}
+                </p>
+              </div>
+              {Math.abs(chargeLineTotal(Number(inputVal) || 0, mult, charge.billing_unit, charge.buy_min_amount) - quotedTotal) >= 0.01 && (
+                <div>
+                  <Label>Motivo da diferença</Label>
+                  <Select value={reason} onValueChange={setReason}>
+                    <SelectTrigger><SelectValue placeholder="Motivo" /></SelectTrigger>
+                    <SelectContent>
+                      {VARIANCE_REASONS.map(r => (
+                        <SelectItem key={r} value={r}>{VARIANCE_LABELS[r]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div>
                 <Label>Documento (boleto, fatura, invoice…)</Label>
                 <Input type="file" accept="application/pdf,image/*" onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
