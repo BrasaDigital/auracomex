@@ -46,7 +46,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
     if (!ref.current || !data) return;
     setDownloading(true);
     try {
-      await generatePdfFromElement(ref.current, `${data.dn.dn_number}.pdf`);
+      await generatePdfFromElement(ref.current, `${String(data.dn.dn_number).replace(/[\\/]/g, '-')}.pdf`);
     } finally { setDownloading(false); }
   }
 
@@ -83,7 +83,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                         <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 13 }}>Nº {data.dn.dn_number}</div>
                         <div style={{ fontSize: 10, color: '#555' }}>
                           Emissão: {format(parseISO(data.dn.issue_date), 'dd/MM/yyyy')}<br />
-                          Vencimento: {data.dn.due_date ? format(parseISO(data.dn.due_date), 'dd/MM/yyyy') : '-'}
+                          <strong style={{ color: '#111' }}>Vencimento: {data.dn.due_date ? format(parseISO(data.dn.due_date), 'dd/MM/yyyy') : '-'}</strong>
                         </div>
                       </td>
                     </tr>
@@ -103,7 +103,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                         {data.company?.phone && <div>{data.company.phone}</div>}
                       </td>
                       <td style={{ width: '50%', verticalAlign: 'top', padding: 10, border: '1px solid #ddd' }}>
-                        <div style={{ fontSize: 9, color: brand, fontWeight: 700, marginBottom: 4 }}>SACADO</div>
+                        <div style={{ fontSize: 9, color: brand, fontWeight: 700, marginBottom: 4 }}>CLIENTE</div>
                         <div style={{ fontWeight: 700 }}>{data.quote?.clients?.name}</div>
                         {data.quote?.clients?.tax_id && <div>{data.quote.clients.tax_id_type || 'ID'}: {data.quote.clients.tax_id}</div>}
                         {data.quote?.clients?.address && <div>{data.quote.clients.address}</div>}
@@ -118,7 +118,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                 <div style={{ background: '#f5f7fa', padding: 8, marginBottom: 12, fontSize: 10 }}>
                   <strong>REFERÊNCIA:</strong> {data.quote?.quote_number}
                   {data.quote?.origin && data.quote?.destination && <> — {data.quote.origin} → {data.quote.destination}</>}
-                  {data.quote?.transport_mode && <> · {transportModeLabel(data.quote.transport_mode)}</>}
+                  {data.quote?.transport_mode && <> · {transportModeLabel(data.quote.transport_mode).toUpperCase()}</>}
                 </div>
 
                 {/* Itens */}
