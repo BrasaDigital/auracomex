@@ -204,6 +204,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   // Basta deixar um dos lados sem valor para criar a taxa só de compra ou só de venda.
   const [sellPartnerId, setSellPartnerId] = useState('');
   const [sellBillingUnit, setSellBillingUnit] = useState('fixed');
+  const [buyMinAmount, setBuyMinAmount] = useState('');
+  const [sellMinAmount, setSellMinAmount] = useState('');
   const [sellCurrency, setSellCurrency] = useState('USD');
   const [sellAmount, setSellAmount] = useState('');
   // Câmbio próprio desta taxa (Venda) — opcional. Alimenta a conversão pra BRL
@@ -1517,6 +1519,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     setChargeForm((prev) => ({ charge_catalog_id: '', description: '', charge_type: 'freight', leg: prev.leg, amount: '', currency: 'USD', partner_id: '', billing_unit: 'fixed' }));
     setSellPartnerId(keepDefault);
     setSellBillingUnit('fixed');
+    setBuyMinAmount('');
+    setSellMinAmount('');
     setSellCurrency('USD');
     setSellAmount('');
     setSellExchangeRate('');
@@ -1573,6 +1577,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
           currency: isPercent ? 'USD' : chargeForm.currency,
           partner_id: chargeForm.partner_id || null,
           billing_unit: chargeForm.billing_unit,
+          buy_min_amount: supportsChargeMin(chargeForm.billing_unit) ? (parseFloat(buyMinAmount) || null) : null,
         };
         if (isPercent) { row.percent_base_charge_ids = []; row.computed_buy_amount = 0; row.computed_sell_amount = 0; }
         const { data, error } = await supabase.from('quote_charges').insert(row as any).select('id').single();
@@ -1589,6 +1594,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
           currency: isPercent ? 'USD' : sellCurrency,
           partner_id: sellPartnerId || null,
           billing_unit: sellBillingUnit,
+          sell_min_amount: supportsChargeMin(sellBillingUnit) ? (parseFloat(sellMinAmount) || null) : null,
           exchange_rate: (!isPercent && sellCurrency !== 'BRL' && sellExchangeRate) ? (parseFloat(sellExchangeRate) || null) : null,
         };
         if (isPercent) { row.percent_base_charge_ids = []; row.computed_buy_amount = 0; row.computed_sell_amount = 0; }
@@ -2762,6 +2768,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                 } else {
                   setChargeForm({ charge_catalog_id: '', description: '', charge_type: 'freight', leg: 'freight', amount: '', currency: 'USD', partner_id: '', billing_unit: 'fixed' });
                   setSellPartnerId('');
+                  setBuyMinAmount('');
+                  setSellMinAmount('');
                   setSellBillingUnit('fixed');
                   setSellCurrency('USD');
                   setSellAmount('');
@@ -2987,6 +2995,14 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                                 <p className="text-[11px] text-muted-foreground">{billingHint(chargeForm.billing_unit)}</p>
                               )}
                             </div>
+                              {supportsChargeMin(chargeForm.billing_unit) && (
+                                <div className="space-y-1.5">
+                                  <Label className="text-[11px] text-muted-foreground">Valor mínimo (opcional)</Label>
+                                  <Input type="number" placeholder="0.00" value={buyMinAmount} onChange={(e) => setBuyMinAmount(e.target.value)}
+                                    className="h-9 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                  <p className="text-[11px] text-muted-foreground">Se taxa × quantidade ficar abaixo, vale o mínimo.</p>
+                                </div>
+                              )}
                           </div>
 
                           {/* Card Venda */}
@@ -3027,6 +3043,14 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                                 <p className="text-[11px] text-muted-foreground">{billingHint(sellBillingUnit)}</p>
                               )}
                             </div>
+                              {supportsChargeMin(sellBillingUnit) && (
+                                <div className="space-y-1.5">
+                                  <Label className="text-[11px] text-muted-foreground">Valor mínimo (opcional)</Label>
+                                  <Input type="number" placeholder="0.00" value={sellMinAmount} onChange={(e) => setSellMinAmount(e.target.value)}
+                                    className="h-9 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                  <p className="text-[11px] text-muted-foreground">Se taxa × quantidade ficar abaixo, vale o mínimo.</p>
+                                </div>
+                              )}
                             {sellBillingUnit !== 'percent' && sellCurrency !== 'BRL' && (
                               <div className="space-y-1.5">
                                 <Label className="text-[11px] text-muted-foreground flex items-center gap-1">
@@ -3605,6 +3629,11 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   )}
                                 </div>
                               </div>
+                              <div className="flex items-center gap-1.5">
+                              {showReconciliation && amountKey === 'buy_amount' && group.partnerId && (
+                                <SupplierReconcileButton group={group as any} getMult={getBillingMultiplier} onUpdate={onUpdate}
+                                  currentUserId={currentUserId} onReopenCharge={onReopenCharge} />
+                              )}
                               {onSendDn && amountKey === 'buy_amount' && group.partnerId && (() => {
                                 // Taxas já enviadas numa DN anterior (paga ou não) não entram de
                                 // novo — se o fornecedor mandar uma cobrança nova, ela chega como
@@ -3647,6 +3676,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   </Button>
                                 );
                               })()}
+                              </div>
                               {onGenerateNd && amountKey === 'sell_amount' && group.partnerId && (() => {
                                 // Taxas já enviadas numa ND anterior ficam de fora — reentram só
                                 // se a ND antiga for reaberta/excluída primeiro.
@@ -3905,16 +3935,6 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                               </TableCell>
                               )}
                             </TableRow>
-                            {showReconciliation && amountKey === 'buy_amount' && (
-                              <ReconciliationRow
-                                charge={c}
-                                cargoMetrics={cargoMetrics}
-                                onUpdate={onUpdate}
-                                currentUserId={currentUserId}
-                                partnerName={group.partnerName}
-                                onReopenCharge={onReopenCharge}
-                              />
-                            )}
                             {cloningId === c.id && (
                               <TableRow className="bg-muted/20">
                                 <TableCell colSpan={amountKey === 'sell_amount' ? 5 : 4}>
@@ -4273,253 +4293,215 @@ const VARIANCE_LABELS: Record<string, string> = {
   sobrestadia: 'Sobrestadia', reajuste: 'Reajuste', outros: 'Outros',
 };
 
-function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, partnerName, onReopenCharge }: {
-  charge: any;
-  cargoMetrics?: { totalWeight: number; totalCbm: number; totalChargeable: number; totalContainers: number; totalContainers20: number; totalContainers40: number };
+/** Conferência por fornecedor: botão na linha do fornecedor + popup para escolher quais taxas conferir. */
+function SupplierReconcileButton({ group, getMult, onUpdate, currentUserId, onReopenCharge }: {
+  group: { partnerId: string; partnerName: string; charges: any[] };
+  getMult: (unit: string) => number;
   onUpdate: (id: string, updates: Record<string, any>) => Promise<void>;
   currentUserId?: string;
-  partnerName?: string;
   onReopenCharge?: (charge: any, partnerName: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
-  const mult = (() => {
-    if (!cargoMetrics) return 1;
-    switch (charge.billing_unit) {
-      case 'per_cw': return cargoMetrics.totalChargeable;
-      case 'per_ton': return cargoMetrics.totalWeight / 1000;
-      case 'per_cbm': return cargoMetrics.totalCbm;
-      case 'per_wm': return Math.max(cargoMetrics.totalWeight / 1000, cargoMetrics.totalCbm);
-      case 'per_container': return cargoMetrics.totalContainers;
-      case 'per_container_20': return cargoMetrics.totalContainers20;
-      case 'per_container_40': return cargoMetrics.totalContainers40;
-      case 'per_bl': return 1;
-      default: return 1;
-    }
-  })();
-  const quotedTotal = chargeLineTotal(Number(charge.buy_amount) || 0, mult, charge.billing_unit, charge.buy_min_amount);
-  const actualUnit = charge.buy_amount_actual;
-  const actualTotal = actualUnit != null ? chargeLineTotal(Number(actualUnit), mult, charge.billing_unit, charge.buy_min_amount) : null;
-  const confirmed = !!charge.buy_actual_confirmed_at;
-  const delta = actualTotal != null ? actualTotal - quotedTotal : 0;
-  const deltaPct = quotedTotal > 0 && actualTotal != null ? (delta / quotedTotal) * 100 : 0;
-  const cur = charge.currency || 'USD';
-  // Já vem preenchido com o valor cotado sugerido — se não houver divergência,
-  // o usuário só confirma direto, sem precisar digitar de novo.
-  const suggestedVal = String(charge.buy_amount ?? '');
-  const [inputVal, setInputVal] = useState(actualUnit != null ? String(actualUnit) : suggestedVal);
-  const [reason, setReason] = useState<string>(charge.buy_variance_reason || '');
-
-  useEffect(() => {
-    setInputVal(actualUnit != null ? String(actualUnit) : suggestedVal);
-    setReason(charge.buy_variance_reason || '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actualUnit, charge.buy_variance_reason]);
-
-  const deltaColor =
-    actualTotal == null ? 'text-muted-foreground' :
-    Math.abs(delta) < 0.01 ? 'text-muted-foreground' :
-    delta < 0 ? 'text-emerald-600' :
-    Math.abs(deltaPct) <= 5 ? 'text-amber-500' : 'text-destructive';
-
-  const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false);
-  const [reopening, setReopening] = useState(false);
-
-  // Enviada numa DN é o travamento de verdade — a partir daí ninguém edita
-  // mais o valor direto aqui. Só "Conferir" (checklist, pré-requisito pra
-  // habilitar o botão "Enviar DN") não trava nada; dá pra editar à vontade
-  // até a DN ser realmente enviada.
-  const sentInDn = !!charge.sent_in_debit_note_id;
-
-  const saveActual = () => {
-    const val = inputVal === '' ? null : parseFloat(inputVal);
-    if (val !== null && isNaN(val)) return;
-    if (val === (actualUnit ?? null)) return;
-    const updates: Record<string, any> = { buy_amount_actual: val };
-    // Mudou o valor depois de já ter conferido (mas ainda não enviado)? A
-    // confirmação anterior fica desatualizada — precisa conferir de novo.
-    if (confirmed && !sentInDn) {
-      updates.buy_actual_confirmed_at = null;
-      updates.buy_actual_confirmed_by = null;
-      removeChargeExpense([charge.id]);
-    }
-    onUpdate(charge.id, updates);
-  };
-
-  const saveReason = (v: string) => {
-    setReason(v);
-    onUpdate(charge.id, { buy_variance_reason: v || null });
-  };
-
   const { profile } = useAuth();
   const queryClient = useQueryClient();
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [reasons, setReasons] = useState<Record<string, string>>({});
   const [docFile, setDocFile] = useState<File | null>(null);
   const [validUntil, setValidUntil] = useState<Date | undefined>(undefined);
-  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [reopenTarget, setReopenTarget] = useState<any | null>(null);
+  const [reopening, setReopening] = useState(false);
 
-  const openConfirm = () => {
-    if (actualUnit == null && inputVal === '') return;
+  const charges = group.charges;
+  const open_ = charges.filter((c: any) => !c.sent_in_debit_note_id);
+  const sent = charges.filter((c: any) => !!c.sent_in_debit_note_id);
+  const pendingConfirm = open_.filter((c: any) => !c.buy_actual_confirmed_at);
+  const isPct = (c: any) => c.billing_unit === 'percent';
+  const multOf = (c: any) => (c.billing_unit && c.billing_unit !== 'fixed' ? getMult(c.billing_unit) : 1);
+  const quoted = (c: any) => isPct(c) ? (Number(c.computed_buy_amount) || 0) : chargeLineTotal(Number(c.buy_amount) || 0, multOf(c), c.billing_unit, c.buy_min_amount);
+  const totalFor = (c: any, unit: number) => isPct(c) ? unit : chargeLineTotal(unit, multOf(c), c.billing_unit, c.buy_min_amount);
+  const curOf = (c: any) => (isPct(c) ? 'USD' : (c.currency || 'USD'));
+  const initialUnit = (c: any) => c.buy_amount_actual != null ? String(c.buy_amount_actual) : (isPct(c) ? String(Number(c.computed_buy_amount) || 0) : String(c.buy_amount ?? ''));
+  const fmt = (n: number) => n.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const openDialog = () => {
+    const v: Record<string, string> = {}; const r: Record<string, string> = {};
+    open_.forEach((c: any) => { v[c.id] = initialUnit(c); r[c.id] = c.buy_variance_reason || ''; });
+    setVals(v); setReasons(r);
+    setSelected(new Set(pendingConfirm.map((c: any) => c.id)));
     setDocFile(null);
-    setValidUntil(charge.buy_doc_valid_until ? parseISO(charge.buy_doc_valid_until) : undefined);
-    setConfirmOpen(true);
+    const firstValid = open_.find((c: any) => c.buy_doc_valid_until)?.buy_doc_valid_until;
+    setValidUntil(firstValid ? parseISO(firstValid) : undefined);
+    setOpen(true);
   };
 
-  const confirmActual = async () => {
-    if (actualUnit == null && inputVal === '') return;
-    if (!profile) return;
-    const val = inputVal === '' ? actualUnit : parseFloat(inputVal);
-    const unit = Number(val) || 0;
-    setConfirming(true);
-    const res = await registerChargeExpense({
-      chargeId: charge.id,
-      description: charge.description || 'Taxa',
-      amount: unit * mult,
-      currency: cur,
-      partnerId: charge.partner_id ?? null,
-      quoteId: charge.quote_id,
-      companyId: profile.company_id,
-      userId: profile.user_id,
-      file: docFile,
-      validUntil: validUntil ? format(validUntil, 'yyyy-MM-dd') : null,
-    });
-    if ('error' in res) {
-      setConfirming(false);
-      toast.error('Erro ao conferir a taxa', { description: res.error });
-      return;
+  const toggle = (id: string) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const confirmSelected = async () => {
+    if (!profile || selected.size === 0) return;
+    setSaving(true);
+    const validStr = validUntil ? format(validUntil, 'yyyy-MM-dd') : null;
+    let okCount = 0;
+    for (const c of open_.filter((x: any) => selected.has(x.id))) {
+      const unit = Number(vals[c.id] === '' ? initialUnit(c) : vals[c.id]) || 0;
+      const diff = Math.abs(totalFor(c, unit) - quoted(c)) >= 0.01;
+      const res = await registerChargeExpense({
+        chargeId: c.id,
+        description: c.description || 'Taxa',
+        amount: totalFor(c, unit),
+        currency: curOf(c),
+        partnerId: c.partner_id ?? null,
+        quoteId: c.quote_id,
+        companyId: profile.company_id,
+        userId: profile.user_id,
+        file: docFile,
+        validUntil: validStr,
+      });
+      if ('error' in res) {
+        toast.error(`Erro ao conferir "${c.description}"`, { description: res.error });
+        continue;
+      }
+      const updates: Record<string, any> = {
+        buy_amount_actual: unit,
+        buy_variance_reason: diff ? (reasons[c.id] || null) : null,
+        buy_actual_confirmed_at: new Date().toISOString(),
+        buy_actual_confirmed_by: currentUserId || null,
+        buy_doc_valid_until: validStr,
+      };
+      if ('docPath' in res && res.docPath) updates.buy_doc_path = res.docPath;
+      await onUpdate(c.id, updates);
+      okCount++;
     }
-    const updates: Record<string, any> = {
-      buy_amount_actual: val,
-      buy_variance_reason: reason || null,
-      buy_actual_confirmed_at: new Date().toISOString(),
-      buy_actual_confirmed_by: currentUserId || null,
-      buy_doc_valid_until: validUntil ? format(validUntil, 'yyyy-MM-dd') : null,
-    };
-    if ('docPath' in res && res.docPath) updates.buy_doc_path = res.docPath;
-    await onUpdate(charge.id, updates);
     queryClient.invalidateQueries({ queryKey: ['accounts_payable'] });
     queryClient.invalidateQueries({ queryKey: ['documents'] });
-    setConfirming(false);
-    setConfirmOpen(false);
-    toast.success('Taxa conferida — lançada em Despesa por Processo');
+    setSaving(false);
+    if (okCount > 0) {
+      toast.success(`${okCount} taxa(s) conferida(s) — lançadas em Despesa por Processo`);
+      setOpen(false);
+    }
   };
 
-  const handleReopenConfirm = async () => {
-    if (!onReopenCharge || reopening) return;
+  const handleReopen = async () => {
+    if (!reopenTarget || !onReopenCharge || reopening) return;
     setReopening(true);
-    const result = await onReopenCharge(charge, partnerName || '');
+    const result = await onReopenCharge(reopenTarget, group.partnerName);
     setReopening(false);
-    if (result.ok) setReopenConfirmOpen(false);
+    if (result.ok) { setReopenTarget(null); }
   };
 
-  // Mesmo depois de paga, ainda dá pra reabrir se for realmente necessário
-  // (ex.: DN errada, arquivo trocado) — "Reabrir" exclui a DN e a conta a
-  // pagar vinculada (perde o registro do pagamento) e libera a taxa de
-  // novo. O aviso deixa isso claro antes de confirmar.
-  const paid = !!charge.buy_paid_at;
+  const allDone = open_.length === 0 || pendingConfirm.length === 0;
 
   return (
-    <TableRow className={confirmed ? 'bg-emerald-500/5' : 'bg-muted/10'}>
-      <TableCell colSpan={4} className="py-1.5 pl-8 pr-2">
-        <div className="flex items-center gap-2 flex-wrap text-[11px]">
-          <div className="ml-auto flex items-center gap-1">
-            {sentInDn ? (
-              <>
-                <Badge variant="outline" className={`text-[10px] h-5 gap-1 ${paid ? 'bg-primary/10 text-primary border-primary/30' : 'bg-primary/15 text-primary border-primary/30'}`}>
-                  <CheckCircle className="w-3 h-3" /> {paid ? 'Pago' : 'Enviado em DN'}
-                </Badge>
-                <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => setReopenConfirmOpen(true)}>
-                  Reabrir
-                </Button>
-                <AlertDialog open={reopenConfirmOpen} onOpenChange={(o) => !reopening && setReopenConfirmOpen(o)}>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{paid ? 'Essa taxa já foi paga' : 'Essa taxa já está numa DN enviada'}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {paid
-                          ? 'Reabrir vai excluir a Debit Note já enviada ao fornecedor e o registro do pagamento em Contas a Pagar (data, comprovante, etc. são perdidos). As taxas incluídas nela voltam a ficar editáveis e precisam ser conferidas e reenviadas numa nova DN. Deseja continuar?'
-                          : 'Reabrir vai excluir a Debit Note já enviada ao fornecedor e removê-la de Contas a Pagar. As taxas incluídas nela voltam a ficar editáveis e precisam ser conferidas de novo antes de gerar uma nova DN. Deseja continuar?'}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel disabled={reopening}>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleReopenConfirm} disabled={reopening}>
-                        {reopening ? 'Excluindo…' : 'Sim, excluir DN'}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </>
-            ) : confirmed ? (
-              <button type="button" onClick={openConfirm} title="Clique para revisar/editar a conferência">
-                <Badge variant="outline" className="text-[10px] h-5 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-1 cursor-pointer">
-                  <CheckCircle className="w-3 h-3" /> Conferido · {cur} {(actualTotal ?? 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Badge>
-              </button>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-6 text-[10px] px-2"
-                disabled={inputVal === '' && actualUnit == null}
-                onClick={openConfirm}
-              >
-                <CheckCircle className="w-3 h-3 mr-1" /> Conferir
-              </Button>
+    <>
+      <Button
+        type="button" size="sm" variant="outline"
+        className={`h-7 gap-1.5 text-xs ${allDone ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/40 hover:bg-emerald-500/25 hover:text-emerald-700' : ''}`}
+        title={allDone ? 'Todas as taxas deste fornecedor estão conferidas — clique para revisar' : `${pendingConfirm.length} taxa(s) ainda para conferir`}
+        onClick={(e) => { e.stopPropagation(); openDialog(); }}
+      >
+        <CheckCircle className="w-3.5 h-3.5" /> {allDone ? 'Conferido' : 'Conferir'}
+      </Button>
+      <Dialog open={open} onOpenChange={(o) => !saving && setOpen(o)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Conferir taxas — {group.partnerName}</DialogTitle>
+            <DialogDescription>Marque as taxas que deseja conferir e informe o valor cobrado pelo fornecedor.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {open_.map((c: any) => {
+              const unit = Number(vals[c.id] === '' ? initialUnit(c) : vals[c.id]) || 0;
+              const tot = totalFor(c, unit);
+              const d = tot - quoted(c);
+              const hasDiff = Math.abs(d) >= 0.01;
+              const confirmed = !!c.buy_actual_confirmed_at;
+              return (
+                <div key={c.id} className={`rounded-md border p-2 ${selected.has(c.id) ? 'border-primary/40 bg-primary/5' : 'border-border'}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Checkbox checked={selected.has(c.id)} onCheckedChange={() => toggle(c.id)} />
+                    <span className="text-sm font-medium flex-1 min-w-[140px]">{c.description}</span>
+                    {confirmed && (
+                      <Badge variant="outline" className="text-[10px] h-5 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-1">
+                        <CheckCircle className="w-3 h-3" /> Conferida
+                      </Badge>
+                    )}
+                    <span className="text-[11px] text-muted-foreground">Cotado: {curOf(c)} {fmt(quoted(c))}</span>
+                    <span className="text-[11px] text-muted-foreground">Cobrado{!isPct(c) && c.billing_unit && c.billing_unit !== 'fixed' ? ' (unit.)' : ''}:</span>
+                    <Input type="number" value={vals[c.id] ?? ''} disabled={!selected.has(c.id)}
+                      onChange={(e) => setVals((p) => ({ ...p, [c.id]: e.target.value }))}
+                      className="h-7 w-28 text-xs font-mono text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                    {hasDiff && selected.has(c.id) && (
+                      <>
+                        <span className={`text-[11px] font-mono ${d < 0 ? 'text-emerald-600' : 'text-destructive'}`}>{d > 0 ? '+' : ''}{fmt(d)}</span>
+                        <Select value={reasons[c.id] || ''} onValueChange={(v) => setReasons((p) => ({ ...p, [c.id]: v }))}>
+                          <SelectTrigger className="h-7 w-32 text-[11px]"><SelectValue placeholder="Motivo" /></SelectTrigger>
+                          <SelectContent>
+                            {VARIANCE_REASONS.map((r) => <SelectItem key={r} value={r}>{VARIANCE_LABELS[r]}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {sent.length > 0 && (
+              <div className="pt-2 space-y-1">
+                <p className="text-[11px] uppercase text-muted-foreground tracking-wide">Já enviadas em DN</p>
+                {sent.map((c: any) => (
+                  <div key={c.id} className="flex items-center gap-2 text-xs rounded-md border border-border/60 p-2">
+                    <span className="flex-1">{c.description}</span>
+                    <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-primary/10 text-primary border-primary/30">
+                      <CheckCircle className="w-3 h-3" /> {c.buy_paid_at ? 'Pago' : 'Enviado em DN'}
+                    </Badge>
+                    {onReopenCharge && (
+                      <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => setReopenTarget(c)}>Reabrir</Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {open_.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                <div>
+                  <Label>Documento (boleto, fatura, invoice…) — opcional</Label>
+                  <Input type="file" accept="application/pdf,image/*" onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
+                </div>
+                <div>
+                  <Label>Data de validade (opcional)</Label>
+                  <DateField value={validUntil} onChange={setValidUntil} />
+                  <p className="text-[11px] text-muted-foreground mt-1">Vencimento da despesa em Financeiro → Despesa por Processo.</p>
+                </div>
+              </div>
             )}
           </div>
-        </div>
-        <Dialog open={confirmOpen} onOpenChange={(o) => !confirming && setConfirmOpen(o)}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Conferir taxa — {charge.description}</DialogTitle>
-              <DialogDescription>
-                {cur} {chargeLineTotal(Number(inputVal) || 0, mult, charge.billing_unit, charge.buy_min_amount).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                {partnerName ? ` · ${partnerName}` : ''}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div>
-                <Label>Cobrado pelo fornecedor ({cur}{charge.billing_unit && charge.billing_unit !== 'fixed' ? ' por unidade' : ''})</Label>
-                <Input type="number" value={inputVal} onChange={(e) => setInputVal(e.target.value)}
-                  placeholder={String(charge.buy_amount ?? '0')} className="font-mono" />
-                <p className="text-[11px] mt-1 text-muted-foreground">
-                  Cotado: {cur} {quotedTotal.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  {(() => {
-                    const d = chargeLineTotal(Number(inputVal) || 0, mult, charge.billing_unit, charge.buy_min_amount) - quotedTotal;
-                    return Math.abs(d) >= 0.01 ? <span className={d < 0 ? ' text-emerald-600' : ' text-destructive'}> · diferença {d > 0 ? '+' : ''}{d.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : null;
-                  })()}
-                </p>
-              </div>
-              {Math.abs(chargeLineTotal(Number(inputVal) || 0, mult, charge.billing_unit, charge.buy_min_amount) - quotedTotal) >= 0.01 && (
-                <div>
-                  <Label>Motivo da diferença</Label>
-                  <Select value={reason} onValueChange={setReason}>
-                    <SelectTrigger><SelectValue placeholder="Motivo" /></SelectTrigger>
-                    <SelectContent>
-                      {VARIANCE_REASONS.map(r => (
-                        <SelectItem key={r} value={r}>{VARIANCE_LABELS[r]}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div>
-                <Label>Documento (boleto, fatura, invoice…)</Label>
-                <Input type="file" accept="application/pdf,image/*" onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
-              </div>
-              <div>
-                <Label>Data de validade (opcional)</Label>
-                <DateField value={validUntil} onChange={setValidUntil} />
-                <p className="text-[11px] text-muted-foreground mt-1">Usada como vencimento da despesa em Financeiro → Despesa por Processo.</p>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={confirming}>Cancelar</Button>
-              <Button onClick={confirmActual} disabled={confirming}>{confirming ? 'Salvando…' : 'Conferir'}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </TableCell>
-    </TableRow>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Fechar</Button>
+            {open_.length > 0 && (
+              <Button onClick={confirmSelected} disabled={saving || selected.size === 0}>
+                {saving ? 'Salvando…' : `Conferir selecionadas (${selected.size})`}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog open={!!reopenTarget} onOpenChange={(o) => !reopening && !o && setReopenTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{reopenTarget?.buy_paid_at ? 'Essa taxa já foi paga' : 'Essa taxa já está numa DN enviada'}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {reopenTarget?.buy_paid_at
+                ? 'Reabrir vai excluir a Debit Note já enviada ao fornecedor e o registro do pagamento em Contas a Pagar (data, comprovante, etc. são perdidos). As taxas incluídas nela voltam a ficar editáveis e precisam ser conferidas de novo.'
+                : 'Reabrir vai excluir a Debit Note já enviada ao fornecedor e removê-la de Contas a Pagar. As taxas incluídas nela voltam a ficar editáveis e precisam ser conferidas de novo.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reopening}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleReopen} disabled={reopening}>{reopening ? 'Excluindo…' : 'Sim, excluir DN'}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
