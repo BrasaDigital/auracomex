@@ -99,7 +99,7 @@ export function AppSidebar() {
     refetchInterval: 60_000,
   });
 
-  const logoUrl = (company as any)?.logo_url;
+  const logoUrl = (company as any)?.logo_dark_url || (company as any)?.logo_url; // sidebar é escura
   const companyName = company?.name || 'Aura Comex';
 
   const navItems = allNavItems.filter(item => (permissions as any)[item.permission]);

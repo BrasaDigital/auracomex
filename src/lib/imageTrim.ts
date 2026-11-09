@@ -4,7 +4,7 @@
  * o tamanho exibido é limitado pela imagem inteira, não pela arte.
  * Se algo falhar (ou não houver margem relevante), devolve o arquivo original.
  */
-export async function trimImageMargins(file: File): Promise<File> {
+export async function trimImageMargins(file: File, opts: { forDarkBg?: boolean } = {}): Promise<File> {
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
@@ -22,6 +22,9 @@ export async function trimImageMargins(file: File): Promise<File> {
     // Fundo transparente (canto com alpha baixo): só o alpha conta.
     // Fundo opaco: branco/quase branco é tratado como margem.
     const transparentBg = data[3] < 16;
+    // Logo para fundo escuro costuma ser branco: com fundo opaco não dá pra
+    // distinguir margem de arte, então só recorta quando o fundo é transparente.
+    if (opts.forDarkBg && !transparentBg) return file;
     const isArt = (i: number) => {
       if (data[i + 3] < 16) return false;
       if (transparentBg) return true;

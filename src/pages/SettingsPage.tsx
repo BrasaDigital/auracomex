@@ -48,6 +48,7 @@ export default function SettingsPage() {
   const [lookingUp, setLookingUp] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const darkFileInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
     name: '',
     cnpj: '',
@@ -213,7 +214,7 @@ export default function SettingsPage() {
     }
   }
 
-  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>, variant: 'light' | 'dark' = 'light') {
     const file = e.target.files?.[0];
     if (!file || !profile) return;
 
@@ -230,9 +231,9 @@ export default function SettingsPage() {
     setUploadingLogo(true);
     try {
       // Recorta margens vazias da imagem — senão o logo aparece minúsculo no site e nos PDFs.
-      const trimmed = await trimImageMargins(file);
+      const trimmed = await trimImageMargins(file, { forDarkBg: variant === 'dark' });
       const ext = trimmed.name.split('.').pop();
-      const path = `${profile.company_id}/logo.${ext}`;
+      const path = `${profile.company_id}/${variant === 'dark' ? 'logo-dark' : 'logo'}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
         .from('company-logos')
@@ -247,7 +248,7 @@ export default function SettingsPage() {
 
       const { error: updateError } = await supabase
         .from('companies')
-        .update({ logo_url: logoUrl } as any)
+        .update((variant === 'dark' ? { logo_dark_url: logoUrl } : { logo_url: logoUrl }) as any)
         .eq('id', profile.company_id);
       if (updateError) throw updateError;
 
@@ -258,10 +259,11 @@ export default function SettingsPage() {
     } finally {
       setUploadingLogo(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (darkFileInputRef.current) darkFileInputRef.current.value = '';
     }
   }
 
-  async function handleRemoveLogo() {
+  async function handleRemoveLogo(variant: 'light' | 'dark' = 'light') {
     if (!profile) return;
     setUploadingLogo(true);
     try {
@@ -269,15 +271,16 @@ export default function SettingsPage() {
       const { data: files } = await supabase.storage
         .from('company-logos')
         .list(profile.company_id);
-      if (files && files.length > 0) {
+      const toRemove = (files ?? []).filter(f => variant === 'dark' ? f.name.startsWith('logo-dark.') : f.name.startsWith('logo.'));
+      if (toRemove.length > 0) {
         await supabase.storage
           .from('company-logos')
-          .remove(files.map(f => `${profile.company_id}/${f.name}`));
+          .remove(toRemove.map(f => `${profile.company_id}/${f.name}`));
       }
 
       await supabase
         .from('companies')
-        .update({ logo_url: null } as any)
+        .update((variant === 'dark' ? { logo_dark_url: null } : { logo_url: null }) as any)
         .eq('id', profile.company_id);
 
       queryClient.invalidateQueries({ queryKey: ['company', profile.company_id] });
@@ -290,6 +293,7 @@ export default function SettingsPage() {
   }
 
   const logoUrl = (company as any)?.logo_url;
+  const logoDarkUrl = (company as any)?.logo_dark_url;
 
   return (
     <div className="space-y-6 animate-slide-in">
@@ -335,7 +339,7 @@ export default function SettingsPage() {
                       {t('settings.upload_logo')}
                     </Button>
                     {logoUrl && (
-                      <Button variant="ghost" size="sm" onClick={handleRemoveLogo} disabled={uploadingLogo}>
+                      <Button variant="ghost" size="sm" onClick={() => handleRemoveLogo('light')} disabled={uploadingLogo}>
                         <Trash2 className="w-4 h-4 mr-1" />
                         {t('settings.remove_logo')}
                       </Button>
@@ -344,7 +348,33 @@ export default function SettingsPage() {
                   <p className="text-xs text-muted-foreground">{t('settings.logo_hint')}</p>
                 </div>
               </div>
-              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handleLogoUpload} />
+              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => handleLogoUpload(e, 'light')} />
+
+              <div className="flex items-center gap-4 pt-2 border-t border-border">
+                {logoDarkUrl ? (
+                  <img src={logoDarkUrl} alt="Logo fundo escuro" className="h-16 w-16 object-contain rounded-lg border border-border bg-zinc-900 p-1" />
+                ) : (
+                  <div className="h-16 w-16 rounded-lg border border-dashed border-border bg-zinc-900 flex items-center justify-center text-zinc-400 text-xs text-center">
+                    Logo escuro
+                  </div>
+                )}
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => darkFileInputRef.current?.click()} disabled={uploadingLogo}>
+                      {uploadingLogo ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Upload className="w-4 h-4 mr-1" />}
+                      Logo para fundo escuro
+                    </Button>
+                    {logoDarkUrl && (
+                      <Button variant="ghost" size="sm" onClick={() => handleRemoveLogo('dark')} disabled={uploadingLogo}>
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        {t('settings.remove_logo')}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Versão clara/branca do logo, usada na barra lateral escura. Os documentos (PDF) usam sempre o logo principal acima. Se não enviar, a barra lateral usa o logo principal.</p>
+                </div>
+              </div>
+              <input ref={darkFileInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => handleLogoUpload(e, 'dark')} />
             </CardContent>
           </Card>
 
