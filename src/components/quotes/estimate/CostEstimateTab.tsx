@@ -394,6 +394,44 @@ export function CostEstimateTab({
     setDraftExpenses(arr => arr.map(e => e.id === id ? { ...e, ...patch } : e));
   };
 
+  // Ao digitar um NCM que já existe em outra linha, copia as alíquotas dessa
+  // linha (II, IPI, PIS, COFINS, +1%, ICMS, destinação) — evita refazer a pesquisa.
+  const handleNcmCommit = (id: string, v: string) => {
+    const digits = (x: string | null | undefined) => String(x || '').replace(/\D/g, '');
+    const nd = digits(v);
+    const source = nd.length >= 4 ? draftItems.find(i => i.id !== id && digits(i.ncm) === nd) : undefined;
+    if (!source) { patchItem(id, { ncm: v }); return; }
+    patchItem(id, {
+      ncm: v,
+      aliq_ii: source.aliq_ii,
+      aliq_ipi: source.aliq_ipi,
+      aliq_pis: source.aliq_pis,
+      aliq_cofins: source.aliq_cofins,
+      aliq_icms: source.aliq_icms,
+      cofins_adicional: source.cofins_adicional,
+      destinacao: source.destinacao,
+      ipi_na_base_icms: source.ipi_na_base_icms,
+    });
+    toast.info(`NCM ${v}: alíquotas copiadas de "${source.nome || 'outra linha'}" (mesmo NCM)`);
+  };
+
+  // Navegação estilo Excel na tabela de itens: Enter desce para a mesma coluna
+  // da linha de baixo (Shift+Enter sobe). Tab já anda pelas colunas.
+  const handleGridKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key !== 'Enter') return;
+    const target = e.target as HTMLElement;
+    if (target.tagName !== 'INPUT') return;
+    const td = target.closest('td');
+    const tr = td?.closest('tr');
+    if (!td || !tr) return;
+    e.preventDefault();
+    const colIdx = Array.from(tr.children).indexOf(td);
+    const nextTr = (e.shiftKey ? tr.previousElementSibling : tr.nextElementSibling) as HTMLTableRowElement | null;
+    const nextInput = nextTr?.children[colIdx]?.querySelector('input') as HTMLInputElement | null;
+    if (nextInput && !nextInput.disabled) { nextInput.focus(); nextInput.select(); }
+    else (target as HTMLInputElement).blur();
+  };
+
   const addItem = () => {
     if (!estimate || !companyId) return;
     const novo: DraftItem = {
@@ -1188,7 +1226,7 @@ export function CostEstimateTab({
           </div>
           <Button size="sm" variant="outline" onClick={addItem} disabled={ro}><Plus className="w-3.5 h-3.5 mr-1" /> Item</Button>
         </CardHeader>
-        <CardContent className="overflow-x-auto" onBlur={handleAutoSaveBlur}>
+        <CardContent className="overflow-x-auto" onBlur={handleAutoSaveBlur} onKeyDown={handleGridKeyDown}>
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -1240,7 +1278,7 @@ export function CostEstimateTab({
                           disabled={ro} 
                           className="h-7 text-xs flex-1" 
                           value={it.ncm || ''} 
-                          onCommit={(v) => patchItem(it.id, { ncm: v })} 
+                          onCommit={(v) => handleNcmCommit(it.id, v)} 
                           placeholder="NCM" 
                         />
                         {siscomexConfig?.is_active && (
@@ -1248,6 +1286,7 @@ export function CostEstimateTab({
                             size="icon" 
                             variant="ghost" 
                             className="h-7 w-7 shrink-0" 
+                            tabIndex={-1}
                             onClick={() => handleNcmLookup(it.id, it.ncm || '')}
                             disabled={ro || ncmLookupLoading === it.id}
                           >
@@ -1292,6 +1331,7 @@ export function CostEstimateTab({
                           <TooltipTrigger asChild>
                             <Button
                               type="button"
+                              tabIndex={-1}
                               size="sm"
                               variant={it.cofins_adicional ? 'default' : 'ghost'}
                               disabled={ro}
