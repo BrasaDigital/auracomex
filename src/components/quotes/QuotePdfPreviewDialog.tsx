@@ -279,14 +279,15 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
     );
 
     // Design tokens — cores da marca vêm da empresa (fallback = Aura default)
-    const INK = company?.brand_primary_color || '#0f1729';
+    const INK = '#000';
+    const LINE = company?.brand_primary_color || '#0f1729';
     const ACCENT = company?.brand_secondary_color || '#1e40af';
-    const MUTED = '#64748b';
+    const MUTED = '#000';
     const BORDER = '#e2e8f0';
     const SUBTLE = '#f8fafc';
     const ZEBRA = '#fafbfc';
     const thStyleDyn: React.CSSProperties = {
-      background: INK, color: '#fff', padding: '6px 10px', textAlign: 'left', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px',
+      background: '#fff', color: '#000', borderTop: `2px solid ${LINE}`, borderBottom: `2px solid ${LINE}`, padding: '6px 10px', textAlign: 'left', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px',
     };
 
     const fmt = (n: number, d = 2) => n.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -360,7 +361,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
               </td>
               <td style={{ verticalAlign: 'top', textAlign: 'right', paddingBottom: '10px' }}>
                 <div style={{ fontSize: '8px', color: MUTED, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Proposta</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: ACCENT, lineHeight: 1, marginTop: '2px' }}>{quote.quote_number}</div>
+                <div style={{ fontSize: '18px', fontWeight: 700, color: INK, lineHeight: 1, marginTop: '2px' }}>{quote.quote_number}</div>
                 <div style={{ fontSize: '8.5px', color: MUTED, marginTop: '4px', lineHeight: 1.4 }}>
                   {data?.userEmail && <div>{data.userEmail}</div>}
                   {(data?.userPhone || company?.phone) && <div>{data?.userPhone || company?.phone}</div>}
@@ -379,7 +380,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
                 <div style={{ fontSize: '9px', color: MUTED, marginTop: '2px' }}>Emitida em {format(new Date(), 'dd/MM/yyyy')}</div>
               </td>
               <td style={{ verticalAlign: 'middle', textAlign: 'right', width: '1%', whiteSpace: 'nowrap' }}>
-                <span style={{ display: 'inline-block', background: ACCENT, color: '#fff', height: '26px', lineHeight: '26px', padding: '0 16px', borderRadius: '3px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                <span style={{ display: 'inline-block', background: '#fff', color: '#000', border: `2px solid ${ACCENT}`, height: '22px', lineHeight: '22px', padding: '0 16px', borderRadius: '3px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px' }}>
                   {MODE_LABELS[quote.transport_mode] || quote.transport_mode}
                 </span>
               </td>
@@ -413,7 +414,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
           <tbody>
             <tr>
               <td style={{ verticalAlign: 'top', width: '50%', border: `1px solid ${BORDER}`, borderLeft: `3px solid ${ACCENT}`, borderRadius: '4px', padding: '8px 10px' }}>
-                <div style={{ fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', color: ACCENT, letterSpacing: '0.6px', marginBottom: '5px' }}>Cliente</div>
+                <div style={{ fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', color: INK, letterSpacing: '0.6px', marginBottom: '5px' }}>Cliente</div>
                 {client ? (
                   <>
                     <div style={{ fontWeight: 700, fontSize: '11px', color: INK, lineHeight: 1.25 }}>{client.name}</div>
@@ -424,7 +425,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
                 ) : <div style={{ color: MUTED }}>—</div>}
               </td>
               <td style={{ verticalAlign: 'top', width: '50%', border: `1px solid ${BORDER}`, borderLeft: `3px solid ${ACCENT}`, borderRadius: '4px', padding: '8px 10px' }}>
-                <div style={{ fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', color: ACCENT, letterSpacing: '0.6px', marginBottom: '5px' }}>Detalhes</div>
+                <div style={{ fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', color: INK, letterSpacing: '0.6px', marginBottom: '5px' }}>Detalhes</div>
                 {detailRow('Modal', MODE_LABELS[quote.transport_mode] || quote.transport_mode)}
                 {detailRow('Moeda', quote.currency || 'USD')}
                 {proposalOptions.transitTime && detailRow('Transit Time', `${proposalOptions.transitTime} dias`)}
@@ -476,7 +477,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
                 {groupedByLeg.map((group) => (
                   <React.Fragment key={group.leg}>
                     <tr>
-                      <td colSpan={3} style={{ background: SUBTLE, fontWeight: 700, fontSize: '9px', padding: '5px 8px', borderTop: `2px solid ${ACCENT}`, borderBottom: `1px solid ${BORDER}`, textTransform: 'uppercase', letterSpacing: '0.5px', color: ACCENT }}>
+                      <td colSpan={3} style={{ background: SUBTLE, fontWeight: 700, fontSize: '9px', padding: '5px 8px', borderTop: `2px solid ${ACCENT}`, borderBottom: `1px solid ${BORDER}`, textTransform: 'uppercase', letterSpacing: '0.5px', color: INK }}>
                         {group.label}
                       </td>
                     </tr>
@@ -505,8 +506,8 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
                   </React.Fragment>
                 ))}
                 <tr>
-                  <td colSpan={2} height={Math.max(34, Object.keys(totalByCurrency).length * 18 + 16)} style={{ textAlign: 'right', fontWeight: 700, fontSize: '12px', padding: '0 14px', background: ACCENT, color: '#fff', letterSpacing: '1px', verticalAlign: 'middle' }}>TOTAL</td>
-                  <td height={Math.max(34, Object.keys(totalByCurrency).length * 18 + 16)} style={{ textAlign: 'right', fontWeight: 700, fontSize: '13px', padding: '0 14px', background: ACCENT, color: '#fff', fontFamily: 'monospace', verticalAlign: 'middle' }}>
+                  <td colSpan={2} height={Math.max(34, Object.keys(totalByCurrency).length * 18 + 16)} style={{ textAlign: 'right', fontWeight: 700, fontSize: '12px', padding: '0 14px', background: '#fff', color: '#000', borderTop: `2px solid ${ACCENT}`, borderBottom: `2px solid ${ACCENT}`, letterSpacing: '1px', verticalAlign: 'middle' }}>TOTAL</td>
+                  <td height={Math.max(34, Object.keys(totalByCurrency).length * 18 + 16)} style={{ textAlign: 'right', fontWeight: 700, fontSize: '13px', padding: '0 14px', background: '#fff', color: '#000', borderTop: `2px solid ${ACCENT}`, borderBottom: `2px solid ${ACCENT}`, fontFamily: 'monospace', verticalAlign: 'middle' }}>
                     {Object.entries(totalByCurrency).map(([cur, val]) => (
                       <div key={cur} style={{ lineHeight: 1.4 }}>{cur} {val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     ))}
@@ -530,10 +531,10 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
               justifyContent: 'space-between',
               gap: '12px',
               fontSize: '9.5px',
-              color: '#334155',
+              color: '#000',
             }}>
               <div>
-                <div style={{ fontWeight: 700, color: ACCENT, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                <div style={{ fontWeight: 700, color: INK, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Armazenagem no destino (informativo)
                 </div>
                 <div style={{ marginTop: '2px', fontStyle: 'italic', color: MUTED }}>
@@ -552,11 +553,11 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
         {notesBlocks.length > 0 && (
           <div className="pdf-avoid-break">
             <div style={sectionTitle('obs')}>Observações</div>
-            <div style={{ background: SUBTLE, borderLeft: `3px solid ${ACCENT}`, borderRadius: '3px', padding: '8px 12px', fontSize: '9.5px', color: '#334155', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>
+            <div style={{ background: SUBTLE, borderLeft: `3px solid ${ACCENT}`, borderRadius: '3px', padding: '8px 12px', fontSize: '9.5px', color: '#000', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>
               {notesBlocks.map((block, index) => (
                 <div key={block.title} style={{ marginTop: index === 0 ? 0 : '8px' }}>
                   {notesBlocks.length > 1 && (
-                    <div style={{ fontWeight: 700, color: ACCENT, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '2px' }}>{block.title}</div>
+                    <div style={{ fontWeight: 700, color: INK, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '2px' }}>{block.title}</div>
                   )}
                   <div>{block.text}</div>
                 </div>
@@ -600,7 +601,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
 }
 
 const thStyle: React.CSSProperties = {
-  background: '#0f1729', color: '#fff', padding: '6px 10px', textAlign: 'left', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px',
+  background: '#fff', color: '#000', borderTop: '2px solid #0f1729', borderBottom: '2px solid #0f1729', padding: '6px 10px', textAlign: 'left', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px',
 };
 
 const tdStyle: React.CSSProperties = {

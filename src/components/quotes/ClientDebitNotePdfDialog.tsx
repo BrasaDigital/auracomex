@@ -95,7 +95,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
         ) : (
           <>
             <div style={{ background: '#fff', padding: 24 }}>
-              <div ref={ref} style={{ width: 700, boxSizing: 'border-box', background: '#fff', color: '#111', fontFamily: 'Arial, sans-serif', fontSize: 11, margin: '0 auto', padding: 32 }}>
+              <div ref={ref} style={{ width: 700, boxSizing: 'border-box', background: '#fff', color: '#000', fontFamily: 'Arial, sans-serif', fontSize: 11, margin: '0 auto', padding: 32 }}>
                 {/* Header */}
                 <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
                   <tbody>
@@ -104,17 +104,17 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                         {data.company?.logo_url ? (
                           <img src={data.company.logo_url} alt="" style={{ maxHeight: 60, maxWidth: 220 }} />
                         ) : (
-                          <div style={{ fontWeight: 700, fontSize: 18, color: brand }}>{data.company?.name}</div>
+                          <div style={{ fontWeight: 700, fontSize: 18, color: '#000' }}>{data.company?.name}</div>
                         )}
                       </td>
                       <td style={{ textAlign: 'right', verticalAlign: 'top' }}>
-                        <div style={{ background: brand, color: '#fff', padding: '10px 16px', fontWeight: 700, fontSize: 16, letterSpacing: 1, display: 'inline-block' }}>
+                        <div style={{ background: '#fff', color: '#000', border: `2px solid ${brand}`, padding: '10px 16px', fontWeight: 700, fontSize: 16, letterSpacing: 1, display: 'inline-block' }}>
                           DEBIT NOTE
                         </div>
                         <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 13 }}>Nº {data.dn.dn_number}</div>
-                        <div style={{ fontSize: 10, color: '#555' }}>
+                        <div style={{ fontSize: 10, color: '#000' }}>
                           Emissão: {format(parseISO(data.dn.issue_date), 'dd/MM/yyyy')}<br />
-                          <strong style={{ color: '#111' }}>Vencimento: {data.dn.due_date ? format(parseISO(data.dn.due_date), 'dd/MM/yyyy') : '-'}</strong>
+                          <strong style={{ color: '#000' }}>Vencimento: {data.dn.due_date ? format(parseISO(data.dn.due_date), 'dd/MM/yyyy') : '-'}</strong>
                         </div>
                       </td>
                     </tr>
@@ -126,7 +126,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                   <tbody>
                     <tr>
                       <td style={{ width: '50%', verticalAlign: 'top', padding: 10, border: '1px solid #ddd' }}>
-                        <div style={{ fontSize: 9, color: brand, fontWeight: 700, marginBottom: 4 }}>EMITENTE</div>
+                        <div style={{ fontSize: 9, color: '#000', fontWeight: 700, marginBottom: 4 }}>EMITENTE</div>
                         <div style={{ fontWeight: 700 }}>{data.company?.name}</div>
                         {data.company?.cnpj && <div>CNPJ: {data.company.cnpj}</div>}
                         {data.company?.address && <div>{data.company.address}</div>}
@@ -134,7 +134,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                         {data.company?.phone && <div>{data.company.phone}</div>}
                       </td>
                       <td style={{ width: '50%', verticalAlign: 'top', padding: 10, border: '1px solid #ddd' }}>
-                        <div style={{ fontSize: 9, color: brand, fontWeight: 700, marginBottom: 4 }}>CLIENTE</div>
+                        <div style={{ fontSize: 9, color: '#000', fontWeight: 700, marginBottom: 4 }}>CLIENTE</div>
                         <div style={{ fontWeight: 700 }}>{data.quote?.clients?.name}</div>
                         {data.quote?.clients?.tax_id && <div>{data.quote.clients.tax_id_type || 'ID'}: {data.quote.clients.tax_id}</div>}
                         {data.quote?.clients?.address && <div>{data.quote.clients.address}</div>}
@@ -155,7 +155,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                 {/* Itens */}
                 <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
                   <thead>
-                    <tr style={{ background: brand, color: '#fff' }}>
+                    <tr style={{ background: '#fff', color: '#000', borderTop: `2px solid ${brand}`, borderBottom: `2px solid ${brand}` }}>
                       <th style={{ padding: 6, textAlign: 'left', fontSize: 10 }}>Descrição</th>
                       <th style={{ padding: 6, textAlign: 'right', fontSize: 10, width: 110 }}>Valor origem</th>
                       <th style={{ padding: 6, textAlign: 'right', fontSize: 10, width: 70 }}>Câmbio</th>
@@ -189,7 +189,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                 {/* Banco */}
                 {data.bank && (
                   <div style={{ border: `2px solid ${brand}`, padding: 12, marginBottom: 12 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: brand, marginBottom: 6 }}>DADOS BANCÁRIOS PARA PAGAMENTO</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#000', marginBottom: 6 }}>DADOS BANCÁRIOS PARA PAGAMENTO</div>
                     <table style={{ width: '100%', fontSize: 10 }}>
                       <tbody>
                         <tr><td style={{ width: 130 }}><strong>Banco</strong></td><td>{data.bank.bank_name}</td></tr>

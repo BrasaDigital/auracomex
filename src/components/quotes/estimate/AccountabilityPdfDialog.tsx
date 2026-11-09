@@ -216,17 +216,17 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
           </Button>
         </DialogHeader>
 
-        <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: BRAND, background: '#e5e5e5' }}>
+        <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: '#000', background: '#e5e5e5' }}>
           <section style={sheet}>
             {/* Header Empresa */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: 10, marginBottom: 15 }}>
               {company?.logo_url ? (
                 <img src={company.logo_url} alt={company?.name || 'Logo'} crossOrigin="anonymous" style={{ maxHeight: 36, maxWidth: 180, objectFit: 'contain' }} />
               ) : (
-                <div style={{ fontWeight: 700, fontSize: 14, color: BRAND }}>{company?.name || ''}</div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#000' }}>{company?.name || ''}</div>
               )}
-              <div style={{ textAlign: 'right', fontSize: 9, color: '#444', lineHeight: 1.4 }}>
-                <div style={{ fontWeight: 700, fontSize: 11, color: BRAND }}>{(company?.name || '').toUpperCase()}</div>
+              <div style={{ textAlign: 'right', fontSize: 9, color: '#000', lineHeight: 1.4 }}>
+                <div style={{ fontWeight: 700, fontSize: 11, color: '#000' }}>{(company?.name || '').toUpperCase()}</div>
                 {company?.address && <div>{company.address}</div>}
                 {company?.cnpj && <div>CNPJ: {company.cnpj}</div>}
                 {company?.email && <div>{company.email}</div>}
@@ -235,11 +235,11 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
             </div>
 
             {/* Header Prestação */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: BRAND, color: '#fff', padding: '10px 15px', borderRadius: 4, marginBottom: 15 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, padding: '10px 15px', borderRadius: 4, marginBottom: 15 }}>
               <div style={{ fontSize: 10 }}>
                 <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>PRESTAÇÃO DE CONTAS — NUMERÁRIO</div>
                 <div>{quote?.quote_number || '---'}</div>
-                <div style={{ opacity: 0.8 }}>DATA: {new Date().toLocaleDateString('pt-BR')}</div>
+                <div style={{ opacity: 1 }}>DATA: {new Date().toLocaleDateString('pt-BR')}</div>
               </div>
               <div style={{ textAlign: 'right', fontSize: 10 }}>
                 <div style={{ fontWeight: 700 }}>CLIENTE: {client?.name || '---'}</div>
@@ -250,10 +250,10 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 15 }}>
               <thead>
                 <tr>
-                  <th style={{ ...th, background: BRAND, color: '#fff' }}>DESCRIÇÃO</th>
-                  {showBudget && <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>ORÇADO (R$)</th>}
-                  <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>PAGO REAL (R$)</th>
-                  {showBudget && <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>DIFERENÇA (R$)</th>}
+                  <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}` }}>DESCRIÇÃO</th>
+                  {showBudget && <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>ORÇADO (R$)</th>}
+                  <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>PAGO REAL (R$)</th>
+                  {showBudget && <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>DIFERENÇA (R$)</th>}
                 </tr>
               </thead>
               <tbody>
@@ -291,9 +291,9 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
               <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 15 }}>
                 <thead>
                   <tr>
-                    <th style={{ ...th, background: BRAND, color: '#fff' }}>DEPÓSITOS DO CLIENTE</th>
-                    <th style={{ ...th, background: BRAND, color: '#fff' }}>OBSERVAÇÃO</th>
-                    <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>VALOR (R$)</th>
+                    <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}` }}>DEPÓSITOS DO CLIENTE</th>
+                    <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}` }}>OBSERVAÇÃO</th>
+                    <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>VALOR (R$)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -320,14 +320,14 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
               const valor = showBudget ? Math.abs(diferenca) : Math.abs(saldoDepositos);
               return (
                 <div style={{ border: `2px solid ${BRAND}`, marginBottom: 10 }}>
-                  <div style={{ background: BRAND, color: '#fff', padding: '4px 12px', fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, padding: '4px 12px', fontSize: 10, fontWeight: 700 }}>
                     RESULTADO DA PRESTAÇÃO DE CONTAS
                   </div>
                   <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: BRAND }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#000' }}>
                       {aCobrar ? 'ADICIONAL A COBRAR DO CLIENTE' : aDevolver ? 'SALDO A DEVOLVER AO CLIENTE' : 'SEM DIFERENÇA — VALORES CONFEREM'}
                     </div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: BRAND }}>R$ {fmtBRL(valor)}</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#000' }}>R$ {fmtBRL(valor)}</div>
                   </div>
                 </div>
               );
@@ -337,7 +337,7 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
                 pra ele já ter como pagar sem precisar pedir os dados de novo. */}
             {precisaCobrarCliente && bank && (
               <div style={{ border: `2px solid ${BRAND}`, padding: '8px 12px', marginBottom: 10 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: BRAND, marginBottom: 6 }}>DADOS BANCÁRIOS PARA PAGAMENTO</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#000', marginBottom: 6 }}>DADOS BANCÁRIOS PARA PAGAMENTO</div>
                 <table style={{ width: '100%', fontSize: 10 }}>
                   <tbody>
                     <tr><td style={{ width: 130, padding: '2px 0' }}><strong>Banco</strong></td><td>{bank.bank_name}</td></tr>
@@ -351,12 +351,12 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
               </div>
             )}
             {precisaCobrarCliente && !bank && (
-              <div style={{ fontSize: 9, color: '#888', fontStyle: 'italic', marginBottom: 10 }}>
+              <div style={{ fontSize: 9, color: '#000', fontStyle: 'italic', marginBottom: 10 }}>
                 Nenhuma conta bancária em BRL cadastrada em Configurações &gt; Dados Bancários.
               </div>
             )}
 
-            <div style={{ fontSize: 8, color: '#888', fontStyle: 'italic' }}>
+            <div style={{ fontSize: 8, color: '#000', fontStyle: 'italic' }}>
               {showBudget ? `Valores orçados conforme Numerário aprovado em ${new Date(accountability.created_at).toLocaleDateString('pt-BR')}. ` : ''}Câmbio de referência: R$ {(accountability.usd_brl || 0).toLocaleString('pt-BR', { minimumFractionDigits: 4 })}.
             </div>
           </section>

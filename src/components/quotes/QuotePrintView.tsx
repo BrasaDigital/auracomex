@@ -121,38 +121,38 @@ export default function QuotePrintView() {
           .no-print { display: none !important; }
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: ${BRAND}; background: #fff; font-size: 9px; line-height: 1.28; }
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #000; background: #fff; font-size: 9px; line-height: 1.28; }
         .page { width: 186mm; margin: 0 auto; padding: 0; }
         .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid ${BRAND}; padding-bottom: 6px; margin-bottom: 8px; }
         .header-left { display: flex; align-items: center; gap: 10px; }
         .header-logo { max-height: 34px; max-width: 100px; object-fit: contain; }
-        .company-name { font-size: 14px; font-weight: 700; color: ${BRAND}; }
-        .company-details { font-size: 8.5px; color: #555; line-height: 1.35; }
+        .company-name { font-size: 14px; font-weight: 700; color: #000; }
+        .company-details { font-size: 8.5px; color: #000; line-height: 1.35; }
         .quote-title { text-align: center; margin-bottom: 8px; }
-        .quote-title h1 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: ${BRAND}; }
-        .quote-title .quote-number { font-size: 10px; color: #555; margin-top: 1px; }
+        .quote-title h1 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #000; }
+        .quote-title .quote-number { font-size: 10px; color: #000; margin-top: 1px; }
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
         .info-box { border: 1px solid #e0e0e0; border-radius: 5px; padding: 6px 8px; page-break-inside: avoid; }
-        .info-box h3 { font-size: 8.5px; font-weight: 600; text-transform: uppercase; color: #888; margin-bottom: 3px; letter-spacing: 0.3px; }
+        .info-box h3 { font-size: 8.5px; font-weight: 600; text-transform: uppercase; color: #000; margin-bottom: 3px; letter-spacing: 0.3px; }
         .info-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
-        .info-label { color: #666; font-size: 8.5px; }
+        .info-label { color: #000; font-size: 8.5px; }
         .info-value { font-weight: 600; font-size: 8.5px; text-align: right; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
         thead { display: table-header-group; }
-        th { background: ${BRAND}; color: #fff; padding: 3px 6px; text-align: left; font-size: 8.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+        th { background: #fff; color: #000; border-top: 2px solid ${BRAND}; border-bottom: 2px solid ${BRAND}; padding: 3px 6px; text-align: left; font-size: 8.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
         th:last-child { text-align: right; }
         td { padding: 3px 6px; border-bottom: 1px solid #eee; font-size: 8.5px; }
         tr { page-break-inside: avoid; }
         td:last-child { text-align: right; font-family: 'SF Mono', 'Consolas', monospace; }
-        .leg-header { background: #f5f5f5; font-weight: 700; font-size: 8.5px; color: #333; }
+        .leg-header { background: #f5f5f5; font-weight: 700; font-size: 8.5px; color: #000; }
         .leg-header td { border-bottom: 1px solid #ddd; padding: 3px 6px; }
         .subtotal-row { background: #fafafa; }
         .subtotal-row td { font-weight: 600; border-bottom: 2px solid #eee; font-size: 8.5px; }
-        .total-row { background: ${BRAND}; color: #fff; }
-        .total-row td { font-weight: 700; font-size: 10px; padding: 5px 6px; border: none; }
-        .section-title { font-size: 10px; font-weight: 700; margin: 8px 0 4px; color: ${BRAND}; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 1px solid #ddd; padding-bottom: 2px; page-break-after: avoid; }
-        .notes-box { background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 5px; padding: 6px 8px; font-size: 8.5px; color: #555; white-space: pre-wrap; margin-top: 4px; }
-        .footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 8px; color: #999; }
+        .total-row { background: #fff; color: #000; }
+        .total-row td { font-weight: 700; font-size: 10px; padding: 5px 6px; border: none; border-top: 2px solid ${BRAND}; border-bottom: 2px solid ${BRAND}; }
+        .section-title { font-size: 10px; font-weight: 700; margin: 8px 0 4px; color: #000; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 2px solid ${BRAND}; padding-bottom: 2px; page-break-after: avoid; }
+        .notes-box { background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 5px; padding: 6px 8px; font-size: 8.5px; color: #000; white-space: pre-wrap; margin-top: 4px; }
+        .footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 8px; color: #000; }
         .print-btn { position: fixed; bottom: 20px; right: 20px; background: ${BRAND}; color: #fff; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
         .print-btn:hover { background: #2a2a4e; }
       `}</style>

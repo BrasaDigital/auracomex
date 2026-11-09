@@ -277,7 +277,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
           </div>
         </DialogHeader>
 
-        <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: BRAND, background: '#e5e5e5' }}>
+        <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: '#000', background: '#e5e5e5' }}>
         {/* ============= FOLHA 1: Resumo ============= */}
         <section className="pdf-avoid-break" style={isNumerario ? sheetNumerario : (items.length === 0 ? sheetLast : sheet)}>
           {/* Header Empresa */}
@@ -285,10 +285,10 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
             {company?.logo_url ? (
               <img src={company.logo_url} alt={company?.name || 'Logo'} crossOrigin="anonymous" style={{ maxHeight: 36, maxWidth: 180, objectFit: 'contain' }} />
             ) : (
-              <div style={{ fontWeight: 700, fontSize: 14, color: BRAND }}>{company?.name || ''}</div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#000' }}>{company?.name || ''}</div>
             )}
-            <div style={{ textAlign: 'right', fontSize: 9, color: '#444', lineHeight: 1.4 }}>
-              <div style={{ fontWeight: 700, fontSize: 11, color: BRAND }}>{(company?.name || '').toUpperCase()}</div>
+            <div style={{ textAlign: 'right', fontSize: 9, color: '#000', lineHeight: 1.4 }}>
+              <div style={{ fontWeight: 700, fontSize: 11, color: '#000' }}>{(company?.name || '').toUpperCase()}</div>
               {company?.address && <div>{company.address}</div>}
               {company?.cnpj && <div>CNPJ: {company.cnpj}</div>}
               {company?.email && <div>{company.email}</div>}
@@ -297,13 +297,13 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
           </div>
 
           {/* Header Estimativa */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: BRAND, color: '#fff', padding: isNumerario ? '8px 15px' : '10px 15px', borderRadius: 4, marginBottom: isNumerario ? 10 : 15 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, padding: isNumerario ? '8px 15px' : '10px 15px', borderRadius: 4, marginBottom: isNumerario ? 10 : 15 }}>
             <div style={{ fontSize: 10 }}>
               <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>
                 {isNumerario ? 'NUMERÁRIO' : 'ESTIMATIVA DE CUSTOS DE IMPORTAÇÃO'}
               </div>
               <div>{quote?.quote_number || '---'}</div>
-              <div style={{ opacity: 0.8 }}>DATA: {new Date().toLocaleDateString('pt-BR')}</div>
+              <div style={{ opacity: 1 }}>DATA: {new Date().toLocaleDateString('pt-BR')}</div>
             </div>
             <div style={{ textAlign: 'right', fontSize: 10 }}>
               <div style={{ fontWeight: 700 }}>CLIENTE: {client?.name || '---'}</div>
@@ -312,7 +312,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
           </div>
 
           {/* Resumo Consolidado (Primeira Folha) */}
-          <div style={{ fontWeight: 700, fontSize: 11, margin: '15px 0 8px', textTransform: 'uppercase', color: BRAND, borderLeft: `4px solid ${BRAND}`, paddingLeft: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 11, margin: '15px 0 8px', textTransform: 'uppercase', color: '#000', borderLeft: `4px solid ${BRAND}`, paddingLeft: 8 }}>
             {isNumerario ? 'Dados do Embarque' : 'Resumo da Estimativa'}
           </div>
 
@@ -349,11 +349,11 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
                 {pairs.map(([l1, v1, l2, v2], idx) => (
                   <React.Fragment key={idx}>
                     <div style={{ display: 'flex', minWidth: 0, borderBottom: idx === pairs.length - 1 ? 'none' : '1px solid #ccc', borderRight: '1px solid #ccc' }}>
-                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#fff', background: BRAND, padding: '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l1}</div>
+                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#000', background: '#fff', borderLeft: `3px solid ${BRAND}`, padding: '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l1}</div>
                       <div style={{ fontSize: 8.5, padding: '3px 6px', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v1}</div>
                     </div>
                     <div style={{ display: 'flex', minWidth: 0, borderBottom: idx === pairs.length - 1 ? 'none' : '1px solid #ccc' }}>
-                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#fff', background: BRAND, padding: '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l2}</div>
+                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#000', background: '#fff', borderLeft: `3px solid ${BRAND}`, padding: '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l2}</div>
                       <div style={{ fontSize: 8.5, padding: '3px 6px', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v2}</div>
                     </div>
                   </React.Fragment>
@@ -380,10 +380,10 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
           <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: isNumerario ? 10 : 20 }}>
             <thead>
               <tr>
-                <th style={{ ...th, background: BRAND, color: '#fff' }}>DESCRIÇÃO DOS CUSTOS</th>
-                <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>VALOR US$</th>
-                <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>VALOR R$</th>
-                <th style={{ ...th, background: BRAND, color: '#fff', textAlign: 'right' }}>%</th>
+                <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}` }}>DESCRIÇÃO DOS CUSTOS</th>
+                <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>VALOR US$</th>
+                <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>VALOR R$</th>
+                <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>%</th>
               </tr>
             </thead>
             <tbody>
@@ -391,20 +391,20 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
                 const muted = isPrepaid || (isNumerario && isMerchandise);
                 return (
                 <tr key={`${label}-${idx}`} style={bold ? { background: '#f5f5f5', fontWeight: 700 } : {}}>
-                  <td style={{ ...td, ...(muted ? { color: '#888', fontStyle: 'italic' } : {}) }}>
+                  <td style={{ ...td, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>
                     {label}
-                    {isPrepaid && <span style={{ marginLeft: 5, fontSize: 8, fontWeight: 700, color: '#b45309', fontStyle: 'normal' }}>(PREPAID)</span>}
-                    {isNumerario && isMerchandise && <span style={{ marginLeft: 5, fontSize: 8, fontWeight: 700, color: '#b45309', fontStyle: 'normal' }}>(PAGO DIRETO AO FORNECEDOR)</span>}
+                    {isPrepaid && <span style={{ marginLeft: 5, fontSize: 8, fontWeight: 700, color: '#000', fontStyle: 'normal' }}>(PREPAID)</span>}
+                    {isNumerario && isMerchandise && <span style={{ marginLeft: 5, fontSize: 8, fontWeight: 700, color: '#000', fontStyle: 'normal' }}>(PAGO DIRETO AO FORNECEDOR)</span>}
                   </td>
                   {notContracted ? (
                     <>
-                      <td colSpan={2} style={{ ...tdR, fontStyle: 'italic', color: '#888' }}>Seguro não contratado</td>
+                      <td colSpan={2} style={{ ...tdR, fontStyle: 'italic', color: '#000' }}>Seguro não contratado</td>
                       <td style={tdR}>—</td>
                     </>
                   ) : (
                     <>
-                      <td style={{ ...tdR, ...(muted ? { color: '#888', fontStyle: 'italic' } : {}) }}>{fmtUSD(val)}</td>
-                      <td style={{ ...tdR, ...(muted ? { color: '#888', fontStyle: 'italic' } : {}) }}>{fmtBRL(val * rate)}</td>
+                      <td style={{ ...tdR, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>{fmtUSD(val)}</td>
+                      <td style={{ ...tdR, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>{fmtBRL(val * rate)}</td>
                       <td style={tdR}>{showPct && Math.abs(val) > 0 ? pct(val, totalUsd).toFixed(2) : '—'}</td>
                     </>
                   )}
@@ -420,7 +420,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
               (pago direto ao fornecedor) nem taxas Prepaid (já pagas na origem). */}
           {isNumerario && (
             <div style={{ border: `2px solid ${BRAND}`, marginBottom: 10 }}>
-              <div style={{ background: BRAND, color: '#fff', padding: '4px 12px', fontSize: 10, fontWeight: 700 }}>
+              <div style={{ background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, padding: '4px 12px', fontSize: 10, fontWeight: 700 }}>
                 VALORES PARA DEPÓSITO (NUMERÁRIO)
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -434,12 +434,12 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
                 </tbody>
               </table>
               <div style={{ padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: `1px solid ${BRAND}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: BRAND }}>TOTAL DO NUMERÁRIO A DEPOSITAR *</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#000' }}>TOTAL DO NUMERÁRIO A DEPOSITAR *</div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: BRAND }}>R$ {fmtBRL(numerarioTotalUsd * rate)}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#000' }}>R$ {fmtBRL(numerarioTotalUsd * rate)}</div>
                 </div>
               </div>
-              <div style={{ padding: '0 12px 6px', fontSize: 8, color: '#888', fontStyle: 'italic' }}>
+              <div style={{ padding: '0 12px 6px', fontSize: 8, color: '#000', fontStyle: 'italic' }}>
                 * Podem ocorrer divergências, que serão apresentadas no momento da prestação de contas.
               </div>
             </div>
@@ -449,7 +449,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
               das folhas por item (que só existem na Estimativa completa). */}
           {isNumerario && bank && (
             <div style={{ border: `2px solid ${BRAND}`, padding: '8px 12px', marginTop: 0 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: BRAND, marginBottom: 6 }}>DADOS BANCÁRIOS PARA PAGAMENTO</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#000', marginBottom: 6 }}>DADOS BANCÁRIOS PARA PAGAMENTO</div>
               <table style={{ width: '100%', fontSize: 10 }}>
                 <tbody>
                   <tr><td style={{ width: 130, padding: '2px 0' }}><strong>Banco</strong></td><td>{bank.bank_name}</td></tr>
@@ -463,7 +463,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
             </div>
           )}
           {isNumerario && !bank && (
-            <div style={{ fontSize: 9, color: '#888', fontStyle: 'italic', marginTop: 10 }}>
+            <div style={{ fontSize: 9, color: '#000', fontStyle: 'italic', marginTop: 10 }}>
               Nenhuma conta bancária em BRL cadastrada em Configurações &gt; Dados Bancários.
             </div>
           )}
@@ -499,14 +499,14 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
                   ) : (
                     <div style={{ fontWeight: 700, fontSize: 10 }}>{company?.name || ''}</div>
                   )}
-                  <div style={{ fontSize: 9, color: '#555' }}>
+                  <div style={{ fontSize: 9, color: '#000' }}>
                     <strong>{quote?.quote_number || ''}</strong> · Item {idx + 1} de {items.length}
                   </div>
                 </div>
 
                 <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>Item {idx + 1} {item.ncm ? `- ${item.ncm}` : ''}</div>
-                <div style={{ fontSize: 10, color: '#555', marginBottom: 8 }}>{item.nome}</div>
-                <div style={{ fontSize: 9, color: '#555', marginBottom: 6 }}>
+                <div style={{ fontSize: 10, color: '#000', marginBottom: 8 }}>{item.nome}</div>
+                <div style={{ fontSize: 9, color: '#000', marginBottom: 6 }}>
                   Destinação: <strong>{
                     ((item as any).destinacao
                       ?? ((item as any).ipi_na_base_icms === false ? 'revenda_industrializacao' : 'consumo_final')
