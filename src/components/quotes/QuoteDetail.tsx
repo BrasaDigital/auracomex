@@ -145,12 +145,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   // é aprovado na aba Estimativa (ver CostEstimateTab/EstimatePdfDialog).
   const { data: accountabilityData } = useAccountability(quoteId, profile?.company_id);
   const accountability = accountabilityData?.accountability || null;
-  // Estimativa de custo: quando preenchida, seus itens (peso/NCM/mercadoria) passam a ser a
-  // fonte usada no cálculo das Taxas por kg/ton, em vez da Resumo da Carga. Volume (m³) e
-  // containers continuam sempre vindos da Resumo da Carga, pois a Estimativa não tem esses campos.
-  const { data: costEstimateData } = useCostEstimate(quoteId, profile?.company_id);
-  const estimateItemsForCargo = costEstimateData?.estimate ? (costEstimateData.items || []) : [];
-  const hasEstimateOverride = estimateItemsForCargo.length > 0;
+  // Resumo da Carga é independente da aba Desembaraço (Estimativa): peso, volume e containers
+  // das taxas vêm SOMENTE daqui — nada é puxado dos itens da Estimativa.
   const [reverting, setReverting] = useState(false);
   const [showRevertConfirm, setShowRevertConfirm] = useState(false);
   const isShipmentMode = !!shipmentId;
@@ -641,8 +637,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   const incoterms = useMemo(() => INCOTERMS_BY_MODE[form.transport_mode] || INCOTERMS_BY_MODE.ocean_fcl, [form.transport_mode]);
 
   // Cargo metrics for billing unit calculations.
-  // Volume e containers vêm sempre da Resumo da Carga (a Estimativa não tem esses campos).
-  // Peso vem da Estimativa quando ela estiver preenchida; senão, vem da Resumo da Carga.
+  // Peso, volume e containers vêm sempre da Resumo da Carga.
   const cargoMetrics = useMemo(() => {
     const totalCbm = calcItems.reduce((s, i) => s + getEffectiveVolume(i), 0);
     let totalContainers20 = 0;
@@ -655,15 +650,11 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     }
     const totalContainers = totalContainers20 + totalContainers40;
 
-    const totalWeight = hasEstimateOverride
-      ? estimateItemsForCargo.reduce((s: number, it: any) => s + (Number(it.peso) || 0) * (Number(it.quantidade) || 1), 0)
-      : calcItems.reduce((s, i) => s + calcItemWeight(i), 0);
-    const totalChargeable = hasEstimateOverride
-      ? calcChargeableWeightFromTotals(totalWeight, totalCbm, form.transport_mode)
-      : calcChargeableWeight(calcItems, form.transport_mode);
+    const totalWeight = calcItems.reduce((s, i) => s + calcItemWeight(i), 0);
+    const totalChargeable = calcChargeableWeight(calcItems, form.transport_mode);
 
     return { totalWeight, totalCbm, totalChargeable, totalContainers, totalContainers20, totalContainers40 };
-  }, [cargoItems, calcItems, form.transport_mode, hasEstimateOverride, estimateItemsForCargo]);
+  }, [cargoItems, calcItems, form.transport_mode]);
 
   // Check if form or cargo items have changed compared to original quote/items
   const hasChanges = useMemo(() => {
@@ -2455,14 +2446,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         <TabsContent value="cargo">
           <Card className="glass">
             <CardContent className="pt-6 space-y-4" onBlur={() => handleAutoSaveBlur('cargo')}>
-              {hasEstimateOverride && (
-                <div className="rounded-md border border-primary/30 bg-primary/5 text-xs px-3 py-2 flex items-center gap-2">
-                  <Info className="w-4 h-4 shrink-0 text-primary" />
-                  <span>
-                    Esta cotação tem uma Estimativa de custo preenchida: o <strong>peso total</strong> usado para calcular as taxas por kg vem da aba Desembaraço, não daqui. Volume (m³) e containers continuam vindo desta aba.
-                  </span>
-                </div>
-              )}
               {/* Carga física do embarque (totais). Itens/produtos ficam abaixo, só com peças e valor. */}
               <div className="rounded-lg border border-border/60 p-3 space-y-2.5">
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Carga física do embarque · usada para cotação e frete</div>

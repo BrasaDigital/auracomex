@@ -641,20 +641,7 @@ export function CostEstimateTab({
           await (supabase as any).from('quote_charges').update(patch).eq('id', e.source_charge_id);
         })());
       }
-      // 5. Itens com quote_item_id → atualiza quote_items (nome/NCM/peso/quantidade)
-      for (const it of draftItems) {
-        if (!it.quote_item_id || (it as any)._new) continue;
-        const orig = snap.items.find((x: any) => x.id === it.id);
-        if (!orig) continue;
-        const patch: any = {};
-        if (String(it.nome) !== String(orig.nome)) patch.commodity = it.nome;
-        if (String(it.ncm ?? '') !== String(orig.ncm ?? '')) patch.ncm_code = it.ncm;
-        if (String(it.peso) !== String(orig.peso)) patch.weight_kg = Number(it.peso);
-        if (String(it.quantidade) !== String(orig.quantidade)) patch.packages = Math.round(Number(it.quantidade));
-        if (Object.keys(patch).length > 0) {
-          reverseOps.push((supabase as any).from('quote_items').update(patch).eq('id', it.quote_item_id));
-        }
-      }
+      // (Itens da Estimativa NÃO voltam para o Resumo da Carga: as abas são independentes.)
       if (reverseOps.length > 0) {
         await Promise.all(reverseOps);
         queryClient.invalidateQueries({ queryKey: ['quote-charges', quoteId] });
