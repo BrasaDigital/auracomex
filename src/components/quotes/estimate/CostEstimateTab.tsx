@@ -729,6 +729,21 @@ export function CostEstimateTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [(draftEstimate as any)?.taxa_siscomex_auto, siscomexAdditionCount]);
 
+  // AFRMM automático: com "Auto" ligado e modal marítimo, mantém o valor salvo
+  // (afrmm_brl) em dia com 8% do frete marítimo + R$ 20. Antes só o campo do
+  // cabeçalho mostrava o valor calculado; o quadro de despesas do destino, o
+  // PDF e o total usavam o valor salvo (0 se o Auto fosse ligado sem salvar
+  // depois) — por isso o AFRMM "sumia" da aba.
+  useEffect(() => {
+    if (!draftEstimate || !(draftEstimate as any).afrmm_auto) return;
+    if (quote?.transport_mode !== 'ocean_fcl' && quote?.transport_mode !== 'ocean_lcl') return;
+    const computed = computeAfrmmAutoBrl(draftEstimate as any, draftExpenses as any);
+    if (Number((draftEstimate as any).afrmm_brl || 0) !== computed) {
+      setDraftEstimate(prev => (prev ? ({ ...prev, afrmm_brl: computed } as any) : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [(draftEstimate as any)?.afrmm_auto, (draftEstimate as any)?.frete_intl_usd, (draftEstimate as any)?.usd_brl, draftExpenses, quote?.transport_mode]);
+
   // Atalho Ctrl/Cmd + S
   useEffect(() => {
     if (!editMode) return;
