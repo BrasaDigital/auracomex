@@ -30,6 +30,7 @@ import { toast } from 'sonner';
 import { useTableSort } from '@/hooks/useTableSort';
 import { SortableHeader } from '@/components/shared/SortableHeader';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
+import { chargeSideTotal } from '@/lib/chargeMin';
 
 // Texto da coluna Modal: "LCL · IMP", "AIR · EXP" etc. (3 letras + 3 letras) Substitui
 // as letras (LI/FI/AI/RI) que eram digitadas no fim da referência.
@@ -113,8 +114,8 @@ function computeQuoteProfitBrl(q: any, usdBrl: number, eurBrl: number): number {
   // antes de somar, pra não duplicar essa checagem em cada lugar que soma
   // quote_charges.
   const profitCharges = qCharges.filter((c: any) => c.payment_term !== 'prepaid');
-  const sellMap = groupByCurrency(profitCharges, (c: any) => c.currency || 'USD', (c: any) => (c.sell_amount || 0) * mult(c.billing_unit || 'fixed'));
-  const buyMap = groupByCurrency(profitCharges, (c: any) => c.currency || 'USD', (c: any) => (c.buy_amount || 0) * mult(c.billing_unit || 'fixed'));
+  const sellMap = groupByCurrency(profitCharges, (c: any) => c.currency || 'USD', (c: any) => chargeSideTotal(c, 'sell', mult(c.billing_unit || 'fixed')));
+  const buyMap = groupByCurrency(profitCharges, (c: any) => c.currency || 'USD', (c: any) => chargeSideTotal(c, 'buy', mult(c.billing_unit || 'fixed')));
   const allCurs = [...new Set([...Object.keys(sellMap), ...Object.keys(buyMap)])];
   let totalBrl = 0;
   allCurs.forEach((cur) => {
@@ -179,7 +180,7 @@ export default function Quotes() {
     queryFn: async () => {
       let query = supabase
         .from('quotes')
-        .select('id, quote_number, status, transport_mode, direction, origin, destination, valid_until, created_at, sent_at, client_id, currency, clients(name), quote_charges(id, sell_amount, buy_amount, currency, billing_unit, payment_term), quote_items(container_type, container_qty, weight_kg, volume_cbm, chargeable_weight, length_cm, width_cm, height_cm, packages, commodity, dangerous_goods, vehicle_type), quote_cargo_volumes(qty, package_type, length_cm, width_cm, height_cm, weight_kg, volume_cbm), cargo_weight_total_kg, cargo_cbm_total')
+        .select('id, quote_number, status, transport_mode, direction, origin, destination, valid_until, created_at, sent_at, client_id, currency, clients(name), quote_charges(id, sell_amount, buy_amount, sell_min_amount, buy_min_amount, currency, billing_unit, payment_term), quote_items(container_type, container_qty, weight_kg, volume_cbm, chargeable_weight, length_cm, width_cm, height_cm, packages, commodity, dangerous_goods, vehicle_type), quote_cargo_volumes(qty, package_type, length_cm, width_cm, height_cm, weight_kg, volume_cbm), cargo_weight_total_kg, cargo_cbm_total')
         .order('created_at', { ascending: false });
 
       if (activeTab === 'rejected') {

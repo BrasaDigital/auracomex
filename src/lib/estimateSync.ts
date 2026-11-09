@@ -2,6 +2,7 @@
  * Mapeamento Taxas (quote_charges) → Estimativa de Custo.
  * Tudo em USD internamente; despesas locais convertidas para BRL.
  */
+import { chargeSideTotal } from './chargeMin';
 
 export interface ChargeLike {
   id: string;
@@ -102,7 +103,7 @@ export function mapChargesToEstimate(
     const desc = (c.description || '').trim();
     const cur = (c.currency || 'USD').toUpperCase();
     const mult = getMultiplier(c.billing_unit || 'fixed');
-    const rawAmount = (Number(c.sell_amount) || 0) * mult;
+    const rawAmount = chargeSideTotal(c, 'sell', mult);
     if (rawAmount === 0) continue;
 
     const isDiscount = desc.toUpperCase().includes('DESCONTO');

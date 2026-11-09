@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { calcItemCbm, calcItemWeight, calcChargeableWeight, getEffectiveVolume, effectiveCalcItems, hasVolumeDetail, manualTotalsItem, type CargoVolume } from './ModeFields';
 import { groupByCurrency } from '@/lib/utils';
 import { generatePdfFromElement } from '@/lib/pdf-utils';
+import { chargeSideTotal, supportsChargeMin } from '@/lib/chargeMin';
 
 const LEG_ORDER = ['origin', 'freight', 'destination'] as const;
 const LEG_LABELS: Record<string, Record<string, string>> = {
@@ -238,7 +239,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
     }
 
     function getChargeTotal(c: any): number {
-      return (c.sell_amount || 0) * getMultiplier(c.billing_unit || 'fixed');
+      return chargeSideTotal(c, 'sell', getMultiplier(c.billing_unit || 'fixed'));
     }
 
     function getBillingDetail(c: any): string | null {
@@ -255,7 +256,8 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
         : unit === 'per_container_40' ? `${mult} cntr 40'`
         : unit === 'per_bl' ? '1 BL'
         : '';
-      return `${ref} × ${c.currency || 'USD'} ${unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const minApplied = supportsChargeMin(unit) && Number(c.sell_min_amount) > 0 && unitPrice * mult < Number(c.sell_min_amount);
+      return `${ref} × ${c.currency || 'USD'} ${unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${minApplied ? ' (mínimo aplicado)' : ''}`;
     }
 
     const sellCharges = charges.filter((c: any) => (c.sell_amount || 0) > 0);

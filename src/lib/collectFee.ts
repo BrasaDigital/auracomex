@@ -5,6 +5,7 @@
  * `computed_buy_amount` / `computed_sell_amount` (em USD), somando as charges
  * cujos ids estão em `percent_base_charge_ids`.
  */
+import { chargeSideTotal } from './chargeMin';
 
 export interface PercentChargeLike {
   id: string;
@@ -16,6 +17,8 @@ export interface PercentChargeLike {
   percent_base_charge_ids?: string[] | null;
   computed_buy_amount?: number | null;
   computed_sell_amount?: number | null;
+  buy_min_amount?: number | null;
+  sell_min_amount?: number | null;
 }
 
 export interface CollectFxRates {
@@ -73,8 +76,8 @@ export function computePercentCharge(
     if (isPercentCharge(c)) continue; // evita ciclo
     const mult = getMultiplier(c.billing_unit || 'fixed');
     const cur = (c.currency || 'USD').toUpperCase();
-    const bUsd = toUSD((Number(c.buy_amount) || 0) * mult, cur, fx);
-    const sUsd = toUSD((Number(c.sell_amount) || 0) * mult, cur, fx);
+    const bUsd = toUSD(chargeSideTotal(c, 'buy', mult), cur, fx);
+    const sUsd = toUSD(chargeSideTotal(c, 'sell', mult), cur, fx);
     if (bUsd == null || sUsd == null) { missingRate = true; continue; }
     baseBuy += bUsd;
     baseSell += sUsd;

@@ -61,6 +61,7 @@ import { HistoryPanel } from './HistoryPanel';
 // ActivityTab removida como aba própria: histórico agora é unificado no HistoryPanel (botão no header).
 import { logAuditChanges, logAuditEvent } from '@/lib/auditLog';
 import { deleteSupplierDn, deleteClientDn } from '@/lib/debitNotes';
+import { chargeSideTotal, chargeLineTotal, chargeMinKey, supportsChargeMin } from '@/lib/chargeMin';
 
 const LEGS = ['origin', 'freight', 'destination'] as const;
 const CURRENCIES = ['USD', 'BRL', 'EUR', 'GBP', 'CNY'];
@@ -816,13 +817,13 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   const buyByCurrency = groupByCurrency(profitCharges, (c: any) => c.currency || 'USD', (c: any) => {
     const val = c.billing_unit === 'percent'
       ? (Number(c.computed_buy_amount) || 0)
-      : (Number(c.buy_amount) || 0) * getChargeMultiplier(c.billing_unit || 'fixed');
+      : chargeSideTotal(c, 'buy', getChargeMultiplier(c.billing_unit || 'fixed'));
     return isDiscount(c) ? -val : val;
   });
   const sellByCurrency = groupByCurrency(profitCharges, (c: any) => c.currency || 'USD', (c: any) => {
     const val = c.billing_unit === 'percent'
       ? (Number(c.computed_sell_amount) || 0)
-      : (Number(c.sell_amount) || 0) * getChargeMultiplier(c.billing_unit || 'fixed');
+      : chargeSideTotal(c, 'sell', getChargeMultiplier(c.billing_unit || 'fixed'));
     return isDiscount(c) ? -val : val;
   });
   const allCurrencies = [...new Set([...Object.keys(buyByCurrency), ...Object.keys(sellByCurrency)])];
@@ -3442,6 +3443,27 @@ interface ChargeColumnProps {
   onReopenSellCharge?: (charge: any, partnerName: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
+/** Valor mínimo da taxa (só para unidades de peso/medida). Confirma no blur/Enter; vazio remove o mínimo. */
+function ChargeMinInput({ value, disabled, applied, onCommit }: { value: number | null | undefined; disabled?: boolean; applied?: boolean; onCommit: (v: number | null) => void }) {
+  const [text, setText] = useState(value ? String(value) : '');
+  useEffect(() => setText(value ? String(value) : ''), [value]);
+  const commit = () => {
+    const v = parseFloat(text.replace(',', '.')) || 0;
+    const next = v > 0 ? v : null;
+    if ((next ?? 0) !== (Number(value) || 0)) onCommit(next);
+  };
+  return (
+    <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <span>mín.</span>
+      <input inputMode="decimal" placeholder="—" value={text} disabled={disabled}
+        onChange={(e) => setText(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        className="h-5 w-16 rounded border border-border bg-background px-1 text-right font-mono text-[10px] disabled:opacity-60" />
+      {applied && <span className="text-amber-600 font-semibold">mínimo aplicado</span>}
+    </span>
+  );
+}
+
 function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, legColors, legBorderLeftColors, onDelete, onClone, onUpdate, colorClass, borderClass, bgClass, cloneLabel, partners, defaultClonePartnerId, cargoMetrics, readOnly, showReconciliation, currentUserId, onPercentClick, onSendDn, onGenerateNd, onReopenCharge, onReopenSellCharge }: ChargeColumnProps) {
   const { t } = useLanguage();
   const [cloningId, setCloningId] = useState<string | null>(null);
@@ -3531,7 +3553,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
         val = Number(amountKey === 'buy_amount' ? c.computed_buy_amount : c.computed_sell_amount) || 0;
       } else {
         const mult = c.billing_unit && c.billing_unit !== 'fixed' ? getBillingMultiplier(c.billing_unit) : 1;
-        val = (c[amountKey] || 0) * mult;
+        val = chargeLineTotal(c[amountKey] || 0, mult, c.billing_unit, c[chargeMinKey(amountKey)]);
       }
       result[leg][cur] = (result[leg][cur] || 0) + val;
     }
@@ -3615,7 +3637,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                         if (c.billing_unit === 'percent') return s + (Number(c.computed_buy_amount) || 0);
                                         const unit = Number(c.buy_amount_actual ?? c.buy_amount) || 0;
                                         const mult = c.billing_unit && c.billing_unit !== 'fixed' ? getBillingMultiplier(c.billing_unit) : 1;
-                                        return s + unit * mult;
+                                        return s + chargeLineTotal(unit, mult, c.billing_unit, c.buy_min_amount);
                                       }, 0);
                                       const ids = pendingCharges.map((c: any) => c.id).filter(Boolean);
                                       onSendDn(group.partnerId, group.partnerName, amount, currency, ids);
@@ -3735,10 +3757,15 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 ) : c.billing_unit && c.billing_unit !== 'fixed' && getBillingRef(c.billing_unit) && (() => {
                                   const unitPrice = editingId === c.id ? (parseFloat(editAmount) || 0) : (c[amountKey] || 0);
                                   const mult = getBillingMultiplier(c.billing_unit);
-                                  const total = unitPrice * mult;
+                                  const total = chargeLineTotal(unitPrice, mult, c.billing_unit, c[chargeMinKey(amountKey)]);
                                   return (
-                                    <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">
-                                      {getBillingRef(c.billing_unit)} × {c.currency || 'USD'} {unitPrice.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = {c.currency || 'USD'} {total.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    <p className="text-[10px] text-muted-foreground mt-0.5 font-mono flex items-center gap-1.5 flex-wrap">
+                                      <span>{getBillingRef(c.billing_unit)} × {c.currency || 'USD'} {unitPrice.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = {c.currency || 'USD'} {total.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                      {supportsChargeMin(c.billing_unit) && (
+                                        <ChargeMinInput value={c[chargeMinKey(amountKey)]} disabled={readOnly || lockedForEdit}
+                                          applied={total > unitPrice * mult}
+                                          onCommit={(v) => onUpdate(c.id, { [chargeMinKey(amountKey)]: v })} />
+                                      )}
                                     </p>
                                   );
                                 })()}
@@ -3828,7 +3855,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     ) : c.billing_unit && c.billing_unit !== 'fixed' ? (
                                       <>
                                         <span className="text-xs text-muted-foreground mr-1">{c.currency || 'USD'}</span>
-                                        {((c[amountKey] || 0) * getBillingMultiplier(c.billing_unit)).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {chargeLineTotal(c[amountKey] || 0, getBillingMultiplier(c.billing_unit), c.billing_unit, c[chargeMinKey(amountKey)]).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                       </>
                                     ) : (
                                       <>
@@ -4268,9 +4295,9 @@ function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, part
       default: return 1;
     }
   })();
-  const quotedTotal = (Number(charge.buy_amount) || 0) * mult;
+  const quotedTotal = chargeLineTotal(Number(charge.buy_amount) || 0, mult, charge.billing_unit, charge.buy_min_amount);
   const actualUnit = charge.buy_amount_actual;
-  const actualTotal = actualUnit != null ? Number(actualUnit) * mult : null;
+  const actualTotal = actualUnit != null ? chargeLineTotal(Number(actualUnit), mult, charge.billing_unit, charge.buy_min_amount) : null;
   const confirmed = !!charge.buy_actual_confirmed_at;
   const delta = actualTotal != null ? actualTotal - quotedTotal : 0;
   const deltaPct = quotedTotal > 0 && actualTotal != null ? (delta / quotedTotal) * 100 : 0;
@@ -4465,7 +4492,7 @@ function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, part
             <DialogHeader>
               <DialogTitle>Conferir taxa — {charge.description}</DialogTitle>
               <DialogDescription>
-                {cur} {((Number(inputVal) || 0) * mult).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {cur} {chargeLineTotal(Number(inputVal) || 0, mult, charge.billing_unit, charge.buy_min_amount).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 {partnerName ? ` · ${partnerName}` : ''}
               </DialogDescription>
             </DialogHeader>

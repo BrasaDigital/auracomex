@@ -79,7 +79,7 @@ export function PercentBaseDialog({ quoteId, chargeId, charges, usdBrl, eurBrl, 
       // Recalcula toda cadeia
       const { data } = await supabase
         .from('quote_charges')
-        .select('id, description, currency, billing_unit, buy_amount, sell_amount, percent_base_charge_ids, computed_buy_amount, computed_sell_amount')
+        .select('id, description, currency, billing_unit, buy_amount, sell_amount, buy_min_amount, sell_min_amount, percent_base_charge_ids, computed_buy_amount, computed_sell_amount')
         .eq('quote_id', quoteId);
       if (data) {
         const updates = collectPercentUpdates(data as unknown as PercentChargeLike[], fx, getChargeMultiplier);
