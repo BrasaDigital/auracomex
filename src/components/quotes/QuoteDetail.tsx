@@ -2501,25 +2501,31 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                           {['USD', 'BRL', 'EUR', 'GBP', 'CNY'].map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
                         </SelectContent>
                       </Select>
-                      <Input inputMode="decimal" placeholder="Soma dos itens" value={form.cargo_value_total} disabled={!canEditCargo}
+                      <Input inputMode="decimal" placeholder={usesVolumes(form.transport_mode) ? 'Valor da invoice' : 'Soma dos itens'} value={form.cargo_value_total} disabled={!canEditCargo}
                         onChange={(e) => setForm((f) => ({ ...f, cargo_value_total: e.target.value }))} />
                     </div>
                   </div>
                   <p className="col-span-3 md:col-span-2 text-[11px] text-muted-foreground">
-                    Total da invoice. Deixe em branco para usar a soma do valor dos itens (abaixo, vindo da invoice).
+                    {usesVolumes(form.transport_mode)
+                      ? 'Total da invoice.'
+                      : 'Total da invoice. Deixe em branco para usar a soma do valor dos itens (abaixo, vindo da invoice).'}
                   </p>
                 </div>
               </div>
-              <ModeFields
-                mode={form.transport_mode}
-                items={cargoItems}
-                onChange={setCargoItems}
-                readOnly={!canEditCargo}
-                saving={activeTab === 'cargo' && saveState === 'saving'}
-                volumes={usesVolumes(form.transport_mode) ? cargoVolumes : undefined}
-                cargoValueTotal={form.cargo_value_total}
-                cargoValueCurrency={form.cargo_value_currency}
-              />
+              {/* Resumo da Carga mostra só o total da carga. A lista de itens só aparece em FCL
+                  (onde ela guarda containers/peso); nos demais modais não é mais exibida. */}
+              {!usesVolumes(form.transport_mode) && (
+                <ModeFields
+                  mode={form.transport_mode}
+                  items={cargoItems}
+                  onChange={setCargoItems}
+                  readOnly={!canEditCargo}
+                  saving={activeTab === 'cargo' && saveState === 'saving'}
+                  volumes={usesVolumes(form.transport_mode) ? cargoVolumes : undefined}
+                  cargoValueTotal={form.cargo_value_total}
+                  cargoValueCurrency={form.cargo_value_currency}
+                />
+              )}
             </CardContent>
           </Card>
         </TabsContent>
