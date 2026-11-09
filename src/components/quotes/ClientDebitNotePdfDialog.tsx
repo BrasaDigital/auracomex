@@ -6,6 +6,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { generatePdfFromElement, pdfSafeStyles } from '@/lib/pdf-utils';
 import { format, parseISO } from 'date-fns';
 import { transportModeLabel } from '@/lib/transportMode';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 
 interface Props {
   open: boolean;
@@ -20,6 +22,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
   const [downloading, setDownloading] = useState(false);
   const [data, setData] = useState<any>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     if (!open) return;
@@ -46,7 +49,35 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
     if (!ref.current || !data) return;
     setDownloading(true);
     try {
-      await generatePdfFromElement(ref.current, `${String(data.dn.dn_number).replace(/[\\/]/g, '-')}.pdf`, { windowWidth: 1200 });
+      const filename = `${String(data.dn.dn_number).replace(/[\\/]/g, '-')}.pdf`;
+      const blob = await generatePdfFromElement(ref.current, filename, { windowWidth: 1200 });
+
+      // Guarda uma cópia em Documentos do processo (mesmo padrão da Estimativa).
+      // Se a ND já foi baixada antes, substitui a cópia anterior em vez de duplicar.
+      try {
+        const q: any = data.quote;
+        const { data: old } = await supabase.from('documents')
+          .select('id, file_url').eq('quote_id', quoteId).eq('name', filename);
+        const path = `${companyId}/${quoteId}/${Date.now()}_${filename}`;
+        const up = await supabase.storage.from('shipment-documents').upload(path, blob, { contentType: 'application/pdf' });
+        if (up.error) throw up.error;
+        const { error: insErr } = await supabase.from('documents').insert({
+          quote_id: quoteId, shipment_id: q?.shipment_id || null,
+          company_id: companyId, name: filename, file_url: path,
+          file_size: blob.size, document_type: 'other' as any,
+          custom_category: 'Nota de Débito', visible_tracking: false,
+          uploaded_by: user?.id ?? null,
+        } as any);
+        if (insErr) throw insErr;
+        if (old?.length) {
+          await supabase.storage.from('shipment-documents').remove(old.map((d: any) => d.file_url));
+          await supabase.from('documents').delete().in('id', old.map((d: any) => d.id));
+        }
+        toast.success('PDF gerado e salvo em Documentos.');
+      } catch (e: any) {
+        console.error(e);
+        toast.error('PDF baixado, mas não foi possível salvar em Documentos: ' + (e?.message || ''));
+      }
     } finally { setDownloading(false); }
   }
 
