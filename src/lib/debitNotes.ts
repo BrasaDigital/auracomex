@@ -167,3 +167,40 @@ export async function cancelClientDn({
 
   return { ok: true };
 }
+
+/**
+ * Texto padrão das observações da ND ao cliente (editável na hora de emitir).
+ * Evita que o cliente pague uma ND vencida: pede a atualização antes.
+ */
+export const DEFAULT_CLIENT_ND_NOTES =
+  'Esta Nota de Débito é válida até a data de vencimento. Caso o vencimento seja ultrapassado, não efetue o pagamento: entre em contato conosco para solicitar a atualização do documento.';
+
+/**
+ * Número da ND ao cliente: usa a referência do processo + sequência (ND-26/336-01,
+ * ND-26/336-02...). A sequência considera todas as NDs do processo, inclusive as
+ * canceladas, pra um número nunca ser reaproveitado.
+ */
+export async function nextClientDnNumber(quoteId: string): Promise<string> {
+  const { data: q, error: qErr } = await supabase
+    .from('quotes')
+    .select('quote_number')
+    .eq('id', quoteId)
+    .single();
+  if (qErr || !q?.quote_number) throw new Error('Não foi possível ler a referência do processo.');
+
+  const base = `ND-${q.quote_number}`;
+  const { data: existing } = await supabase
+    .from('debit_notes' as any)
+    .select('dn_number')
+    .eq('quote_id', quoteId)
+    .eq('kind', 'client_outgoing');
+
+  let max = 0;
+  for (const row of (existing ?? []) as any[]) {
+    const num: string = row.dn_number || '';
+    if (!num.startsWith(base + '-')) continue;
+    const m = /-(\d+)$/.exec(num);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `${base}-${String(max + 1).padStart(2, '0')}`;
+}
