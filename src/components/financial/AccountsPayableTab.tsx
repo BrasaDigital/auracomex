@@ -37,6 +37,7 @@ type AP = {
   paid_at: string | null;
   payment_method: string | null;
   receipt_url: string | null;
+  exchange_rate?: number | null;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -68,7 +69,7 @@ export default function AccountsPayableTab() {
   const [searchProcess, setSearchProcess] = useState('');
   const [searchProcessOpen, setSearchProcessOpen] = useState(false);
   const [payTarget, setPayTarget] = useState<AP | null>(null);
-  const [payForm, setPayForm] = useState<{ paid_at: string; payment_method: string; file: File | null }>({ paid_at: format(new Date(), 'yyyy-MM-dd'), payment_method: '', file: null });
+  const [payForm, setPayForm] = useState<{ paid_at: string; payment_method: string; file: File | null; rate: string }>({ paid_at: format(new Date(), 'yyyy-MM-dd'), payment_method: '', file: null, rate: '' });
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [unpayTarget, setUnpayTarget] = useState<AP | null>(null);
   const [unpaying, setUnpaying] = useState(false);
@@ -167,24 +168,25 @@ export default function AccountsPayableTab() {
   const { usdBrl, eurBrl } = useExchangeRate();
   // Taxa efetiva de uma linha: a digitada pelo usuário na DN, se houver; senão
   // (conta manual, sem DN) cai pra cotação do dia como estimativa.
-  function rateFor(currency: string, debitNoteId: string | null): number {
+  function rateFor(currency: string, debitNoteId: string | null, apRate?: number | null): number {
     const cur = (currency || 'BRL').toUpperCase();
     if (cur === 'BRL') return 1;
+    if (apRate != null && Number(apRate) > 0) return Number(apRate);
     const stored = debitNoteId ? dnRateMap.get(debitNoteId) : null;
     if (stored != null) return Number(stored);
     if (cur === 'USD') return usdBrl || 0;
     if (cur === 'EUR') return eurBrl || 0;
     return 1;
   }
-  function toBRL(amount: number, currency: string, debitNoteId: string | null = null): number {
-    return amount * rateFor(currency, debitNoteId);
+  function toBRL(amount: number, currency: string, debitNoteId: string | null = null, apRate?: number | null): number {
+    return amount * rateFor(currency, debitNoteId, apRate);
   }
 
   const kpis = useMemo(() => {
     const in7 = addDays(today, 7);
     let vencidos = 0, aVencer = 0, pagos = 0, aberto = 0;
     for (const r of enriched) {
-      const amt = toBRL(Number(r.amount) || 0, r.currency, r.debit_note_id);
+      const amt = toBRL(Number(r.amount) || 0, r.currency, r.debit_note_id, r.exchange_rate);
       if (r.status === 'pago') pagos += amt;
       else if (r.status === 'atrasado') vencidos += amt;
       else if (r.status === 'aberto') {
@@ -213,6 +215,7 @@ export default function AccountsPayableTab() {
         status: 'pago',
         paid_at: payForm.paid_at,
         payment_method: payForm.payment_method || null,
+        ...(payTarget.currency && payTarget.currency.toUpperCase() !== 'BRL' && Number(payForm.rate) > 0 ? { exchange_rate: Number(payForm.rate) } : {}),
         ...(receipt_url ? { receipt_url } : {}),
       })
       .eq('id', payTarget.id);
@@ -362,8 +365,8 @@ export default function AccountsPayableTab() {
                       <div>{r.currency} {Number(r.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                       {r.currency && r.currency.toUpperCase() !== 'BRL' && (
                         <div className="text-[10px] text-muted-foreground font-normal">
-                          câmbio {rateFor(r.currency, r.debit_note_id).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
-                          {' = R$ '}{toBRL(Number(r.amount), r.currency, r.debit_note_id).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          câmbio {rateFor(r.currency, r.debit_note_id, r.exchange_rate).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                          {' = R$ '}{toBRL(Number(r.amount), r.currency, r.debit_note_id, r.exchange_rate).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                       )}
                     </TableCell>
@@ -380,7 +383,7 @@ export default function AccountsPayableTab() {
                           </Button>
                         )}
                         {r.status !== 'pago' && r.status !== 'cancelado' && (
-                          <Button size="sm" variant="outline" onClick={() => { setPayTarget(r); setPayForm({ paid_at: format(new Date(), 'yyyy-MM-dd'), payment_method: '', file: null }); }}>
+                          <Button size="sm" variant="outline" onClick={() => { setPayTarget(r); setPayForm({ paid_at: format(new Date(), 'yyyy-MM-dd'), payment_method: '', file: null, rate: String(rateFor(r.currency, r.debit_note_id, r.exchange_rate) || '') }); }}>
                             Pagar
                           </Button>
                         )}
@@ -413,6 +416,17 @@ export default function AccountsPayableTab() {
                 <Label>Data do pagamento</Label>
                 <Input type="date" value={payForm.paid_at} onChange={(e) => setPayForm({ ...payForm, paid_at: e.target.value })} />
               </div>
+              {payTarget.currency && payTarget.currency.toUpperCase() !== 'BRL' && (
+                <div>
+                  <Label>Taxa de câmbio usada no pagamento ({payTarget.currency.toUpperCase()} → BRL)</Label>
+                  <Input type="number" step="0.0001" value={payForm.rate} onChange={(e) => setPayForm({ ...payForm, rate: e.target.value })} />
+                  {Number(payForm.rate) > 0 && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      ≈ R$ {(Number(payTarget.amount) * Number(payForm.rate)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  )}
+                </div>
+              )}
               <div>
                 <Label>Forma de pagamento</Label>
                 <Input placeholder="Ex: TED, Boleto, PIX" value={payForm.payment_method} onChange={(e) => setPayForm({ ...payForm, payment_method: e.target.value })} />
