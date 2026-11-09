@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { format, parseISO } from 'date-fns';
 import { ClientDebitNotePdfDialog } from './ClientDebitNotePdfDialog';
 import { cancelClientDn, nextClientDnNumber, DEFAULT_CLIENT_ND_NOTES } from '@/lib/debitNotes';
+import { useExchangeRate } from '@/hooks/useExchangeRate';
 
 type DN = {
   id: string;
@@ -36,7 +37,7 @@ type DN = {
   notes: string | null;
 };
 
-type Charge = { id: string; description: string; sell_amount: number; currency: string; leg: string };
+type Charge = { id: string; description: string; sell_amount: number; currency: string; leg: string; exchange_rate?: number | null };
 export type { Charge as ClientDnCharge };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -87,7 +88,7 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
     queryFn: async () => {
       const { data, error } = await supabase
         .from('quote_charges')
-        .select('id, description, sell_amount, currency, leg, sent_in_debit_note_id')
+        .select('id, description, sell_amount, currency, leg, exchange_rate, sent_in_debit_note_id')
         .eq('quote_id', quoteId);
       if (error) throw error;
       // Taxas já enviadas numa ND anterior ficam de fora — pra reentrar numa
@@ -334,9 +335,19 @@ function CreateClientDnDialog({
 
   // Modo de câmbio
   const [rateMode, setRateMode] = useState<'single' | 'per_currency'>('single');
-  const [singleRate, setSingleRate] = useState<string>('5.00');
+  const [singleRate, setSingleRate] = useState<string>('');
   const [ratesByCurrency, setRatesByCurrency] = useState<Record<string, string>>({});
-  const [rowRateOverrides, setRowRateOverrides] = useState<Record<string, string>>({});
+  const { usdBrl, eurBrl } = useExchangeRate();
+
+  // Câmbio sugerido de uma moeda: o que já foi digitado numa taxa dessa moeda
+  // (aba Taxas) e, se não houver, a cotação do dia.
+  function suggestedRate(cur: string): number | null {
+    const fromCharge = charges.find(c => c.currency === cur && Number(c.exchange_rate) > 0);
+    if (fromCharge) return Number(fromCharge.exchange_rate);
+    if (cur === 'USD') return usdBrl || null;
+    if (cur === 'EUR') return eurBrl || null;
+    return null;
+  }
 
   useEffect(() => {
     setSelected(new Set(charges.map(c => c.id)));
@@ -345,10 +356,15 @@ function CreateClientDnDialog({
     setBankId(defaultBank?.id || '');
     setRatesByCurrency(prev => {
       const next = { ...prev };
-      for (const cur of foreignCurrencies) if (!next[cur]) next[cur] = '5.00';
+      for (const cur of foreignCurrencies) if (!next[cur]) { const r = suggestedRate(cur); if (r) next[cur] = String(r); }
       return next;
     });
-  }, [charges.length, bankAccounts.length, foreignCurrencies.join(',')]);
+    setSingleRate(prev => {
+      if (prev) return prev;
+      const r = foreignCurrencies.length ? suggestedRate(foreignCurrencies[0]) : null;
+      return r ? String(r) : '';
+    });
+  }, [charges.length, bankAccounts.length, foreignCurrencies.join(','), usdBrl, eurBrl]);
 
   function rateFor(cur: string): number {
     if (cur === 'BRL') return 1;
@@ -356,10 +372,11 @@ function CreateClientDnDialog({
     return Number(ratesByCurrency[cur]) || 0;
   }
 
+  // Taxa que já tem câmbio próprio (digitado na aba Taxas) usa esse câmbio;
+  // as demais usam o câmbio informado acima.
   function rateForRow(c: Charge): number {
     if (c.currency === 'BRL') return 1;
-    const ov = rowRateOverrides[c.id];
-    if (ov !== undefined && ov !== '') return Number(ov) || 0;
+    if (Number(c.exchange_rate) > 0) return Number(c.exchange_rate);
     return rateFor(c.currency);
   }
 
@@ -380,17 +397,16 @@ function CreateClientDnDialog({
   async function submit() {
     if (selected.size === 0) return toast.error('Selecione ao menos uma taxa');
     if (!bankId) return toast.error('Selecione a conta bancária em BRL');
-    // Validar câmbios
-    for (const cur of foreignCurrencies) {
-      if (rateFor(cur) <= 0) return toast.error(`Informe a taxa de câmbio para ${cur}`);
+    // Validar câmbios (só das taxas selecionadas)
+    for (const c of charges.filter(c => selected.has(c.id) && c.currency !== 'BRL')) {
+      if (rateForRow(c) <= 0) return toast.error(`Informe a taxa de câmbio para ${c.currency}`);
     }
     setSaving(true);
     try {
       const dn_number = await nextClientDnNumber(quoteId);
 
-      const headerRate = rateMode === 'single'
-        ? Number(singleRate) || 1
-        : (foreignCurrencies.length ? rateFor(foreignCurrencies[0]) : 1);
+      const firstForeign = charges.find(c => selected.has(c.id) && c.currency !== 'BRL');
+      const headerRate = firstForeign ? rateForRow(firstForeign) || 1 : 1;
 
       const { data: dn, error: dErr } = await supabase.from('debit_notes' as any).insert({
         company_id: companyId,
@@ -482,6 +498,10 @@ function CreateClientDnDialog({
             {foreignCurrencies.length > 0 && (
               <div className="border border-border rounded p-3 space-y-3 bg-muted/20">
                 <div className="text-sm font-medium">Taxa de câmbio (cobrança em BRL)</div>
+                <p className="text-xs text-muted-foreground">
+                  Já vem preenchida com o câmbio digitado nas Taxas ou, se não houver, com a cotação do dia.
+                  Taxas que têm câmbio próprio mantêm o delas (marcadas com "(taxa)" na tabela).
+                </p>
                 <RadioGroup
                   value={rateMode}
                   onValueChange={(v) => setRateMode(v as any)}
@@ -539,13 +559,9 @@ function CreateClientDnDialog({
                         {r.currency === 'BRL' ? (
                           <span className="font-mono">—</span>
                         ) : (
-                          <Input
-                            type="number" step="0.0001"
-                            className="h-8 w-24 text-right font-mono ml-auto"
-                            value={rowRateOverrides[r.id] ?? r.rate.toString()}
-                            onChange={e => setRowRateOverrides(p => ({ ...p, [r.id]: e.target.value }))}
-                            placeholder={rateFor(r.currency).toFixed(4)}
-                          />
+                          <span className="font-mono" title={Number(r.exchange_rate) > 0 ? 'Câmbio digitado na taxa (aba Taxas)' : 'Câmbio informado acima'}>
+                            {r.rate > 0 ? r.rate.toFixed(4) : '—'}{Number(r.exchange_rate) > 0 && <span className="text-xs text-muted-foreground"> (taxa)</span>}
+                          </span>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-mono">BRL {r.brl.toFixed(2)}</TableCell>
