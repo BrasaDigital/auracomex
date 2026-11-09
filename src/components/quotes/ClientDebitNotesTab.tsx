@@ -18,7 +18,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from 'sonner';
 import { format, parseISO } from 'date-fns';
 import { ClientDebitNotePdfDialog } from './ClientDebitNotePdfDialog';
-import { deleteClientDn, cancelClientDn, nextClientDnNumber, DEFAULT_CLIENT_ND_NOTES } from '@/lib/debitNotes';
+import { cancelClientDn, nextClientDnNumber, DEFAULT_CLIENT_ND_NOTES } from '@/lib/debitNotes';
 
 type DN = {
   id: string;
@@ -65,8 +65,6 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
   const [createOpen, setCreateOpen] = useState(false);
   const [pdfDn, setPdfDn] = useState<DN | null>(null);
   const [payDn, setPayDn] = useState<DN | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
@@ -107,18 +105,6 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
     },
   });
 
-  async function deleteDn(id: string) {
-    setDeleting(true);
-    const result = await deleteClientDn({ dnId: id, companyId, quoteId, userId: user?.id });
-    setDeleting(false);
-    if (result.ok === false) return toast.error('Erro ao excluir', { description: result.error });
-    toast.success('DN excluída — taxas liberadas para edição');
-    setConfirmDeleteId(null);
-    qc.invalidateQueries({ queryKey: ['client_debit_notes', quoteId] });
-    qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
-    qc.invalidateQueries({ queryKey: ['quote-charges', quoteId] });
-    qc.invalidateQueries({ queryKey: ['quote_sell_charges', quoteId] });
-  }
 
   async function markPaid() {
     if (!payDn) return;
@@ -196,7 +182,6 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
                           <Button variant="ghost" size="icon" title="Cancelar ND" onClick={() => setConfirmCancelId(dn.id)}><XCircle className="w-4 h-4 text-amber-400" /></Button>
                         </>
                       )}
-                      <Button variant="ghost" size="icon" title="Excluir" onClick={() => setConfirmDeleteId(dn.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                     </TableCell>
                   )}
                 </TableRow>
@@ -262,25 +247,6 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
             <AlertDialogCancel disabled={cancelling}>Voltar</AlertDialogCancel>
             <AlertDialogAction onClick={() => confirmCancelId && cancelDn(confirmCancelId)} disabled={cancelling}>
               {cancelling ? 'Cancelando…' : 'Cancelar ND'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={!!confirmDeleteId} onOpenChange={(o) => !deleting && !o && setConfirmDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir esta DN?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta ação não pode ser desfeita. A conta a receber vinculada some junto e as taxas que
-              estavam presas nesta DN voltam a ficar editáveis. Só é possível excluir DNs que ainda não
-              foram pagas.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => confirmDeleteId && deleteDn(confirmDeleteId)} disabled={deleting}>
-              {deleting ? 'Excluindo…' : 'Excluir'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
