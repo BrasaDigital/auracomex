@@ -216,7 +216,7 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
           </Button>
         </DialogHeader>
 
-        <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: '#000', background: '#e5e5e5' }}>
+        <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: '#000', background: '#fff' }}>
           <section style={sheet}>
             {/* Header Empresa */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: 10, marginBottom: 15 }}>
@@ -319,7 +319,7 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
               const aDevolver = showBudget ? diferenca < 0 : saldoDepositos > 0;
               const valor = showBudget ? Math.abs(diferenca) : Math.abs(saldoDepositos);
               return (
-                <div style={{ border: `2px solid ${BRAND}`, marginBottom: 10 }}>
+                <div className="pdf-avoid-break" style={{ border: `2px solid ${BRAND}`, marginBottom: 10 }}>
                   <div style={{ background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, padding: '4px 12px', fontSize: 10, fontWeight: 700 }}>
                     RESULTADO DA PRESTAÇÃO DE CONTAS
                   </div>
@@ -336,7 +336,7 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
             {/* Só quando sobra valor a cobrar do cliente — mesmo box do Numerário,
                 pra ele já ter como pagar sem precisar pedir os dados de novo. */}
             {precisaCobrarCliente && bank && (
-              <div style={{ border: `2px solid ${BRAND}`, padding: '8px 12px', marginBottom: 10 }}>
+              <div className="pdf-avoid-break" style={{ border: `2px solid ${BRAND}`, padding: '8px 12px', marginBottom: 10 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#000', marginBottom: 6 }}>DADOS BANCÁRIOS PARA PAGAMENTO</div>
                 <table style={{ width: '100%', fontSize: 10 }}>
                   <tbody>

@@ -55,7 +55,7 @@ const sheetLast: React.CSSProperties = { ...sheet, pageBreakAfter: 'auto', break
 // dados bancários) do que a Estimativa (que reparte por item), e por pouco
 // estourava pra uma 2ª página. Margens levemente menores recuperam o espaço
 // sem cortar nada.
-const sheetNumerario: React.CSSProperties = { ...sheetLast, padding: '8mm 14mm' };
+const sheetNumerario: React.CSSProperties = { ...sheetLast, padding: '6mm 14mm' };
 const avoidBreak: React.CSSProperties = { pageBreakInside: 'avoid', breakInside: 'avoid' };
 
 export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expenses, breakdown, hasInsurance = true, mode = 'estimativa', onApproveNumerario }: Props) {
@@ -247,6 +247,9 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
   ];
 
   const BRAND = (company as any)?.brand_primary_color || '#1a1a2e';
+  // Numerário precisa caber em 1 página: linhas da tabela de custos mais compactas.
+  const tdc: React.CSSProperties = isNumerario ? { ...td, padding: '2px 8px' } : td;
+  const tdRc: React.CSSProperties = isNumerario ? { ...tdR, padding: '2px 8px' } : tdR;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -277,9 +280,9 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
           </div>
         </DialogHeader>
 
-        <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: '#000', background: '#e5e5e5' }}>
+        <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: '#000', background: '#fff' }}>
         {/* ============= FOLHA 1: Resumo ============= */}
-        <section className="pdf-avoid-break" style={isNumerario ? sheetNumerario : (items.length === 0 ? sheetLast : sheet)}>
+        <section className={isNumerario ? undefined : "pdf-avoid-break"} style={isNumerario ? sheetNumerario : (items.length === 0 ? sheetLast : sheet)}>
           {/* Header Empresa */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: isNumerario ? 6 : 10, marginBottom: isNumerario ? 10 : 15 }}>
             {company?.logo_url ? (
@@ -326,7 +329,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
             };
             const modal = modalLabels[quote?.transport_mode || ''] || quote?.transport_mode || '-';
             const mercadorias = items.map(i => i.nome).filter(Boolean).join(', ') || '-';
-            const ncms = items.map(i => i.ncm).filter(Boolean).join(' - ') || '-';
+            const ncms = Array.from(new Set(items.map(i => i.ncm).filter(Boolean))).join(' - ') || '-';
             const vmcvBrl = breakdown.vmcv_usd * rate;
             const vmldBrl = breakdown.vmld_usd * rate;
             const pesoLiquido = Number((estimate as any).peso_liquido_kg || 0);
@@ -349,12 +352,12 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
                 {pairs.map(([l1, v1, l2, v2], idx) => (
                   <React.Fragment key={idx}>
                     <div style={{ display: 'flex', minWidth: 0, borderBottom: idx === pairs.length - 1 ? 'none' : '1px solid #ccc', borderRight: '1px solid #ccc' }}>
-                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#000', background: '#fff', borderLeft: `3px solid ${BRAND}`, padding: '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l1}</div>
-                      <div style={{ fontSize: 8.5, padding: '3px 6px', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v1}</div>
+                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#000', background: '#fff', borderLeft: `3px solid ${BRAND}`, padding: isNumerario ? '2px 6px' : '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l1}</div>
+                      <div style={{ fontSize: 8.5, padding: isNumerario ? '2px 6px' : '3px 6px', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.25 }}>{v1}</div>
                     </div>
                     <div style={{ display: 'flex', minWidth: 0, borderBottom: idx === pairs.length - 1 ? 'none' : '1px solid #ccc' }}>
-                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#000', background: '#fff', borderLeft: `3px solid ${BRAND}`, padding: '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l2}</div>
-                      <div style={{ fontSize: 8.5, padding: '3px 6px', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v2}</div>
+                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#000', background: '#fff', borderLeft: `3px solid ${BRAND}`, padding: isNumerario ? '2px 6px' : '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l2}</div>
+                      <div style={{ fontSize: 8.5, padding: isNumerario ? '2px 6px' : '3px 6px', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.25 }}>{v2}</div>
                     </div>
                   </React.Fragment>
                 ))}
@@ -391,20 +394,20 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
                 const muted = isPrepaid || (isNumerario && isMerchandise);
                 return (
                 <tr key={`${label}-${idx}`} style={bold ? { background: '#f5f5f5', fontWeight: 700 } : {}}>
-                  <td style={{ ...td, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>
+                  <td style={{ ...tdc, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>
                     {label}
                     {isPrepaid && <span style={{ marginLeft: 5, fontSize: 8, fontWeight: 700, color: '#000', fontStyle: 'normal' }}>(PREPAID)</span>}
                     {isNumerario && isMerchandise && <span style={{ marginLeft: 5, fontSize: 8, fontWeight: 700, color: '#000', fontStyle: 'normal' }}>(PAGO DIRETO AO FORNECEDOR)</span>}
                   </td>
                   {notContracted ? (
                     <>
-                      <td colSpan={2} style={{ ...tdR, fontStyle: 'italic', color: '#000' }}>Seguro não contratado</td>
+                      <td colSpan={2} style={{ ...tdRc, fontStyle: 'italic', color: '#000' }}>Seguro não contratado</td>
                       <td style={tdR}>—</td>
                     </>
                   ) : (
                     <>
-                      <td style={{ ...tdR, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>{fmtUSD(val)}</td>
-                      <td style={{ ...tdR, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>{fmtBRL(val * rate)}</td>
+                      <td style={{ ...tdRc, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>{fmtUSD(val)}</td>
+                      <td style={{ ...tdRc, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>{fmtBRL(val * rate)}</td>
                       <td style={tdR}>{showPct && Math.abs(val) > 0 ? pct(val, totalUsd).toFixed(2) : '—'}</td>
                     </>
                   )}
@@ -419,7 +422,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
               e outras despesas não-Prepaid. NÃO inclui o valor da mercadoria
               (pago direto ao fornecedor) nem taxas Prepaid (já pagas na origem). */}
           {isNumerario && (
-            <div style={{ border: `2px solid ${BRAND}`, marginBottom: 10 }}>
+            <div className="pdf-avoid-break" style={{ border: `2px solid ${BRAND}`, marginBottom: 10 }}>
               <div style={{ background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, padding: '4px 12px', fontSize: 10, fontWeight: 700 }}>
                 VALORES PARA DEPÓSITO (NUMERÁRIO)
               </div>
@@ -448,7 +451,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
           {/* Numerário: dados bancários da empresa pra pagamento, no lugar
               das folhas por item (que só existem na Estimativa completa). */}
           {isNumerario && bank && (
-            <div style={{ border: `2px solid ${BRAND}`, padding: '8px 12px', marginTop: 0 }}>
+            <div className="pdf-avoid-break" style={{ border: `2px solid ${BRAND}`, padding: '8px 12px', marginTop: 0 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: '#000', marginBottom: 6 }}>DADOS BANCÁRIOS PARA PAGAMENTO</div>
               <table style={{ width: '100%', fontSize: 10 }}>
                 <tbody>
