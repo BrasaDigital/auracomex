@@ -456,6 +456,7 @@ export function CostEstimateTab({
   const removeItem = (id: string) => {
     setDraftItems(arr => arr.filter(i => i.id !== id));
     if (!isTmp(id)) setDeletedItemIds(arr => [...arr, id]);
+    else { const real = newRowIdsRef.current.get(id); if (real) setDeletedItemIds(arr => [...arr, real]); }
   };
   const addExpense = (descricao = '') => {
     if (!estimate || !companyId) return;
@@ -478,12 +479,29 @@ export function CostEstimateTab({
   const removeExpense = (id: string) => {
     setDraftExpenses(arr => arr.filter(e => e.id !== id));
     if (!isTmp(id)) setDeletedExpenseIds(arr => [...arr, id]);
+    else { const real = newRowIdsRef.current.get(id); if (real) setDeletedExpenseIds(arr => [...arr, real]); }
   };
 
   // ===== Salvamento em lote =====
+  // Trava anti-duplicação: o auto-save dispara a cada blur de campo. Sem trava,
+  // vários salvamentos rodavam ao mesmo tempo e cada um inserindo de novo as
+  // linhas ainda marcadas como novas (centenas de itens duplicados). Agora só
+  // um salvamento roda por vez (o próximo espera) e linhas novas são gravadas
+  // com id fixo (upsert) — salvar duas vezes a mesma linha nova não duplica.
+  const savingRef = useRef(false);
+  const queuedSaveRef = useRef(false);
+  const newRowIdsRef = useRef<Map<string, string>>(new Map());
+  const stableId = (tmp: string) => {
+    let v = newRowIdsRef.current.get(tmp);
+    if (!v) { v = crypto.randomUUID(); newRowIdsRef.current.set(tmp, v); }
+    return v;
+  };
+
   const handleSave = useCallback(async () => {
     if (!editMode || !draftEstimate || !snapshotRef.current) return;
     if (!hasDirty) return;
+    if (savingRef.current) { queuedSaveRef.current = true; return; }
+    savingRef.current = true;
     setSaveState('saving');
     try {
       const snap = snapshotRef.current;
@@ -550,7 +568,7 @@ export function CostEstimateTab({
       draftItems.forEach((it, idx) => {
         const { _new, id, ...rest } = it as any;
         if (_new) {
-          ops.push((supabase as any).from('cost_estimate_items').insert({ ...rest, ordem: idx }));
+          ops.push((supabase as any).from('cost_estimate_items').upsert({ ...rest, id: stableId(id), ordem: idx }, { onConflict: 'id', ignoreDuplicates: true }));
         } else {
           const orig = snap.items.find((x: any) => x.id === id);
           if (!orig) return;
@@ -572,7 +590,7 @@ export function CostEstimateTab({
       draftExpenses.forEach((e, idx) => {
         const { _new, id, ...rest } = e as any;
         if (_new) {
-          ops.push((supabase as any).from('cost_estimate_expenses').insert({ ...rest, ordem: idx }));
+          ops.push((supabase as any).from('cost_estimate_expenses').upsert({ ...rest, id: stableId(id), ordem: idx }, { onConflict: 'id', ignoreDuplicates: true }));
         } else {
           const orig = snap.expenses.find((x: any) => x.id === id);
           if (!orig) return;
@@ -675,6 +693,13 @@ export function CostEstimateTab({
     } catch (err: any) {
       setSaveState('idle');
       toast.error(err.message || 'Erro ao salvar estimativa');
+    } finally {
+      savingRef.current = false;
+      if (queuedSaveRef.current) {
+        queuedSaveRef.current = false;
+        // dá tempo do rascunho recarregar do banco antes de salvar de novo
+        setTimeout(() => { handleSaveRef.current(); }, 1200);
+      }
     }
   }, [editMode, draftEstimate, draftItems, draftExpenses, deletedItemIds, deletedExpenseIds, hasDirty, dirtyCount, invalidate, queryClient, quoteId, companyId, profile?.user_id]);
 
