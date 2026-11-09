@@ -10,7 +10,7 @@ import type { CSSProperties } from 'react';
 export async function generatePdfFromElement(
   element: HTMLElement,
   filename: string,
-  opts: { download?: boolean } = { download: true }
+  opts: { download?: boolean; windowWidth?: number } = { download: true }
 ): Promise<Blob> {
   const html2pdf = (await import('html2pdf.js')).default;
   const worker = html2pdf()
@@ -23,7 +23,7 @@ export async function generatePdfFromElement(
         useCORS: true,
         backgroundColor: '#ffffff',
         letterRendering: true,
-        windowWidth: 800,
+        windowWidth: opts.windowWidth ?? 800,
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
       pagebreak: { mode: ['css', 'legacy'], avoid: ['.pdf-avoid-break', 'tr', 'thead'] },

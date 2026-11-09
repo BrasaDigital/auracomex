@@ -46,7 +46,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
     if (!ref.current || !data) return;
     setDownloading(true);
     try {
-      await generatePdfFromElement(ref.current, `${String(data.dn.dn_number).replace(/[\\/]/g, '-')}.pdf`);
+      await generatePdfFromElement(ref.current, `${String(data.dn.dn_number).replace(/[\\/]/g, '-')}.pdf`, { windowWidth: 1200 });
     } finally { setDownloading(false); }
   }
 
