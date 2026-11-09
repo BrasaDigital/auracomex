@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { MonthSelect } from './MonthSelect';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -179,11 +180,9 @@ export default function OverviewTab() {
           Valores convertidos para BRL {usdBrl ? `(USD ${usdBrl.toFixed(4)} · EUR ${(eurBrl || 0).toFixed(4)})` : ''}. Regime de caixa: todo valor recebido no mês (processos + Geral), menos todo valor pago no mês (processos + Geral).
           {ratesLoading && ' · atualizando cotações...'}
         </p>
-        <Input
-          type="month"
-          className="w-44"
+        <MonthSelect
           value={referenceMonth.slice(0, 7)}
-          onChange={(e) => setReferenceMonth(e.target.value + '-01')}
+          onChange={(v) => setReferenceMonth(v + '-01')}
         />
       </div>
 

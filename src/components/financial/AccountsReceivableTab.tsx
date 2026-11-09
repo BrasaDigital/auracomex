@@ -18,6 +18,7 @@ import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
+import { MonthSelect } from './MonthSelect';
 
 type AR = {
   id: string;
@@ -60,7 +61,7 @@ export default function AccountsReceivableTab() {
   // recebimento (received_at) — não pela data de vencimento/lançamento.
   // Contas ainda em aberto/atrasadas não têm data de recebimento, então
   // continuam localizadas pelo vencimento.
-  const [monthFilter, setMonthFilter] = useState<string>('');
+  const [monthFilter, setMonthFilter] = useState<string>(() => format(new Date(), 'yyyy-MM'));
   const [searchDesc, setSearchDesc] = useState('');
   const [searchDescOpen, setSearchDescOpen] = useState(false);
   const [searchClient, setSearchClient] = useState('');
@@ -139,7 +140,7 @@ export default function AccountsReceivableTab() {
       const ref = (r.quote_id ? quoteMap.get(r.quote_id) : null) || '';
       if (!ref.toLowerCase().includes(searchProcess.toLowerCase())) return false;
     }
-    if (monthFilter) {
+    if (monthFilter && monthFilter !== 'todos') {
       const relevant = r.status === 'recebido' ? r.received_at : r.due_date;
       if (!relevant || relevant.slice(0, 7) !== monthFilter) return false;
     }
@@ -257,16 +258,13 @@ export default function AccountsReceivableTab() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Valores a Receber</CardTitle>
           <div className="flex items-center gap-2">
-            <Input
-              type="month"
-              className="w-40"
+            <MonthSelect
               value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
+              onChange={setMonthFilter}
+              allowAll
+              extraMonths={rows.map((r) => (r.status === 'recebido' ? r.received_at : r.due_date)).filter(Boolean).map((d) => (d as string).slice(0, 7))}
               title="Filtra recebidos pela data de recebimento; em aberto/atrasados pelo vencimento"
             />
-            {monthFilter && (
-              <Button variant="ghost" size="sm" onClick={() => setMonthFilter('')}>Limpar</Button>
-            )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>

@@ -19,6 +19,7 @@ import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
+import { MonthSelect } from './MonthSelect';
 
 type AP = {
   id: string;
@@ -154,23 +155,11 @@ export default function AccountsPayableTab() {
     return true;
   });
 
-  // Opções do seletor de mês: janela de 12 meses atrás até 2 à frente, mais
-  // qualquer mês que já tenha lançamento (pra nunca esconder dado antigo).
-  const monthOptions = useMemo(() => {
-    const set = new Set<string>();
-    const base = new Date();
-    for (let i = -2; i <= 12; i++) set.add(format(addMonths(base, -i), 'yyyy-MM'));
-    for (const r of rows) {
-      const d = r.status === 'pago' ? r.paid_at : r.due_date;
-      if (d) set.add(d.slice(0, 7));
-    }
-    return Array.from(set)
-      .sort((a, b) => b.localeCompare(a))
-      .map((ym) => {
-        const label = format(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1), 'MMMM/yyyy', { locale: ptBR });
-        return { value: ym, label: label.charAt(0).toUpperCase() + label.slice(1) };
-      });
-  }, [rows]);
+  // Meses que já têm lançamento (o MonthSelect os inclui na lista).
+  const rowMonths = useMemo(
+    () => rows.map((r) => (r.status === 'pago' ? r.paid_at : r.due_date)).filter(Boolean).map((d) => (d as string).slice(0, 7)),
+    [rows],
+  );
 
   // Os KPIs somam linhas em moedas diferentes (USD, EUR, BRL) — sem converter
   // pra uma moeda comum antes de somar, o total exibido como "R$" na verdade
@@ -290,17 +279,13 @@ export default function AccountsPayableTab() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Valores a Pagar</CardTitle>
           <div className="flex items-center gap-2">
-            <Select value={monthFilter} onValueChange={setMonthFilter}>
-              <SelectTrigger className="w-44" title="Filtra pagos pela data de pagamento; em aberto/atrasados pelo vencimento">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos os meses</SelectItem>
-                {monthOptions.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MonthSelect
+              value={monthFilter}
+              onChange={setMonthFilter}
+              allowAll
+              extraMonths={rowMonths}
+              title="Filtra pagos pela data de pagamento; em aberto/atrasados pelo vencimento"
+            />
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>

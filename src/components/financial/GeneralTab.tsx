@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { MonthSelect } from './MonthSelect';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,11 +73,9 @@ export default function GeneralTab() {
         <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <CardTitle>Lançamentos do mês</CardTitle>
-            <Input
-              type="month"
-              className="w-40"
+            <MonthSelect
               value={referenceMonth.slice(0, 7)}
-              onChange={(e) => setReferenceMonth(e.target.value + '-01')}
+              onChange={(v) => setReferenceMonth(v + '-01')}
             />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
