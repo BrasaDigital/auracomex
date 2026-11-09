@@ -196,8 +196,28 @@ Deno.serve(async (req) => {
       // realmente terminou (arrived/delivered); "Em Andamento" é tudo que
       // não é finalizado, rascunho ou cancelado — cobre qualquer status
       // personalizado que a empresa venha a criar.
-      const finishedStatuses = ["arrived", "delivered"];
+      //
+      // "Finalizado" também inclui qualquer status (fixo ou personalizado)
+      // cuja categoria cadastrada em Gerenciar Status seja "delivered" —
+      // ex.: "finalizado", "prestação_de_contas", "processo_endossado".
+      // Sem isso, esses processos ficavam presos em "Em Andamento".
+      const { data: clientCompany } = await adminClient
+        .from("clients")
+        .select("company_id")
+        .eq("id", client_id)
+        .single();
+      let deliveredStatuses: string[] = [];
+      if (clientCompany?.company_id) {
+        const { data: deliveredOpts } = await adminClient
+          .from("shipment_status_options")
+          .select("value")
+          .eq("company_id", clientCompany.company_id)
+          .eq("category", "delivered");
+        deliveredStatuses = (deliveredOpts || []).map((o: any) => o.value).filter(Boolean);
+      }
+      const finishedStatuses = [...new Set(["arrived", "delivered", ...deliveredStatuses])];
       const excludedFromActive = [...finishedStatuses, "draft", "cancelled"];
+      const excludedList = excludedFromActive.map((v) => `"${String(v).replace(/"/g, "")}"`).join(",");
 
       let query = adminClient
         .from("shipments")
@@ -205,7 +225,7 @@ Deno.serve(async (req) => {
         .eq("client_id", client_id);
 
       query = filter === "active"
-        ? query.not("status", "in", `(${excludedFromActive.join(",")})`)
+        ? query.not("status", "in", `(${excludedList})`)
         : query.in("status", finishedStatuses);
 
       const { data: shipmentsData } = await query.order("created_at", { ascending: false });
