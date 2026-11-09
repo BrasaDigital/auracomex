@@ -1,3 +1,4 @@
+import { removeChargeExpense } from '@/lib/chargeExpense';
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { openSignedDoc } from '@/lib/storage';
@@ -962,6 +963,7 @@ export function SendSupplierDnDialog({
       // Marca as taxas incluídas com esta DN, pra travar depois que a conta a pagar for quitada.
       if (chargeIds.length > 0) {
         await supabase.from('quote_charges' as any).update({ sent_in_debit_note_id: dnId }).in('id', chargeIds);
+        await removeChargeExpense(chargeIds);
       }
 
       qc.invalidateQueries({ queryKey: ['debit_notes', quoteId] });

@@ -37,7 +37,9 @@ import { FlagIcon } from '@/components/shared/FlagIcon';
 import { BenchmarkCard } from '@/components/shared/BenchmarkCard';
 import { CollapsibleCard } from '@/components/shared/CollapsibleCard';
 import { AutoInsuranceCard } from '@/components/quotes/AutoInsuranceCard';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { DateField } from '@/components/shared/DateField';
+import { registerChargeExpense, removeChargeExpense } from '@/lib/chargeExpense';
 import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
 import { cn } from '@/lib/utils';
@@ -4284,6 +4286,7 @@ function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, part
     if (confirmed && !sentInDn) {
       updates.buy_actual_confirmed_at = null;
       updates.buy_actual_confirmed_by = null;
+      removeChargeExpense([charge.id]);
     }
     onUpdate(charge.id, updates);
   };
@@ -4293,14 +4296,56 @@ function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, part
     onUpdate(charge.id, { buy_variance_reason: v || null });
   };
 
-  const confirmActual = () => {
+  const { profile } = useAuth();
+  const queryClient = useQueryClient();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [validUntil, setValidUntil] = useState<Date | undefined>(undefined);
+  const [confirming, setConfirming] = useState(false);
+
+  const openConfirm = () => {
     if (actualUnit == null && inputVal === '') return;
+    setDocFile(null);
+    setValidUntil(charge.buy_doc_valid_until ? parseISO(charge.buy_doc_valid_until) : undefined);
+    setConfirmOpen(true);
+  };
+
+  const confirmActual = async () => {
+    if (actualUnit == null && inputVal === '') return;
+    if (!profile) return;
     const val = inputVal === '' ? actualUnit : parseFloat(inputVal);
-    onUpdate(charge.id, {
+    const unit = Number(val) || 0;
+    setConfirming(true);
+    const res = await registerChargeExpense({
+      chargeId: charge.id,
+      description: charge.description || 'Taxa',
+      amount: unit * mult,
+      currency: cur,
+      partnerId: charge.partner_id ?? null,
+      quoteId: charge.quote_id,
+      companyId: profile.company_id,
+      userId: profile.user_id,
+      file: docFile,
+      validUntil: validUntil ? format(validUntil, 'yyyy-MM-dd') : null,
+    });
+    if ('error' in res) {
+      setConfirming(false);
+      toast.error('Erro ao conferir a taxa', { description: res.error });
+      return;
+    }
+    const updates: Record<string, any> = {
       buy_amount_actual: val,
       buy_actual_confirmed_at: new Date().toISOString(),
       buy_actual_confirmed_by: currentUserId || null,
-    });
+      buy_doc_valid_until: validUntil ? format(validUntil, 'yyyy-MM-dd') : null,
+    };
+    if ('docPath' in res && res.docPath) updates.buy_doc_path = res.docPath;
+    await onUpdate(charge.id, updates);
+    queryClient.invalidateQueries({ queryKey: ['accounts_payable'] });
+    queryClient.invalidateQueries({ queryKey: ['documents'] });
+    setConfirming(false);
+    setConfirmOpen(false);
+    toast.success('Taxa conferida — lançada em Despesa por Processo');
   };
 
   const handleReopenConfirm = async () => {
@@ -4382,13 +4427,39 @@ function ReconciliationRow({ charge, cargoMetrics, onUpdate, currentUserId, part
                 variant="outline"
                 className="h-6 text-[10px] px-2"
                 disabled={inputVal === '' && actualUnit == null}
-                onClick={confirmActual}
+                onClick={openConfirm}
               >
                 <CheckCircle className="w-3 h-3 mr-1" /> Conferir
               </Button>
             )}
           </div>
         </div>
+        <Dialog open={confirmOpen} onOpenChange={(o) => !confirming && setConfirmOpen(o)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Conferir taxa — {charge.description}</DialogTitle>
+              <DialogDescription>
+                {cur} {((Number(inputVal) || 0) * mult).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {partnerName ? ` · ${partnerName}` : ''}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label>Documento (boleto, fatura, invoice…)</Label>
+                <Input type="file" accept="application/pdf,image/*" onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
+              </div>
+              <div>
+                <Label>Data de validade (opcional)</Label>
+                <DateField value={validUntil} onChange={setValidUntil} />
+                <p className="text-[11px] text-muted-foreground mt-1">Usada como vencimento da despesa em Financeiro → Despesa por Processo.</p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={confirming}>Cancelar</Button>
+              <Button onClick={confirmActual} disabled={confirming}>{confirming ? 'Salvando…' : 'Conferir'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </TableCell>
     </TableRow>
   );
