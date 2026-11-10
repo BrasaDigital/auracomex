@@ -237,8 +237,12 @@ export function useAccountability(quoteId: string, companyId: string | undefined
           .from('cost_estimate_expenses').select('id, source_charge_id').in('id', expenseIds);
         const cIds = Array.from(new Set((exps2 || []).map((e: any) => e.source_charge_id).filter(Boolean)));
         if (cIds.length > 0) {
-          const { data: chs } = await (supabase as any).from('quote_charges').select('id, partner_id').in('id', cIds);
+          const { data: chs } = await (supabase as any).from('quote_charges').select('id, partner_id, buy_amount').in('id', cIds);
           const pByCharge = new Map<string, string>((chs || []).filter((c: any) => c.partner_id).map((c: any) => [c.id, c.partner_id]));
+          // Taxa só de venda (compra = 0): é serviço cobrado do cliente, não há
+          // o que pagar a fornecedor — não vira conta a pagar.
+          const zeroBuy = new Set<string>((chs || []).filter((c: any) => !(Number(c.buy_amount) > 0)).map((c: any) => c.id));
+          (exps2 || []).forEach((e: any) => { if (e.source_charge_id && zeroBuy.has(e.source_charge_id)) skipExpenseIds.add(e.id); });
           (exps2 || []).forEach((e: any) => { const pid = e.source_charge_id && pByCharge.get(e.source_charge_id); if (pid) partnerByExpense.set(e.id, pid); });
         }
       }
