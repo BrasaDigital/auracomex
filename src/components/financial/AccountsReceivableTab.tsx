@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2, FileText, Ban } from 'lucide-react';
-import { format, isBefore, addDays, startOfDay, parseISO } from 'date-fns';
+import { format, isBefore, startOfDay, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
@@ -143,9 +143,8 @@ export default function AccountsReceivableTab() {
     return { ...r, status: overdue ? ('atrasado' as const) : r.status };
   });
 
-  const filtered = enriched.filter((r) => {
-    if (statusFilter !== 'todos' && r.status !== statusFilter) return false;
-    if (!showInactive && statusFilter !== 'cancelado' && r.status === 'cancelado') return false;
+  // Busca por coluna + mês: é o "recorte" da lista, e também o que os cartões do mês somam.
+  const inScope = (r: (typeof enriched)[number]) => {
     if (searchDesc && !r.description?.toLowerCase().includes(searchDesc.toLowerCase())) return false;
     if (searchClient) {
       const name = r.client_id ? clientMap.get(r.client_id) ?? '' : '';
@@ -160,6 +159,12 @@ export default function AccountsReceivableTab() {
       if (!relevant || relevant.slice(0, 7) !== monthFilter) return false;
     }
     return true;
+  };
+
+  const filtered = enriched.filter((r) => {
+    if (statusFilter !== 'todos' && r.status !== statusFilter) return false;
+    if (!showInactive && statusFilter !== 'cancelado' && r.status === 'cancelado') return false;
+    return inScope(r);
   });
 
   // Idem AccountsPayableTab: os KPIs somavam linhas em moedas diferentes
@@ -180,21 +185,26 @@ export default function AccountsReceivableTab() {
     return amount * rateFor(currency, debitNoteId);
   }
 
+  // Cartões: os do mês somam o que está no mês escolhido (e na busca), sem olhar o filtro de
+  // status; inativas (canceladas) nunca entram. "A receber" = tudo que ainda não foi pago
+  // (em aberto + atrasado). O cartão Global soma o a receber de todos os meses.
   const kpis = useMemo(() => {
-    const in7 = addDays(today, 7);
-    let vencidos = 0, aVencer = 0, recebidos = 0, aberto = 0;
+    let aReceber = 0, vencidos = 0, recebidos = 0, global = 0;
     for (const r of enriched) {
+      if (r.status === 'cancelado') continue;
       const amt = toBRL(Number(r.amount) || 0, r.currency, r.debit_note_id);
+      if (r.status !== 'recebido') global += amt;
+      if (!inScope(r)) continue;
       if (r.status === 'recebido') recebidos += toBRL(Number(r.received_amount ?? r.amount) || 0, r.currency, r.debit_note_id);
-      else if (r.status === 'atrasado') vencidos += amt;
-      else if (r.status === 'aberto') {
-        aberto += amt;
-        if (r.due_date && isBefore(parseISO(r.due_date), in7)) aVencer += amt;
+      else {
+        aReceber += amt;
+        if (r.status === 'atrasado') vencidos += amt;
       }
     }
-    return { vencidos, aVencer, recebidos, aberto };
+    return { aReceber, vencidos, recebidos, global };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enriched, today, usdBrl, eurBrl, dnRateMap]);
+  }, [enriched, monthFilter, searchDesc, searchClient, searchProcess, usdBrl, eurBrl, dnRateMap]);
+  const periodo = monthFilter && monthFilter !== 'todos' ? 'mês' : 'todos os meses';
 
   async function markReceived() {
     if (!target) return;
@@ -335,10 +345,10 @@ export default function AccountsReceivableTab() {
         </div>
       )}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Kpi title="A receber (7d)" value={kpis.aVencer} icon={<CalendarClock className="w-4 h-4" />} tone="amber" />
-        <Kpi title="Atrasados" value={kpis.vencidos} icon={<AlertTriangle className="w-4 h-4" />} tone="red" />
-        <Kpi title="Em aberto" value={kpis.aberto} icon={<Wallet className="w-4 h-4" />} tone="slate" />
-        <Kpi title="Recebidos" value={kpis.recebidos} icon={<CheckCircle className="w-4 h-4" />} tone="emerald" />
+        <Kpi title={`A receber (${periodo})`} value={kpis.aReceber} icon={<CalendarClock className="w-4 h-4" />} tone="amber" />
+        <Kpi title={`Atrasados (${periodo})`} value={kpis.vencidos} icon={<AlertTriangle className="w-4 h-4" />} tone="red" />
+        <Kpi title={`Recebidos (${periodo})`} value={kpis.recebidos} icon={<CheckCircle className="w-4 h-4" />} tone="emerald" />
+        <Kpi title="A receber — global (todos os meses)" value={kpis.global} icon={<Wallet className="w-4 h-4" />} tone="slate" />
       </div>
 
       <Card className="glass">
