@@ -225,6 +225,7 @@ export default function AccountsReceivableTab() {
     setTarget(null);
     refetch();
     qc.invalidateQueries({ queryKey: ['client_debit_notes'] });
+    qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
   }
 
   // Inativa a conta (status "Cancelado"). Se veio de uma ND, cancela a ND também
@@ -287,6 +288,7 @@ export default function AccountsReceivableTab() {
     toast.success('Recebimento desfeito — conta voltou para "Em aberto"');
     setUnreceiveTarget(null);
     refetch();
+    qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
   }
 
   return (

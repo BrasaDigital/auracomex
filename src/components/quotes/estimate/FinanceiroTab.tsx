@@ -41,15 +41,18 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
   // O valor depositado vem das Movimentações: Receita do Numerário (e complementos lançados
   // aqui no "+") já confirmada como recebida pelo usuário.
   const accountabilityId = accData?.accountability?.id;
+  // Também entram as NDs ao cliente já recebidas (Contas a Receber) — o PIX da ND conta
+  // como dinheiro do cliente no processo mesmo antes de o Numerário ser aprovado.
   const { data: recebimentos = [] } = useQuery({
-    queryKey: ['accounts_receivable', 'numerario', accountabilityId],
-    enabled: !!accountabilityId,
+    queryKey: ['accounts_receivable', 'numerario', quoteId, accountabilityId],
+    enabled: !!quoteId,
     queryFn: async () => {
+      const ndFilter = `and(quote_id.eq.${quoteId},source.eq.debit_note)`;
       const { data, error } = await (supabase as any)
         .from('accounts_receivable')
         .select('id, amount, received_amount')
-        .eq('accountability_id', accountabilityId)
-        .eq('status', 'recebido');
+        .eq('status', 'recebido')
+        .or(accountabilityId ? `accountability_id.eq.${accountabilityId},${ndFilter}` : ndFilter);
       if (error) throw error;
       return (data || []) as Array<{ id: string; amount: number; received_amount: number | null }>;
     },
@@ -118,7 +121,7 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
             <div>
               <p className="text-xs text-muted-foreground">Depositado pelo cliente</p>
               <p className="text-lg font-semibold font-mono">R$ {fmtBRL(totalDepositado)}</p>
-              <p className="text-[11px] text-muted-foreground">conforme o recebimento confirmado em Movimentações</p>
+              <p className="text-[11px] text-muted-foreground">Numerário + NDs recebidos (Contas a Receber / Movimentações)</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Pago (confirmado na prestação)</p>
