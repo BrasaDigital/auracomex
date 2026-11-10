@@ -27,7 +27,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.14.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.19.0" };
 
 // ---------- helpers ----------
 
@@ -181,25 +181,15 @@ async function buscarProcesso(ctx: Ctx, a: Args) {
 
 async function listarDocumentos(ctx: Ctx, a: Args) {
   requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "documentos de processos");
-  const ref = optStr(a, "processo");
-  if (!ref) throw new ToolError('Informe "processo" (número de referência do processo).');
-
-  const ids = await scopedClientIds(ctx);
-  if (ids && ids.length === 0) return ok({ total: 0, documentos: [] });
-
-  let sq = ctx.sb.from("shipments").select("id,reference_number").ilike("reference_number", ref).limit(1);
-  if (ids) sq = sq.in("client_id", ids);
-  const { data: sh, error: e1 } = await sq;
-  if (e1) throw new ToolError("Falha ao localizar o processo.");
-  if (!sh || sh.length === 0) throw new ToolError(`Processo "${ref}" não encontrado (use a referência exata).`);
-
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, false, "id,reference_number");
+  const filtro = sh.id ? `shipment_id.eq.${sh.id},quote_id.eq.${quoteId}` : `quote_id.eq.${quoteId}`;
   const { data, error } = await ctx.sb.from("documents")
     .select("id,name,document_type,custom_category,created_at,expires_at,visible_tracking")
-    .eq("shipment_id", sh[0].id)
+    .or(filtro)
     .order("created_at", { ascending: false })
     .limit(limitArg(a, 50, 100));
   if (error) throw new ToolError("Falha ao listar documentos.");
-  return ok({ processo: sh[0].reference_number, total: data?.length ?? 0, documentos: data ?? [] });
+  return ok({ alvo: sh.reference_number, total: data?.length ?? 0, documentos: data ?? [] });
 }
 
 const MAX_DOC_BYTES = 8 * 1024 * 1024;
@@ -274,22 +264,26 @@ async function listarCotacoes(ctx: Ctx, a: Args) {
   requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações");
   const status = optStr(a, "status");
   const cliente = optStr(a, "cliente");
+  const numero = optStr(a, "numero");
 
   const ids = await clientFilter(ctx, cliente);
   if (ids && ids.length === 0) return ok({ total: 0, cotacoes: [] });
 
   // Custo (total_buy) só para perfis com acesso total.
-  const cols = "quote_number,status,transport_mode,origin,destination,incoterm,valid_until,currency,total_sell,created_at" +
+  const cols = "quote_number,status,transport_mode,origin,destination,incoterm,valid_until,currency,total_sell,created_at,shipment_id" +
     (FULL_ACCESS_ROLES.includes(ctx.role) ? ",total_buy" : "") +
     ",client:clients!quotes_client_id_fkey(name)";
 
   let q = ctx.sb.from("quotes").select(cols).order("created_at", { ascending: false }).limit(limitArg(a));
   if (status) q = q.eq("status", status);
+  if (numero) q = q.ilike("quote_number", `%${numero}%`);
+  if (a.sem_processo === true) q = q.is("shipment_id", null);
   if (ids) q = q.in("client_id", ids);
 
   const { data, error } = await q;
   if (error) throw new ToolError("Falha ao listar cotações.");
-  return ok({ total: data?.length ?? 0, cotacoes: data ?? [] });
+  const cotacoes = ((data ?? []) as unknown as Record<string, unknown>[]).map(({ shipment_id, ...r }) => ({ ...r, tem_processo: !!shipment_id }));
+  return ok({ total: cotacoes.length, cotacoes });
 }
 
 async function consultarRastreioDhl(ctx: Ctx, a: Args) {
@@ -340,7 +334,7 @@ function canonico(v: unknown): unknown {
 }
 
 async function assinar(ctx: Ctx, tool: string, args: Args, exp: number): Promise<string> {
-  const { confirmar: _c, token_confirmacao: _t, ...resto } = args;
+  const { confirmar: _c, token_confirmacao: _t, sha256_esperado: _s, ...resto } = args;
   const segredo = Deno.env.get("MCP_CONFIRM_SECRET") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!segredo) throw new ToolError("Trava de confirmação indisponível (chave do servidor ausente).");
   const key = await crypto.subtle.importKey("raw", enc.encode("mcp-confirm:" + segredo), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -724,15 +718,54 @@ const PAYMENT_TERMS = ["prepaid", "collect"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Processo + cotação ligada (as taxas ficam na cotação). Recusa processo finalizado.
+// O alvo das ferramentas de cotação/carga/estimativa é um PROCESSO ("processo") ou uma COTAÇÃO ainda sem
+// processo ("cotacao" = número da cotação). Os dois acabam numa cotação (quoteId); "sh" é o embarque ligado
+// (ou, para cotação sem processo, um registro equivalente com id = null).
+type Alvo = { sh: Record<string, any>; quoteId: string; viaCotacao: boolean }; // deno-lint-ignore no-explicit-any
+async function localizarCotacaoPorNumero(ctx: Ctx, numero: string) {
+  const ids = await scopedClientIds(ctx);
+  if (ids && ids.length === 0) throw new ToolError(`Cotação "${numero}" não encontrada.`);
+  let q = ctx.sb.from("quotes").select("id,quote_number,company_id,client_id,shipment_id,transport_mode,status").ilike("quote_number", numero).limit(2);
+  if (ids) q = q.in("client_id", ids);
+  const { data, error } = await q;
+  if (error) throw new ToolError("Falha ao localizar a cotação.");
+  if (!data || data.length === 0) throw new ToolError(`Cotação "${numero}" não encontrada (use o número exato; listar_cotacoes ajuda a achar).`);
+  if (data.length > 1) throw new ToolError(`Mais de uma cotação com o número "${numero}". Use o número completo.`);
+  return data[0] as Record<string, any>;
+}
+
+async function alvoDaCotacao(ctx: Ctx, a: Args, write: boolean, shCols: string): Promise<Alvo> {
+  const proc = optStr(a, "processo");
+  const cot = optStr(a, "cotacao");
+  if (proc && cot) throw new ToolError('Informe só um: "processo" (número do processo) OU "cotacao" (número da cotação).');
+  if (!proc && !cot) throw new ToolError('Informe "processo" (número exato do processo) ou "cotacao" (número exato da cotação, para cotação ainda sem processo).');
+  if (proc) {
+    const sh = await findShipmentByRef(ctx, proc, shCols);
+    if (write && sh.is_finalized) throw new ToolError(`O processo ${sh.reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
+    const { data: q } = await ctx.sb.from("quotes").select("id").eq("shipment_id", sh.id).limit(1).maybeSingle();
+    if (!q?.id) throw new ToolError(`O processo ${sh.reference_number} não tem cotação ligada, então não há onde registrar taxas ou carga.`);
+    return { sh, quoteId: q.id as string, viaCotacao: false };
+  }
+  const q = await localizarCotacaoPorNumero(ctx, cot!);
+  if (q.shipment_id) {
+    // Cotação já virou processo: vale a trava do processo (finalizado).
+    const { data: sh } = await ctx.sb.from("shipments").select(shCols).eq("id", q.shipment_id).maybeSingle();
+    if (sh) {
+      if (write && (sh as Record<string, any>).is_finalized) throw new ToolError(`O processo ${(sh as Record<string, any>).reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
+      return { sh: sh as Record<string, any>, quoteId: q.id as string, viaCotacao: true };
+    }
+  }
+  return {
+    sh: { id: null, reference_number: q.quote_number, company_id: q.company_id, client_id: q.client_id, is_finalized: false, transport_mode: q.transport_mode },
+    quoteId: q.id as string,
+    viaCotacao: true,
+  };
+}
+
 async function processoComCotacao(ctx: Ctx, a: Args, write: boolean) {
   requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações e taxas");
-  const ref = optStr(a, "processo");
-  if (!ref) throw new ToolError('Informe "processo" (número de referência exato).');
-  const sh = await findShipmentByRef(ctx, ref, "id,reference_number,company_id,client_id,is_finalized");
-  if (write && sh.is_finalized) throw new ToolError(`O processo ${sh.reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
-  const { data: q } = await ctx.sb.from("quotes").select("id").eq("shipment_id", sh.id).limit(1).maybeSingle();
-  if (!q?.id) throw new ToolError(`O processo ${sh.reference_number} não tem cotação ligada, então não há onde registrar taxas.`);
-  return { sh, quoteId: q.id as string };
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, write, "id,reference_number,company_id,client_id,is_finalized");
+  return { sh, quoteId };
 }
 
 const NOVA_EMPRESA_DICA = ` Empresa nova: pergunte ao usuário se é cliente, fornecedor (e qual categoria) ou embarcador e cadastre com cadastrar_empresa (prévia + confirmação) antes de continuar.`;
@@ -958,18 +991,13 @@ const shapeVolume = (v: Record<string, unknown>) => ({
 
 // ---- Carga: listar / editar / remover itens existentes ----
 async function cargaDoProcesso(ctx: Ctx, a: Args, write: boolean) {
-  requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos");
-  const ref = optStr(a, "processo");
-  if (!ref) throw new ToolError('Informe "processo" (número de referência exato).');
-  const sh = await findShipmentByRef(ctx, ref, "id,reference_number,company_id,is_finalized,transport_mode");
-  if (write && sh.is_finalized) throw new ToolError(`O processo ${sh.reference_number} está finalizado e não pode ser editado. Reabra-o pelo AuraComex.`);
-  const { data: q } = await ctx.sb.from("quotes").select("id").eq("shipment_id", sh.id).limit(1).maybeSingle();
-  if (!q?.id) throw new ToolError(`O processo ${sh.reference_number} não tem cotação ligada, então não há carga registrada.`);
-  const { data: itens, error } = await ctx.sb.from("quote_items").select("*").eq("quote_id", q.id).order("created_at");
+  requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos e cotações");
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, write, "id,reference_number,company_id,is_finalized,transport_mode");
+  const { data: itens, error } = await ctx.sb.from("quote_items").select("*").eq("quote_id", quoteId).order("created_at");
   if (error) throw new ToolError("Falha ao carregar a carga.");
   const mode = String(sh.transport_mode ?? "");
-  const volumes = await loadVolumes(ctx, q.id as string, mode);
-  return { sh, quoteId: q.id as string, itens: (itens ?? []) as Record<string, unknown>[], mode, volumes };
+  const volumes = await loadVolumes(ctx, quoteId, mode);
+  return { sh, quoteId, itens: (itens ?? []) as Record<string, unknown>[], mode, volumes };
 }
 
 // O conector enxerga TUDO do item (todas as colunas, inclusive as vazias = null), menos ids internos.
@@ -1378,8 +1406,114 @@ async function estimativaDoProcesso(ctx: Ctx, a: Args, write: boolean) {
   const { sh, quoteId } = await processoComCotacao(ctx, a, write);
   const { data: est, error } = await ctx.sb.from("cost_estimates").select("*").eq("quote_id", quoteId).maybeSingle();
   if (error) throw new ToolError("Falha ao carregar a estimativa.");
-  if (!est) throw new ToolError(`O processo ${sh.reference_number} ainda não tem estimativa. Abra a aba Estimativa no AuraComex uma vez para ela ser criada.`);
+  if (!est) throw new ToolError(`O processo ${sh.reference_number} ainda não tem estimativa. Use criar_estimativa (prévia + confirmação) para criá-la.`);
   return { sh, quoteId, est: est as Record<string, unknown> };
+}
+
+// Cria a Estimativa de custo de um processo que ainda não tem (o app faz isso no botão "Criar estimativa").
+// Semeia o cabeçalho com os dados da cotação/embarque e os itens com a Carga, com as alíquotas padrão do app.
+// Frete/seguro/despesas vindos das Taxas e os totais são calculados pelo app quando a aba é aberta.
+async function criarEstimativa(ctx: Ctx, a: Args) {
+  requireRole(ctx, FULL_ACCESS_ROLES, "a estimativa de custo");
+  const { sh, quoteId } = await processoComCotacao(ctx, a, true);
+  const usd = a.usd_brl, eur = a.eur_brl;
+  if (typeof usd !== "number" || !(usd > 0) || usd > 1000) throw new ToolError('Informe "usd_brl" (câmbio fiscal USD→BRL, número > 0, ex.: 5.42). Pergunte ao usuário qual câmbio usar.');
+  if (eur !== undefined && eur !== null && (typeof eur !== "number" || !(eur > 0) || eur > 1000)) throw new ToolError('"eur_brl" deve ser um número > 0.');
+
+  const { data: ja, error: ej } = await ctx.sb.from("cost_estimates").select("id").eq("quote_id", quoteId).maybeSingle();
+  if (ej) throw new ToolError("Falha ao verificar a estimativa.");
+  if (ja) throw new ToolError(`O processo ${sh.reference_number} já tem estimativa. Use ver_estimativa e atualizar_estimativa.`);
+
+  const [{ data: q }, { data: itens }, { data: emb }] = await Promise.all([
+    ctx.sb.from("quotes").select("incoterm,origin,destination,transit_time").eq("id", quoteId).maybeSingle(),
+    ctx.sb.from("quote_items").select("id,ncm_code,commodity,weight_kg,pieces,packages,container_qty").eq("quote_id", quoteId).order("created_at"),
+    sh.id ? ctx.sb.from("shipments").select("carrier,etd,eta").eq("id", sh.id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  let transito: string | undefined;
+  if (emb?.etd && emb?.eta) {
+    const dias = Math.round((new Date(emb.eta as string).getTime() - new Date(emb.etd as string).getTime()) / 86400000);
+    if (dias >= 0) transito = `${dias} DIAS`;
+  }
+  if (!transito && q?.transit_time) transito = String(q.transit_time);
+  const cab = {
+    incoterm: q?.incoterm ?? null, rota_origem: q?.origin ?? null, rota_destino: q?.destination ?? null,
+    carrier: emb?.carrier ?? null, transito: transito ?? null, usd_brl: usd, eur_brl: typeof eur === "number" ? eur : 0,
+  };
+  const buscar = a.buscar_aliquotas !== false; // padrão: busca, como o app ao preencher o NCM
+  const avisosNcm: string[] = [];
+  const cacheNcm = new Map<string, AliqNcm | null>();
+  const aliqDoItem = async (ncm: unknown): Promise<AliqNcm | null> => {
+    const k = String(ncm ?? "").replace(/\D/g, "");
+    if (!buscar || !k) return null;
+    if (!cacheNcm.has(k)) {
+      try { cacheNcm.set(k, await aliquotasPorNcm(ctx, k)); } catch (e) { cacheNcm.set(k, null); avisosNcm.push(e instanceof ToolError ? e.message : `NCM ${k}: consulta falhou`); }
+    }
+    return cacheNcm.get(k) ?? null;
+  };
+  const itensValidos = (itens ?? []).filter((i: { id?: string }) => i?.id) as Record<string, unknown>[];
+  const aliqs = await Promise.all(itensValidos.map((qi) => aliqDoItem(qi.ncm_code)));
+  const linhas = itensValidos.map((qi: Record<string, unknown>, idx: number) => ({
+    quote_item_id: qi.id, ordem: idx, ncm: qi.ncm_code || null, nome: qi.commodity || "",
+    peso: Number(qi.weight_kg) || 0,
+    // Quantidade = peças do item (é por ela que o VMCV unitário multiplica); sem peças, cai para volumes/contêineres como o app.
+    quantidade: Number(qi.pieces) || Number(qi.packages) || Number(qi.container_qty) || 0,
+    vmcv_unit_usd: 0, aliq_ii: aliqs[idx]?.ii ?? 0, aliq_ipi: aliqs[idx]?.ipi ?? 0, aliq_pis: aliqs[idx]?.pis ?? 2.1, aliq_cofins: aliqs[idx]?.cofins ?? 9.65, aliq_icms: 18,
+  }));
+
+  if (!confirmado(a)) {
+    return previa({
+      processo: sh.reference_number,
+      como_era: "O processo ainda não tem estimativa.",
+      como_vai_ficar: {
+        cabecalho: cab,
+        itens: linhas.map((l) => ({ nome: l.nome, ncm: l.ncm, peso: l.peso, quantidade: l.quantidade, aliquotas_percentual: { II: l.aliq_ii, IPI: l.aliq_ipi, PIS: l.aliq_pis, COFINS: l.aliq_cofins, ICMS: l.aliq_icms }, vmcv_unit_usd: 0 })),
+        consulta_ncm: buscar ? { feita: true, avisos: avisosNcm, nota: "II/IPI da base oficial (TEC/TIPI); PIS/COFINS = alíquota geral do regime (confira monofásico/diferenciado); ICMS = 18 padrão (confira). Item sem NCM ou com consulta que falhou fica com II 0, IPI 0." } : { feita: false },
+        observacao: "Cria só o cabeçalho e os itens da Carga. Frete/seguro/despesas das Taxas e os totais são calculados pelo app quando a aba Estimativa é aberta. Depois, informe o VMCV unitário e as alíquotas com atualizar_estimativa.",
+      },
+    });
+  }
+
+  const { data: est, error } = await ctx.sb.from("cost_estimates").insert({ company_id: ctx.companyId, quote_id: quoteId, ...cab }).select("id").single();
+  if (error || !est) throw new ToolError("Não foi possível criar a estimativa.");
+  if (linhas.length) {
+    const { error: ei } = await ctx.sb.from("cost_estimate_items").upsert(
+      linhas.map((l) => ({ ...l, estimate_id: est.id, company_id: ctx.companyId })), { onConflict: "estimate_id,quote_item_id" });
+    if (ei) {
+      await ctx.sb.from("cost_estimates").delete().eq("id", est.id);
+      throw new ToolError("Não foi possível criar os itens da estimativa; nada foi gravado.");
+    }
+  }
+  return ok({ criada: true, aplicado: true, processo: sh.reference_number, itens_criados: linhas.length, proximo_passo: "Use ver_estimativa e atualizar_estimativa para informar VMCV unitário e alíquotas. Frete/seguro/despesas das Taxas e os totais aparecem quando a aba Estimativa é aberta no app." });
+}
+
+// Alíquotas por NCM: mesma ação do botão da aba Estimativa (siscomex-gateway / get_ncm_rates).
+// II/IPI vêm da base oficial (TEC/TIPI via Tabelas Fiscais); PIS/COFINS são a alíquota GERAL do regime
+// (não é por NCM): monofásico/diferenciado precisa ser conferido. ICMS não é consultado.
+type AliqNcm = { ii: number; ipi: number; pis: number; cofins: number; descricao: string | null; fonte: string };
+async function aliquotasPorNcm(ctx: Ctx, ncm: unknown): Promise<AliqNcm> {
+  const limpo = String(ncm ?? "").replace(/\D/g, "");
+  if (limpo.length !== 8) throw new ToolError(`NCM "${String(ncm ?? "")}" inválido: precisa ter 8 dígitos.`);
+  const { data, error } = await ctx.sb.functions.invoke("siscomex-gateway", { body: { action: "get_ncm_rates", ncm: limpo, company_id: ctx.companyId } });
+  let corpo = data as Record<string, unknown> | null;
+  if (error && !corpo) {
+    try { corpo = await (error as unknown as { context: Response }).context.json(); } catch (_) { /* sem corpo */ }
+  }
+  if (!corpo?.success || !corpo.rates) {
+    throw new ToolError(`NCM ${limpo}: ${String(corpo?.error ?? "não foi possível consultar as alíquotas agora")}`);
+  }
+  const r = corpo.rates as Record<string, number>;
+  return { ii: Number(r.ii), ipi: Number(r.ipi), pis: Number(r.pis), cofins: Number(r.cofins), descricao: (corpo.ncm_descricao as string | null) ?? null, fonte: String(corpo.source ?? "") };
+}
+
+async function consultarAliquotasNcm(ctx: Ctx, a: Args) {
+  requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações");
+  const r = await aliquotasPorNcm(ctx, a.ncm);
+  return ok({
+    ncm: String(a.ncm).replace(/\D/g, ""), descricao: r.descricao,
+    aliquotas_percentual: { II: r.ii, IPI: r.ipi, PIS: r.pis, COFINS: r.cofins },
+    fonte: r.fonte,
+    atencao: "PIS/COFINS são a alíquota geral do regime, não específica do NCM: confira enquadramento monofásico/diferenciado. ICMS não é consultado (depende da UF e do produto).",
+  });
 }
 
 async function verEstimativa(ctx: Ctx, a: Args) {
@@ -1432,6 +1566,7 @@ async function atualizarEstimativa(ctx: Ctx, a: Args) {
 
   // Itens (somente dados fiscais)
   const itemUpd: { id: string; nome: string; patch: Record<string, unknown>; row: Record<string, unknown> }[] = [];
+  const consultasNcm: { item: string; ncm: string; descricao: string | null }[] = [];
   if (itensIn !== undefined) {
     if (!Array.isArray(itensIn) || itensIn.length === 0 || itensIn.length > 50) throw bad('"itens" deve ser uma lista de 1 a 50.');
     const { data: atuais } = await ctx.sb.from("cost_estimate_items").select("*").eq("estimate_id", est.id as string);
@@ -1443,14 +1578,22 @@ async function atualizarEstimativa(ctx: Ctx, a: Args) {
       const row = byId.get(id);
       if (!UUID_RE.test(id) || !row) throw bad(`Item ${i + 1}: "id" inválido (use o id de ver_estimativa).`);
       const patch: Record<string, unknown> = {};
+      let buscarNcm = false;
       for (const [k, v] of Object.entries(o)) {
         if (k === "id") continue;
+        if (k === "buscar_aliquotas_ncm") { if (typeof v !== "boolean") throw bad(`Item ${i + 1}, "buscar_aliquotas_ncm": true ou false.`); buscarNcm = v; continue; }
         const kind = EST_ITEM[k];
         if (!kind) throw bad(`Item ${i + 1}: campo "${k}" não editável. Editáveis: ${Object.keys(EST_ITEM).join(", ")}. (nome/NCM/peso/quantidade vêm da Carga.)`);
         if (kind === "usd") { if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1e9) throw bad(`Item ${i + 1}, "${k}": número >= 0.`); patch[k] = v; }
         else if (kind === "pct") { if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 99.99) throw bad(`Item ${i + 1}, "${k}": percentual entre 0 e 99,99 (ex.: 14.4 = 14,4%).`); patch[k] = v; }
         else if (kind === "dest") { if (v !== "consumo_final" && v !== "revenda_industrializacao") throw bad(`Item ${i + 1}: destinacao = consumo_final ou revenda_industrializacao.`); patch[k] = v; }
         else { if (typeof v !== "boolean") throw bad(`Item ${i + 1}, "${k}": true ou false.`); patch[k] = v; }
+      }
+      if (buscarNcm) {
+        if (!String(row.ncm ?? "").replace(/\D/g, "")) throw bad(`Item ${i + 1}: sem NCM — preencha o NCM na Carga (atualizar_carga) antes de buscar as alíquotas.`);
+        const r = await aliquotasPorNcm(ctx, row.ncm);
+        consultasNcm.push({ item: String(row.nome ?? ""), ncm: String(row.ncm), descricao: r.descricao });
+        for (const [kk, vv] of Object.entries({ aliq_ii: r.ii, aliq_ipi: r.ipi, aliq_pis: r.pis, aliq_cofins: r.cofins })) if (!(kk in patch)) patch[kk] = vv; // valor informado no mesmo item vence
       }
       if (Object.keys(patch).length === 0) throw bad(`Item ${i + 1}: nada para alterar.`);
       itemUpd.push({ id, nome: String(row.nome ?? ""), patch, row });
@@ -1468,6 +1611,7 @@ async function atualizarEstimativa(ctx: Ctx, a: Args) {
       processo: sh.reference_number,
       cabecalho: hdrChanges.map(([k, v]) => ({ campo: k, como_era: str(est[k]) || null, como_vai_ficar: str(v) || null })),
       itens: itemChanges.map((u) => ({ item: u.nome, mudancas: u.changes.map(([k, v]) => ({ campo: k, como_era: str(u.row[k]) || null, como_vai_ficar: str(v) })) })),
+      ...(consultasNcm.length ? { consulta_ncm: consultasNcm, atencao_ncm: "II/IPI da base oficial (TEC/TIPI); PIS/COFINS = alíquota geral do regime (confira monofásico/diferenciado). ICMS não é consultado." } : {}),
       nota: "Os totais e impostos são recalculados pelo app ao abrir a aba Estimativa.",
     });
   }
@@ -1677,6 +1821,278 @@ async function criarProcesso(ctx: Ctx, a: Args) {
   });
 }
 
+// Cria uma COTAÇÃO sem processo (status "quoting"), para o fluxo comercial. Depois use adicionar_carga,
+// adicionar_taxas e criar_estimativa com "cotacao". Número oficial digitado pelo usuário (como em criar_processo).
+const COTACAO_CAMPOS = ["origin_port", "destination_port", "transshipment", "incoterm", "client_reference", "free_time"];
+async function criarCotacao(ctx: Ctx, a: Args) {
+  requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações");
+  const cliente = optStr(a, "cliente");
+  if (!cliente) throw new ToolError('Informe "cliente" (nome, ou parte do nome, do cliente já cadastrado).');
+  const modal = typeof a.modal === "string" ? a.modal : "";
+  if (!TRANSPORT_MODES.includes(modal)) throw new ToolError(`Informe "modal": ${TRANSPORT_MODES.join(", ")}.`);
+  const manual = optStr(a, "referencia", 40);
+  if (!manual) throw new ToolError('Informe a "referencia" da cotação (número oficial na sequência da empresa, ex.: 26/345). Pergunte ao usuário qual número usar; o sistema não gera esse número automaticamente.');
+
+  const extra = (a.campos ?? {}) as Record<string, unknown>;
+  if (typeof extra !== "object" || Array.isArray(extra)) throw new ToolError('"campos" deve ser um objeto.');
+  const fora = Object.keys(extra).filter((k) => !COTACAO_CAMPOS.includes(k));
+  if (fora.length) throw new ToolError(`Campo(s) não aceitos na cotação: ${fora.join(", ")}. Aceitos: ${COTACAO_CAMPOS.join(", ")}.`);
+  const novos = prepareFields(extra, {});
+  const itensCarga = a.itens_carga === undefined || a.itens_carga === null ? [] : parseCargo(a.itens_carga, modal);
+  const direcao = a.direcao === "EXP" ? "EXP" : "IMP";
+
+  const externa = optStr(a, "referencia_externa", 60);
+  if (externa) {
+    const { data: ja } = await ctx.sb.from("quotes").select("quote_number,status").eq("company_id", ctx.companyId).eq("external_ref", externa).maybeSingle();
+    if (ja) return ok({ criado: false, ja_existia: true, nada_foi_gravado: true, referencia_externa: externa, cotacao: ja.quote_number, status: ja.status, proximo_passo: "Esta cotação já foi criada antes com a mesma referencia_externa. NÃO crie outra: continue com ela usando o número acima em \"cotacao\"." });
+  }
+
+  const ids = await clientFilter(ctx, cliente);
+  if (!ids || ids.length === 0) {
+    if (ids) throw new ToolError(`Nenhum cliente seu encontrado com o nome "${cliente}".`);
+    throw new ToolError(`Cliente "${cliente}" não encontrado.${NOVA_EMPRESA_DICA}`);
+  }
+  const { data: cls, error: ec } = await ctx.sb.from("clients").select("id,name").in("id", ids).limit(10);
+  if (ec) throw new ToolError("Falha ao buscar o cliente.");
+  const exato = (cls ?? []).filter((c: { name: string }) => c.name.toLowerCase() === cliente.toLowerCase());
+  const cand = exato.length === 1 ? exato : (cls ?? []);
+  if (cand.length !== 1) throw new ToolError(`Cliente "${cliente}" é ambíguo ou não existe. Opções: ${(cls ?? []).map((c: { name: string }) => c.name).join("; ") || "nenhuma"}.`);
+
+  const exists = async (n: string) => {
+    const [{ data: q }, { data: sh }] = await Promise.all([
+      ctx.sb.from("quotes").select("id").eq("company_id", ctx.companyId).ilike("quote_number", n).limit(1),
+      ctx.sb.from("shipments").select("id").eq("company_id", ctx.companyId).ilike("reference_number", n).limit(1),
+    ]);
+    return !!(q?.length || sh?.length);
+  };
+  if (await exists(manual)) throw new ToolError(`Já existe cotação ou processo com a referência "${manual}". Escolha outra.`);
+
+  if (!confirmado(a)) {
+    return previa({
+      como_era: "Esta cotação ainda não existe.",
+      como_vai_ficar: {
+        cotacao: manual, referencia_externa: externa ?? null, cliente: cand[0].name, modal, direcao,
+        status_inicial: "quoting", cria_processo: false, campos: novos, itens_de_carga: itensCarga, totais_no_app: cargoAppTotals(itensCarga),
+      },
+    });
+  }
+
+  const { data: cot, error: eq } = await ctx.sb.from("quotes").insert({
+    company_id: ctx.companyId, quote_number: manual, base_reference: manual, transport_mode: modal, client_id: cand[0].id,
+    origin: novos.origin_port ?? null, destination: novos.destination_port ?? null, transshipment: novos.transshipment ?? null,
+    incoterm: novos.incoterm ?? null, client_reference: novos.client_reference ?? null, free_time: novos.free_time ?? null,
+    direction: direcao, created_by: ctx.userId, status: "quoting", external_ref: externa ?? null,
+  }).select("id,quote_number,status").single();
+  if (eq || !cot) {
+    if (externa && eq?.code === "23505") {
+      const { data: ja } = await ctx.sb.from("quotes").select("quote_number,status").eq("company_id", ctx.companyId).eq("external_ref", externa).maybeSingle();
+      if (ja) return ok({ criado: false, ja_existia: true, nada_foi_gravado: true, referencia_externa: externa, cotacao: ja.quote_number, status: ja.status });
+    }
+    throw new ToolError(`Não foi possível criar a cotação: ${(eq?.message ?? "").slice(0, 200)}`);
+  }
+  let cargaRegistrada = 0;
+  if (itensCarga.length) {
+    const { error: ei } = await ctx.sb.from("quote_items").insert(itensCarga.map((it) => ({ ...it, quote_id: cot.id, company_id: ctx.companyId })));
+    if (ei) throw new ToolError(`A cotação ${cot.quote_number} foi criada, mas a carga não foi registrada (${ei.message.slice(0, 150)}). Use adicionar_carga com "cotacao" para tentar de novo.`);
+    cargaRegistrada = itensCarga.length;
+  }
+  return ok({ criado: true, cotacao: cot.quote_number, referencia_externa: externa ?? null, status: cot.status, itens_carga_registrados: cargaRegistrada, cliente: cand[0].name, modal, proximo_passo: 'Use "cotacao" com adicionar_carga, adicionar_taxas e criar_estimativa para completar.' });
+}
+
+// Troca o CLIENTE de um processo e/ou cotação (mesma regra do app: QuoteDetail > handleChangeClient).
+// Atualiza quotes.client_id e, se houver processo ligado, shipments.client_id. NÃO muda em cascata taxas,
+// notas de débito, contas a receber nem parceiros já lançados no nome do cliente anterior: o app só avisa,
+// e aqui notas de débito/contas a receber BLOQUEIAM a troca (já há cobrança emitida no nome do cliente antigo).
+async function resolverClienteUnico(ctx: Ctx, nome: string) {
+  const ids = await clientFilter(ctx, nome);
+  if (!ids || ids.length === 0) {
+    if (ids) throw new ToolError(`Nenhum cliente seu encontrado com o nome "${nome}".`);
+    throw new ToolError(`Cliente "${nome}" não encontrado.${NOVA_EMPRESA_DICA}`);
+  }
+  const { data: cls, error } = await ctx.sb.from("clients").select("id,name").in("id", ids).limit(10);
+  if (error) throw new ToolError("Falha ao buscar o cliente.");
+  const exato = (cls ?? []).filter((c: { name: string }) => c.name.toLowerCase() === nome.toLowerCase());
+  const cand = exato.length === 1 ? exato : (cls ?? []);
+  if (cand.length !== 1) throw new ToolError(`Cliente "${nome}" é ambíguo ou não existe. Opções: ${(cls ?? []).map((c: { name: string }) => c.name).join("; ") || "nenhuma"}.`);
+  return cand[0] as { id: string; name: string };
+}
+
+async function alterarCliente(ctx: Ctx, a: Args) {
+  requireRole(ctx, QUOTES_ACCESS_ROLES, "cotações e processos");
+  const nomeNovo = optStr(a, "cliente");
+  if (!nomeNovo) throw new ToolError('Informe "cliente" (nome do NOVO cliente, já cadastrado).');
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, true, "id,reference_number,company_id,client_id,is_finalized");
+  const novo = await resolverClienteUnico(ctx, nomeNovo);
+
+  const { data: cot, error: eq } = await ctx.sb.from("quotes").select("client_id,client:clients!quotes_client_id_fkey(name)").eq("id", quoteId).maybeSingle();
+  if (eq || !cot) throw new ToolError("Falha ao carregar a cotação.");
+  const antigoId = (cot.client_id as string | null) ?? null;
+  const antigoNome = (cot.client as unknown as { name?: string } | null)?.name ?? null;
+  const rotulo = String(sh.reference_number);
+  if (antigoId === novo.id) return ok({ alterado: false, alvo: rotulo, motivo: `O cliente já é ${novo.name}.` });
+
+  // Lançamentos feitos no nome do cliente atual (as mesmas checagens do app).
+  let avisos: string[] = [];
+  if (antigoId) {
+    const cnt = async (tabela: string, col: string) => {
+      const { count } = await ctx.sb.from(tabela).select("id", { count: "exact", head: true }).eq("quote_id", quoteId).eq(col, antigoId);
+      return count ?? 0;
+    };
+    const [taxas, nd, cr, parc] = await Promise.all([cnt("quote_charges", "partner_id"), cnt("debit_notes", "client_id"), cnt("accounts_receivable", "client_id"), cnt("quote_partners", "client_id")]);
+    if (nd > 0 || cr > 0) {
+      throw new ToolError(`Troca bloqueada: ${rotulo} já tem ${nd ? `${nd} nota(s) de débito` : ""}${nd && cr ? " e " : ""}${cr ? `${cr} conta(s) a receber` : ""} no nome de ${antigoNome ?? "o cliente atual"}. Isso não é transferido sozinho; trate no AuraComex.`);
+    }
+    if (taxas) avisos.push(`${taxas} taxa(s) lançada(s) no nome do cliente anterior (continuam nele; ajuste com atualizar_taxa, campo empresa, se for o caso)`);
+    if (parc) avisos.push(`${parc} vínculo(s) de parceiro da cotação com o cliente anterior (não mudam)`);
+  }
+
+  if (!confirmado(a)) {
+    return previa({
+      alvo: rotulo,
+      como_era: { cliente: antigoNome },
+      como_vai_ficar: { cliente: novo.name },
+      altera: sh.id ? "cotação e processo ligados" : "cotação (ainda sem processo)",
+      avisos,
+      nota: "O câmbio da agência (spread do cliente) e demais dados do cliente são recalculados pelo app ao abrir a aba Estimativa.",
+    });
+  }
+
+  const { error: e1 } = await ctx.sb.from("quotes").update({ client_id: novo.id }).eq("id", quoteId);
+  if (e1) throw new ToolError(`Não foi possível trocar o cliente da cotação: ${e1.message.slice(0, 200)}`);
+  if (sh.id) {
+    const { error: e2 } = await ctx.sb.from("shipments").update({ client_id: novo.id, updated_at: new Date().toISOString() }).eq("id", sh.id as string);
+    if (e2) {
+      await ctx.sb.from("quotes").update({ client_id: antigoId }).eq("id", quoteId); // desfaz, para cotação e processo não ficarem em clientes diferentes
+      throw new ToolError(`Não foi possível trocar o cliente do processo (nada foi alterado): ${e2.message.slice(0, 200)}`);
+    }
+  }
+  await ctx.sb.from("shipment_audit_log").insert({
+    shipment_id: sh.id ?? null, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId,
+    field_name: "client_id", old_value: antigoId, new_value: novo.id,
+  });
+  return ok({ alterado: true, alvo: rotulo, cliente_anterior: antigoNome, cliente_novo: novo.name, processo_atualizado: !!sh.id, avisos });
+}
+
+// ---- Anexar documento (aba Documentos) ----
+// O arquivo chega por "url" (https público, baixado pelo servidor) ou por "conteudo_base64" (arquivos pequenos).
+// Mesmo caminho do app: bucket shipment-documents, path empresa/alvo/timestamp_nome, linha em "documents".
+// Nunca fica visível no tracking do cliente (visible_tracking = false). Prévia mostra nome, tamanho e SHA-256;
+// ao confirmar, para "url" o SHA-256 da prévia (sha256_esperado) tem de bater com o que o servidor baixa de novo.
+const ANEXO_EXT = ["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "docx", "doc", "csv", "txt", "xml", "eml", "msg", "zip"];
+const ANEXO_TIPOS = ["bl", "invoice", "packing_list", "certificate_origin", "customs_declaration", "insurance", "dta", "other"];
+const ANEXO_MAX_URL = 10 * 1024 * 1024;
+const ANEXO_MAX_B64_CHARS = 400_000;
+
+function nomeSeguro(nome: string): string {
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "").slice(-120) || "arquivo";
+}
+
+function urlPublicaHttps(raw: string): URL {
+  let u: URL;
+  try { u = new URL(raw); } catch { throw new ToolError('"url" inválida.'); }
+  if (u.protocol !== "https:") throw new ToolError('"url" precisa ser https.');
+  const h = u.hostname.toLowerCase();
+  const m4 = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  const privado = h === "localhost" || h.startsWith("[") || !h.includes(".") || /\.(local|internal|localhost|lan|home)$/.test(h) ||
+    (m4 && (() => { const [a, b] = [Number(m4[1]), Number(m4[2])]; return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224; })());
+  if (privado) throw new ToolError('"url" aponta para endereço interno/privado: não permitido.');
+  return u;
+}
+
+async function baixarArquivo(raw: string): Promise<{ bytes: Uint8Array; contentType: string; nomeUrl: string }> {
+  let u = urlPublicaHttps(raw);
+  for (let salto = 0; salto < 4; salto++) {
+    let r: Response;
+    try { r = await fetch(u.toString(), { redirect: "manual", signal: AbortSignal.timeout(20000), headers: { "User-Agent": "AuraComex-MCP" } }); }
+    catch { throw new ToolError("Não foi possível baixar o arquivo da url (tempo esgotado ou endereço inacessível)."); }
+    if ([301, 302, 303, 307, 308].includes(r.status)) {
+      const loc = r.headers.get("location");
+      if (!loc) throw new ToolError("Redirecionamento inválido ao baixar o arquivo.");
+      u = urlPublicaHttps(new URL(loc, u).toString());
+      continue;
+    }
+    if (!r.ok || !r.body) throw new ToolError(`Falha ao baixar o arquivo (status ${r.status}).`);
+    const decl = Number(r.headers.get("content-length") ?? 0);
+    if (decl > ANEXO_MAX_URL) throw new ToolError(`Arquivo maior que o limite de ${ANEXO_MAX_URL / 1048576} MB.`);
+    const partes: Uint8Array[] = []; let total = 0;
+    const rd = r.body.getReader();
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (done) break;
+      total += value.length;
+      if (total > ANEXO_MAX_URL) { await rd.cancel(); throw new ToolError(`Arquivo maior que o limite de ${ANEXO_MAX_URL / 1048576} MB.`); }
+      partes.push(value);
+    }
+    const bytes = new Uint8Array(total); let o = 0;
+    for (const p of partes) { bytes.set(p, o); o += p.length; }
+    return { bytes, contentType: (r.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase(), nomeUrl: decodeURIComponent(u.pathname.split("/").pop() ?? "") };
+  }
+  throw new ToolError("Redirecionamentos demais ao baixar o arquivo.");
+}
+
+function conferirAssinatura(ext: string, b: Uint8Array) {
+  const h = (...x: number[]) => x.every((v, i) => b[i] === v);
+  const ok = ext === "pdf" ? h(0x25, 0x50, 0x44, 0x46) : ext === "png" ? h(0x89, 0x50, 0x4e, 0x47) : (ext === "jpg" || ext === "jpeg") ? h(0xff, 0xd8, 0xff)
+    : (ext === "xlsx" || ext === "docx" || ext === "zip") ? h(0x50, 0x4b) : true;
+  if (!ok) throw new ToolError(`O conteúdo não parece um arquivo .${ext} válido.`);
+}
+
+async function anexarDocumento(ctx: Ctx, a: Args) {
+  requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "documentos");
+  const { sh, quoteId } = await alvoDaCotacao(ctx, a, true, "id,reference_number,company_id,is_finalized");
+  const url = typeof a.url === "string" ? a.url.trim() : "";
+  const b64 = typeof a.conteudo_base64 === "string" ? a.conteudo_base64.replace(/\s+/g, "") : "";
+  if ((url ? 1 : 0) + (b64 ? 1 : 0) !== 1) throw new ToolError('Informe o arquivo por "url" (https) OU por "conteudo_base64" (só arquivos pequenos), não os dois.');
+  const tipo = typeof a.tipo_documento === "string" ? a.tipo_documento : "";
+  if (!ANEXO_TIPOS.includes(tipo)) throw new ToolError(`Informe "tipo_documento": ${ANEXO_TIPOS.join(", ")}.`);
+  const categoria = optStr(a, "categoria_personalizada", 60);
+  if (categoria && tipo !== "other") throw new ToolError('"categoria_personalizada" só vale com tipo_documento "other".');
+  const vencimento = optDate(a, "vencimento");
+
+  let bytes: Uint8Array; let nomeUrl = "";
+  if (url) {
+    const r = await baixarArquivo(url); bytes = r.bytes; nomeUrl = r.nomeUrl;
+  } else {
+    if (b64.length > ANEXO_MAX_B64_CHARS) throw new ToolError(`conteudo_base64 grande demais (limite ~${Math.floor(ANEXO_MAX_B64_CHARS * 0.75 / 1024)} KB). Para arquivos maiores use "url".`);
+    try { bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); } catch { throw new ToolError("conteudo_base64 inválido."); }
+  }
+  if (bytes.length === 0) throw new ToolError("O arquivo está vazio.");
+  const nome = clean(a.nome_arquivo ?? nomeUrl, 150).replace(/\//g, "-");
+  const ext = (nome.split(".").pop() ?? "").toLowerCase();
+  if (!nome || !ANEXO_EXT.includes(ext)) throw new ToolError(`Informe "nome_arquivo" com extensão permitida: ${ANEXO_EXT.join(", ")}.`);
+  conferirAssinatura(ext, bytes);
+  const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map((x) => x.toString(16).padStart(2, "0")).join("");
+
+  const colAlvo = sh.id ? "shipment_id" : "quote_id";
+  const { data: dup } = await ctx.sb.from("documents").select("id").eq(colAlvo, (sh.id ?? quoteId) as string).eq("name", nome).eq("file_size", bytes.length).limit(1);
+  if (dup && dup.length) throw new ToolError(`${sh.reference_number} já tem um documento "${nome}" com o mesmo tamanho. Nada foi enviado.`);
+
+  if (!confirmado(a)) {
+    return previa({
+      alvo: sh.reference_number,
+      arquivo: { nome, tamanho_kb: Math.round(bytes.length / 102.4) / 10, sha256: sha, origem: url ? new URL(url).hostname : "conteúdo enviado" },
+      tipo_documento: tipo, categoria_personalizada: categoria ?? null, vencimento: vencimento ?? null,
+      visivel_no_tracking_do_cliente: false,
+      nota: url ? "Ao confirmar, repita a chamada com os mesmos parâmetros, confirmar: true, o token_confirmacao e sha256_esperado = o sha256 acima." : undefined,
+    });
+  }
+  if (url && a.sha256_esperado !== sha) throw new ToolError("O arquivo da url mudou desde a prévia, ou faltou sha256_esperado (use o sha256 da prévia). Nada foi enviado; gere uma nova prévia.");
+
+  const path = `${ctx.companyId}/${sh.id ?? quoteId}/${Date.now()}_${nomeSeguro(nome)}`;
+  const mime: Record<string, string> = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", csv: "text/csv", txt: "text/plain", xml: "application/xml", zip: "application/zip" };
+  const { error: eu } = await ctx.sb.storage.from("shipment-documents").upload(path, bytes, { contentType: mime[ext] ?? "application/octet-stream" });
+  if (eu) throw new ToolError(`Não foi possível enviar o arquivo: ${eu.message.slice(0, 160)}`);
+  const { data: doc, error: ed } = await ctx.sb.from("documents").insert({
+    shipment_id: sh.id ?? null, quote_id: quoteId, company_id: ctx.companyId, name: nome, file_url: path, file_size: bytes.length,
+    uploaded_by: ctx.userId, document_type: tipo, custom_category: categoria ?? null, expires_at: vencimento ?? null,
+  }).select("id").single();
+  if (ed || !doc) {
+    await ctx.sb.storage.from("shipment-documents").remove([path]);
+    throw new ToolError(`Não foi possível registrar o documento (nada foi enviado): ${(ed?.message ?? "").slice(0, 160)}`);
+  }
+  return ok({ anexado: true, alvo: sh.reference_number, documento: nome, tipo_documento: tipo, tamanho_kb: Math.round(bytes.length / 102.4) / 10, visivel_no_tracking_do_cliente: false });
+}
+
 async function atualizarProcesso(ctx: Ctx, a: Args) {
   requireRole(ctx, SHIPMENTS_ACCESS_ROLES, "processos");
   const ref = optStr(a, "processo");
@@ -1809,6 +2225,7 @@ const nullableProps = (p: Record<string, Record<string, unknown>>) =>
 
 const limiteProp ={ type: "integer", minimum: 1, maximum: 50, description: "Máximo de itens (padrão 20)." };
 
+const COTACAO_PROP = { type: "string", description: "Número exato da cotação (para cotação ainda sem processo). Use este OU \"processo\"." };
 const TOOLS: Tool[] = [
   {
     name: "listar_processos",
@@ -1838,14 +2255,13 @@ const TOOLS: Tool[] = [
   },
   {
     name: "listar_documentos",
-    description: "Lista os documentos anexados a um processo (nome, tipo, datas). Não devolve links de arquivo.",
+    description: "Lista os documentos anexados a um processo ou cotação (nome, tipo, datas). Não devolve links de arquivo.",
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         limite: { ...limiteProp, maximum: 100 },
       },
-      required: ["processo"],
     },
     run: listarDocumentos,
   },
@@ -1861,12 +2277,14 @@ const TOOLS: Tool[] = [
   },
   {
     name: "listar_cotacoes",
-    description: "Lista cotações da empresa, mais recentes primeiro.",
+    description: "Lista cotações da empresa, mais recentes primeiro (com o número exato de cada uma e se já virou processo). Use o número em \"cotacao\" nas ferramentas de taxas, carga e estimativa.",
     inputSchema: {
       type: "object",
       properties: {
         status: { type: "string", description: "draft, sent, approved, rejected, converted ou quoting." },
         cliente: { type: "string", description: "Parte do nome do cliente." },
+        numero: { type: "string", description: "Parte do número da cotação." },
+        sem_processo: { type: "boolean", description: "true = só cotações que ainda não viraram processo." },
         limite: limiteProp,
       },
     },
@@ -1919,6 +2337,27 @@ const TOOLS: Tool[] = [
     write: true,
   },
   {
+    name: "criar_cotacao",
+    description:
+      "Cria uma COTAÇÃO nova para um cliente já cadastrado, sem criar processo (status \"quoting\"), com o número oficial informado em \"referencia\" (obrigatório: pergunte ao usuário, o sistema não gera o número). Opcional: \"campos\" (origin_port, destination_port com código de porto, transshipment, incoterm, client_reference, free_time) e \"itens_carga\". Se informar \"referencia_externa\" e já existir cotação com ela, não cria outra: devolve a existente. Depois complete com adicionar_carga, adicionar_taxas e criar_estimativa usando \"cotacao\". Esta ferramenta não cria processo (a conversão da cotação em processo é feita no AuraComex). Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cliente: { type: "string", description: "Nome (ou parte) do cliente já cadastrado." },
+        modal: { type: "string", enum: TRANSPORT_MODES },
+        referencia: { type: "string", description: "OBRIGATÓRIO. Número oficial da cotação, na sequência da empresa (ex.: 26/345). Pergunte ao usuário." },
+        referencia_externa: { type: "string", maxLength: 60, description: "Chave do chamador (ex.: ID do dossiê) para não duplicar a cotação se a chamada for repetida." },
+        direcao: { type: "string", enum: ["IMP", "EXP"], description: "Padrão IMP." },
+        campos: { type: "object", additionalProperties: true, description: "origin_port, destination_port, transshipment, incoterm, client_reference, free_time." },
+        itens_carga: CARGO_SCHEMA,
+        confirmar: CONFIRMAR_PROP,
+      },
+      required: ["cliente", "modal", "referencia"],
+    },
+    run: criarCotacao,
+    write: true,
+  },
+  {
     name: "criar_processo",
     description:
       "Cria um processo (embarque) novo para um cliente já cadastrado, junto com a cotação ligada a ele (como no fluxo normal do app), com o número oficial informado em \"referencia\" (obrigatório: pergunte ao usuário, o sistema não gera o número) e status inicial \"approved\". Informe cliente, modal e, se já souber, outros dados em \"campos\" (mesmos campos de atualizar_processo; portos pelo código, ex.: CNSHA, BRSSZ) e a carga em \"itens_carga\" (mercadoria, NCM, peças, peso total, volume total, volumes, valor). Se informar \"referencia_externa\" e já existir processo com ela, não cria outro: devolve o existente. Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
@@ -1946,11 +2385,11 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         itens_carga: CARGO_SCHEMA,
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "itens_carga"],
+      required: ["itens_carga"],
     },
     run: adicionarCarga,
     write: true,
@@ -1961,8 +2400,7 @@ const TOOLS: Tool[] = [
       "Lista as taxas (frete, origem, destino) da cotação ligada a um processo: descrição, etapa, unidade, moeda, venda, empresa, forma de pagamento e o id de cada linha. Compra e venda são linhas separadas. O custo (compra) só aparece para perfis com acesso total.",
     inputSchema: {
       type: "object",
-      properties: { processo: { type: "string", description: "Número de referência exato do processo." } },
-      required: ["processo"],
+      properties: { processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP },
     },
     run: listarTaxas,
   },
@@ -1973,7 +2411,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         taxas: {
           type: "array",
           maxItems: 40,
@@ -1999,7 +2437,7 @@ const TOOLS: Tool[] = [
         },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "taxas"],
+      required: ["taxas"],
     },
     run: adicionarTaxas,
     write: true,
@@ -2011,12 +2449,12 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         id_taxa: { type: "string", description: "Id da taxa (de listar_taxas)." },
         campos: { type: "object", additionalProperties: true, description: "Campos a alterar: " + TAXA_EDIT_KEYS.join(", ") + "." },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "id_taxa", "campos"],
+      required: ["id_taxa", "campos"],
     },
     run: atualizarTaxa,
     write: true,
@@ -2024,7 +2462,7 @@ const TOOLS: Tool[] = [
   {
     name: "listar_carga",
     description: "Lista a carga de um processo: itens comerciais com o id de cada linha (mercadoria, NCM, peças, valor, containers), os volumes físicos do embarque (quantidade, tipo, medidas, peso e cubagem por unidade), os totais do embarque (pallets, caixas, valor total da invoice) e os totais de peso/cubagem que o app mostra.",
-    inputSchema: { type: "object", properties: { processo: { type: "string", description: "Número de referência exato do processo." } }, required: ["processo"] },
+    inputSchema: { type: "object", properties: { processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP } },
     run: listarCarga,
   },
   {
@@ -2034,11 +2472,11 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         itens: { type: "array", maxItems: 50, items: { ...CARGO_SCHEMA.items, properties: { id: { type: "string", description: "Id do item (de listar_carga)." }, ...nullableProps(CARGO_SCHEMA.items.properties) }, required: ["id"] } },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "itens"],
+      required: ["itens"],
     },
     run: atualizarCarga,
     write: true,
@@ -2050,7 +2488,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         pallets: { type: ["integer", "null"], description: "Total de pallets do embarque." },
         caixas: { type: ["integer", "null"], description: "Total de caixas/volumes do embarque (na unidade de tipo_volume)." },
         tipo_volume: { type: ["string", "null"], enum: [...PACKAGE_TYPE_KEYS, null], description: "Tipo do volume contado em caixas." },
@@ -2058,7 +2496,6 @@ const TOOLS: Tool[] = [
         moeda_valor: { type: ["string", "null"], description: "Moeda do valor_total (3 letras, ex.: USD)." },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo"],
     },
     run: atualizarCargaFisica,
     write: true,
@@ -2070,7 +2507,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         volumes: {
           type: "array",
           maxItems: 30,
@@ -2091,7 +2528,7 @@ const TOOLS: Tool[] = [
         },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "volumes"],
+      required: ["volumes"],
     },
     run: atualizarVolumesCarga,
     write: true,
@@ -2102,11 +2539,11 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         ids: { type: "array", maxItems: 50, items: { type: "string" }, description: "Ids dos itens a remover." },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "ids"],
+      required: ["ids"],
     },
     run: removerCarga,
     write: true,
@@ -2139,14 +2576,43 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         id_taxa: { type: "string", description: "Id da taxa (de listar_taxas)." },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo", "id_taxa"],
+      required: ["id_taxa"],
     },
     run: removerTaxa,
     write: true,
+  },
+  {
+    name: "criar_estimativa",
+    description:
+      "Cria a Estimativa de custo de um processo que ainda não tem (o que o app faz no botão \"Criar estimativa\"): cabeçalho com incoterm, rota, transportadora e trânsito vindos da cotação/embarque, câmbio informado e os itens da Carga com as alíquotas padrão (II 0, IPI 0, PIS 2,1, COFINS 9,65, ICMS 18). Depois use atualizar_estimativa para VMCV e alíquotas. Frete/seguro/despesas das Taxas e os totais são calculados pelo app ao abrir a aba. Só perfis de acesso total. Escrita em 2 etapas: sem confirmar só devolve a prévia; crie (confirmar: true) só depois que o usuário aprovar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
+        usd_brl: { type: "number", description: "Câmbio fiscal USD→BRL (ex.: 5.42). Pergunte ao usuário." },
+        eur_brl: { type: "number", description: "Opcional. Câmbio EUR→BRL." },
+        buscar_aliquotas: { type: "boolean", description: "Padrão true: busca II/IPI (e PIS/COFINS geral) pelo NCM de cada item, como o botão da aba Estimativa. false = alíquotas padrão do app." },
+        confirmar: CONFIRMAR_PROP,
+      },
+      required: ["usd_brl"],
+    },
+    run: criarEstimativa,
+    write: true,
+  },
+  {
+    name: "consultar_aliquotas_ncm",
+    description:
+      "Consulta as alíquotas de importação de um NCM de 8 dígitos (a mesma busca do botão da aba Estimativa): II e IPI da base oficial (TEC/TIPI) e PIS/COFINS pela alíquota geral do regime (não é por NCM: confira monofásico/diferenciado). ICMS não é consultado. Só lê; para aplicar numa estimativa use criar_estimativa (busca sozinha) ou atualizar_estimativa com buscar_aliquotas_ncm.",
+    inputSchema: {
+      type: "object",
+      properties: { ncm: { type: "string", description: "NCM com 8 dígitos (pontos são ignorados)." } },
+      required: ["ncm"],
+    },
+    run: consultarAliquotasNcm,
   },
   {
     name: "ver_estimativa",
@@ -2154,19 +2620,18 @@ const TOOLS: Tool[] = [
       "Mostra a Estimativa de custo do processo (aba Estimativa): cabeçalho (incoterm, câmbio, rateio, acréscimos/deduções, frete/seguro internacional, Siscomex, AFRMM), itens com VMCV unitário, alíquotas e destinação, e as despesas. Os totais e impostos são calculados pelo app na tela. Só perfis de acesso total.",
     inputSchema: {
       type: "object",
-      properties: { processo: { type: "string", description: "Número de referência exato do processo." } },
-      required: ["processo"],
+      properties: { processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP },
     },
     run: verEstimativa,
   },
   {
     name: "atualizar_estimativa",
     description:
-      "Edita a Estimativa de custo de um processo. \"campos\" (cabeçalho): " + Object.keys(EST_HEADER).join(", ") + " (usd_brl = câmbio fiscal; usd_brl_agencia = câmbio da agência — ao informar o valor, o modo automático é desligado). \"itens\": lista de {id (de ver_estimativa), " + Object.keys(EST_ITEM).join(", ") + "} — alíquotas em percentual (14.4 = 14,4%). Não edita frete/seguro/despesas (vêm das Taxas) nem nome/NCM/peso/quantidade dos itens (vêm da Carga). Bloqueada se o Numerário já foi aprovado. Só perfis de acesso total. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
+      "Edita a Estimativa de custo de um processo. \"campos\" (cabeçalho): " + Object.keys(EST_HEADER).join(", ") + " (usd_brl = câmbio fiscal; usd_brl_agencia = câmbio da agência — ao informar o valor, o modo automático é desligado). \"itens\": lista de {id (de ver_estimativa), " + Object.keys(EST_ITEM).join(", ") + "} — alíquotas em percentual (14.4 = 14,4%). Por item, buscar_aliquotas_ncm: true busca II/IPI/PIS/COFINS pelo NCM do item (como o botão da aba). Não edita frete/seguro/despesas (vêm das Taxas) nem nome/NCM/peso/quantidade dos itens (vêm da Carga). Bloqueada se o Numerário já foi aprovado. Só perfis de acesso total. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
-        processo: { type: "string", description: "Número de referência exato do processo." },
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
         campos: { type: "object", additionalProperties: true, description: "Campos do cabeçalho a alterar." },
         itens: {
           type: "array",
@@ -2179,6 +2644,7 @@ const TOOLS: Tool[] = [
               aliq_ii: { type: "number" }, aliq_ipi: { type: "number" }, aliq_pis: { type: "number" }, aliq_cofins: { type: "number" }, aliq_icms: { type: "number" },
               destinacao: { type: "string", enum: ["consumo_final", "revenda_industrializacao"] },
               cofins_adicional: { type: "boolean" },
+              buscar_aliquotas_ncm: { type: "boolean", description: "true = busca II, IPI, PIS e COFINS pelo NCM do item (como o botão da aba Estimativa). Valores informados no mesmo item prevalecem." },
             },
             required: ["id"],
             additionalProperties: false,
@@ -2186,9 +2652,46 @@ const TOOLS: Tool[] = [
         },
         confirmar: CONFIRMAR_PROP,
       },
-      required: ["processo"],
     },
     run: atualizarEstimativa,
+    write: true,
+  },
+  {
+    name: "alterar_cliente",
+    description:
+      "Troca o CLIENTE de um processo ou de uma cotação (o cliente já deve estar cadastrado; informe o nome do novo cliente em \"cliente\"). Atualiza a cotação e, se houver, o processo ligado, como o app faz. Não transfere taxas, parceiros, notas de débito nem contas a receber já lançados no nome do cliente anterior: a prévia avisa o que ficou para trás, e a troca é BLOQUEADA se já houver nota de débito ou conta a receber no nome do cliente atual. Não edita processo finalizado. Escrita em 2 etapas: sem confirmar só devolve a prévia (cliente atual → novo, com avisos); troque (confirmar: true) só depois que o usuário aprovar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
+        cliente: { type: "string", description: "Nome (ou parte) do NOVO cliente, já cadastrado." },
+        confirmar: CONFIRMAR_PROP,
+      },
+      required: ["cliente"],
+    },
+    run: alterarCliente,
+    write: true,
+  },
+  {
+    name: "anexar_documento",
+    description:
+      "Anexa um arquivo à aba Documentos de um processo ou cotação (invoice, packing list, BL, certificado etc.). O arquivo vem por \"url\" (https público, até 10 MB; o servidor baixa) OU por \"conteudo_base64\" (só arquivos pequenos, ~300 KB). Informe nome_arquivo com extensão (pdf, png, jpg, xlsx, xls, docx, doc, csv, txt, xml, eml, msg, zip) e tipo_documento. Nunca fica visível no tracking do cliente. Recusa duplicado (mesmo nome e tamanho) e processo finalizado. Escrita em 2 etapas: a prévia mostra nome, tamanho e sha256; para gravar, repita com confirmar: true, o token_confirmacao e (se usou url) sha256_esperado = o sha256 da prévia.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        processo: { type: "string", description: "Número exato do processo. Use este OU \"cotacao\"." }, cotacao: COTACAO_PROP,
+        url: { type: "string", description: "Endereço https público para baixar o arquivo." },
+        conteudo_base64: { type: "string", description: "Conteúdo do arquivo em base64 (só arquivos pequenos)." },
+        nome_arquivo: { type: "string", description: "Nome com extensão, ex.: invoice_123.pdf." },
+        tipo_documento: { type: "string", enum: ANEXO_TIPOS },
+        categoria_personalizada: { type: "string", description: "Só com tipo_documento = other." },
+        vencimento: { type: "string", description: "Opcional, AAAA-MM-DD (validade do documento)." },
+        sha256_esperado: { type: "string", description: "Na confirmação com url: o sha256 devolvido pela prévia." },
+        confirmar: CONFIRMAR_PROP,
+      },
+      required: ["tipo_documento", "nome_arquivo"],
+    },
+    run: anexarDocumento,
     write: true,
   },
   {
@@ -2229,7 +2732,9 @@ const AVISO_TOKEN =
   " TRAVA DO SERVIDOR: a prévia devolve token_confirmacao; para gravar, repita a chamada com os mesmos parâmetros, confirmar: true e esse token_confirmacao (sem ele, ou com parâmetros diferentes, a gravação é recusada).";
 const TOOL_LIST = TOOLS.map(({ name, description, inputSchema, write }) => ({
   name,
-  description: write ? description + AVISO_TOKEN : description,
+  description: (inputSchema as { properties?: Record<string, unknown> }).properties?.cotacao
+    ? description + ' Alvo: "processo" (número do processo) OU "cotacao" (número da cotação, para cotação ainda sem processo; veja listar_cotacoes).' + (write ? AVISO_TOKEN : "")
+    : write ? description + AVISO_TOKEN : description,
   inputSchema: write
     ? { ...inputSchema, properties: { ...(inputSchema as { properties: Record<string, unknown> }).properties, token_confirmacao: TOKEN_PROP } }
     : inputSchema,
