@@ -13,7 +13,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAccountability } from '@/hooks/useAccountability';
 import { DateField } from '@/components/shared/DateField';
 import { AccountabilityTab } from './AccountabilityTab';
-import { ClientDebitNotesTab } from '../ClientDebitNotesTab';
 
 interface Props {
   quoteId: string;
@@ -196,18 +195,6 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Notas de Débito emitidas ao cliente neste processo — cada ND também gera a Conta a
-          Receber no Financeiro geral; aqui dá pra acompanhar, ver o PDF, dar baixa e cancelar. */}
-      {companyId && (
-        <ClientDebitNotesTab
-          quoteId={quoteId}
-          companyId={companyId}
-          clientId={quote?.client_id || null}
-          readOnly={locked}
-          hideCreate
-        />
-      )}
 
       {/* Prestação de Contas (já existente) — o "Confirmado" de cada item abate do saldo acima */}
       <AccountabilityTab quoteId={quoteId} quote={quote} companyId={companyId} isFinalized={isFinalized} isExport={isExport} />
