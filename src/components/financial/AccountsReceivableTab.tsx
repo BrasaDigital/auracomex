@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -68,6 +69,8 @@ export default function AccountsReceivableTab() {
   const [inactivateTarget, setInactivateTarget] = useState<AR | null>(null);
   const [inactivating, setInactivating] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('todos');
+  // Contas inativas (canceladas) ficam ocultas, a não ser que a caixa seja marcada ou o filtro seja "Cancelados".
+  const [showInactive, setShowInactive] = useState(false);
   // Filtro de mês: para contas já recebidas, localiza pela data de
   // recebimento (received_at) — não pela data de vencimento/lançamento.
   // Contas ainda em aberto/atrasadas não têm data de recebimento, então
@@ -142,6 +145,7 @@ export default function AccountsReceivableTab() {
 
   const filtered = enriched.filter((r) => {
     if (statusFilter !== 'todos' && r.status !== statusFilter) return false;
+    if (!showInactive && statusFilter !== 'cancelado' && r.status === 'cancelado') return false;
     if (searchDesc && !r.description?.toLowerCase().includes(searchDesc.toLowerCase())) return false;
     if (searchClient) {
       const name = r.client_id ? clientMap.get(r.client_id) ?? '' : '';
@@ -348,6 +352,10 @@ export default function AccountsReceivableTab() {
               extraMonths={rows.map((r) => (r.status === 'recebido' ? r.received_at : r.due_date)).filter(Boolean).map((d) => (d as string).slice(0, 7))}
               title="Filtra recebidos pela data de recebimento; em aberto/atrasados pelo vencimento"
             />
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none whitespace-nowrap">
+              <Checkbox checked={showInactive} onCheckedChange={(v) => setShowInactive(v === true)} />
+              Mostrar inativas
+            </label>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
