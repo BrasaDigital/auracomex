@@ -9,14 +9,17 @@ resposta).
 ## Acesso ao código e às automações (fazer isso primeiro, sempre)
 
 Antes de qualquer tarefa que envolva ler ou editar código, pedir/conectar a pasta local
-do projeto (`C:\auracomex\auracomex`, via `request_cowork_directory` com esse path) logo
-no início da conversa — não esperar o usuário pedir. Sem isso não há acesso ao repo.
+do projeto (hoje **`D:\Projetos\auracomex`**; antes era `C:\auracomex\auracomex`) logo
+no início da conversa — não esperar o usuário pedir. Ferramentas: `get_device_info`
+(mostra `connectedFolders`) e `device_request_folder_access` com esse path. Sem a pasta,
+o trabalho segue pelo clone do GitHub (ver "Fluxo padrão de trabalho" abaixo).
 
 **Toda conversa nova nasce sem os MCPs conectados** — Supabase MCP e Vercel MCP são
 conexões por sessão, não algo que este arquivo consiga ligar sozinho. Isso é normal, não
 é bug: cada conversa nova precisa reconectar. Por isso, logo no início (junto com o pedido
-da pasta), checar se `mcp__supabase__execute_sql` (ou nome equivalente do Supabase) e
-`mcp__vercel__list_deployments` (ou equivalente) já aparecem na lista de ferramentas —
+da pasta), checar se `mcp__ADMIN_SUPA__execute_sql` (nome atual do conector Supabase;
+antes `mcp__supabase__...`) e `mcp__Vercel__list_deployments` já aparecem na lista de
+ferramentas —
 via `ToolSearch` se estiverem deferred. Se não aparecerem nem via busca, usar
 `mcp__mcp-registry__search_mcp_registry` com termos como "supabase"/"vercel" e depois
 `suggest_connectors` pra oferecer a conexão ao usuário, ANTES de tentar qualquer
@@ -51,6 +54,36 @@ depois disso o Vercel faz o deploy automático como qualquer outro push. Abrir/m
 pelo Chrome às vezes trava na primeira tentativa ("This page is taking too long to
 load") — recarregar a comparação (`compare/main...branch`) e tentar de novo resolve.
 
+## Fluxo padrão de trabalho (como as sessões têm funcionado)
+
+1. **Clone de trabalho**: a sessão clona o repo (`mcp__claude-code-remote__add_repo` +
+   `register_repo_root`) e edita/commita ali. A pasta do Marcos NÃO é atualizada pela
+   sessão — ela é só uma cópia do GitHub (ver "Pasta do Marcos" abaixo).
+2. **Checagem de tipos** precisa de `node_modules`: copiar os arquivos alterados para uma
+   cópia com dependências instaladas e rodar `npx tsc --noEmit -p tsconfig.app.json` e
+   `npx vitest run`.
+3. **Commit** com `git commit -F /tmp/msg.txt` (mensagem em arquivo, termina com as linhas
+   de atribuição do Claude) e **push** com `git push origin HEAD:main`.
+4. **Deploy**: esperar ~85 s, `list_deployments` (Vercel MCP) e conferir SHA + estado READY.
+   Se não houver deploy novo, usar o redeploy do Vercel MCP descrito acima.
+5. **Versão da sidebar**: `UPDATE app_build_version SET version='...', updated_at=now()
+   WHERE id=1` em todo deploy (letra sequencial dentro do assunto: 26.11.1z, 26.11.1za, ...).
+6. **Banco**: toda mudança de schema = arquivo em `supabase/migrations/` E aplicação com
+   `apply_migration` (ADMIN_SUPA). Antes de escrever SQL com colunas "de memória", consultar
+   `information_schema.columns`.
+7. **Arquivos com CRLF** (ex.: `EstimatePdfDialog.tsx`, `ClientDebitNotePdfDialog.tsx`,
+   `ClientDebitNotesTab.tsx`, `SettingsPage.tsx`, `AccountsReceivableTab.tsx`): ao editar com
+   Python, abrir com `newline=''` ou restaurar `\r\n` ao gravar — senão o diff vira o
+   arquivo inteiro.
+8. **Resposta final** ao Marcos: o que mudou, como testar e (opcional) como atualizar a pasta.
+
+### Pasta do Marcos (`D:\Projetos\auracomex`)
+É um clone git comum. A sessão não roda comandos na máquina dele (sem shell local). Gravar
+arquivos direto lá faz o próximo `git pull` abortar. Para atualizar, ele roda no PowerShell:
+`git fetch origin; git reset --hard origin/main` (apaga edições locais não enviadas) —
+só é necessário se ele for rodar `npm run dev` ou editar à mão; a produção não depende
+da pasta. Opcional: script `.ps1` que faz esse sync em loop.
+
 ## Stack e referências
 
 - React 18 + TypeScript + Vite + shadcn/ui (Radix) + Tailwind + TanStack React Query + React Router
@@ -59,7 +92,10 @@ load") — recarregar a comparação (`compare/main...branch`) e tentar de novo 
 - Repo GitHub: `BrasaDigital/auracomex`, branch de produção `main`
 - Deploy: Vercel, auto-deploy no push pro `main` — projeto `auracomex`
   (id `prj_gS2iVXFhlHTqHspNQ79m2AsDz0wA`, team `team_72KuLwbJZBtnU2NFLrfHBomJ`)
-- Deploy Hook manual (se o auto-deploy falhar): colar no navegador
+- **Deploy Hook APAGADO** (retorna "not found"). Se o auto-deploy do push não disparar,
+  redeployar pelo Vercel MCP: `create_deployment` com `deploymentId` do último deploy,
+  `withLatestCommit: true`, `target: "production"`, `forceNew: "1"` e o `teamId`.
+  (Histórico — hook antigo, não usar:) colar no navegador
   `https://api.vercel.com/v1/integrations/deploy/prj_gS2iVXFhlHTqHspNQ79m2AsDz0wA/5OG2kJBvaA`
   (o sandbox NÃO alcança api.vercel.com — pedir pro usuário abrir a URL no navegador dele)
 
@@ -257,8 +293,9 @@ Commits com crase/caractere especial na mensagem: usar `git commit -F /tmp/msg.t
 
 ## Ferramentas MCP disponíveis
 
-- Supabase MCP: `execute_sql`, `apply_migration`, `get_logs` etc. (projeto `pqiuxojgjmqhdajdhgqk`)
-- Vercel MCP: `list_deployments`, `get_deployment_build_logs` etc.
+- Supabase MCP (`ADMIN_SUPA`): `execute_sql`, `apply_migration`, `get_logs` etc. (projeto `pqiuxojgjmqhdajdhgqk`)
+- Vercel MCP (`Vercel`): `list_deployments`, `create_deployment`, `get_deployment_build_logs` etc.
+- Chrome (`claude-in-chrome`): útil pra conferir telas com a sessão logada do Marcos; pode travar (screenshot timeout) — nesse caso, voltar a consultar o banco.
 - O sandbox NÃO tem acesso de rede irrestrito (curl pra APIs externas pode falhar com exit 56).
 
 ## Diagnóstico — confiabilidade das ferramentas (aprendido na prática, não teórico)
