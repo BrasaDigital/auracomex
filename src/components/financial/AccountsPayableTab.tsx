@@ -20,7 +20,7 @@ import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
-import { MonthSelect } from './MonthSelect';
+import { MonthRangeSelect, currentMonthRange, monthInRange, monthRangeLabel } from './MonthSelect';
 
 type AP = {
   id: string;
@@ -64,7 +64,7 @@ export default function AccountsPayableTab() {
   // ainda em aberto/atrasadas não têm data de pagamento, então continuam
   // localizadas pelo vencimento, já que é a única data que têm.
   // 'todos' = sem filtro de mês; senão 'yyyy-MM'. Começa no mês atual.
-  const [monthFilter, setMonthFilter] = useState<string>(() => format(new Date(), 'yyyy-MM'));
+  const [monthRange, setMonthRange] = useState(() => currentMonthRange());
   const [searchDesc, setSearchDesc] = useState('');
   const [searchDescOpen, setSearchDescOpen] = useState(false);
   const [searchPartner, setSearchPartner] = useState('');
@@ -153,9 +153,9 @@ export default function AccountsPayableTab() {
       const ref = (r.shipment_id ? shipmentMap.get(r.shipment_id) : null) || (r.quote_id ? quoteMap.get(r.quote_id) : null) || '';
       if (!ref.toLowerCase().includes(searchProcess.toLowerCase())) return false;
     }
-    if (monthFilter && monthFilter !== 'todos') {
+    if (monthRange.from !== 'todos') {
       const relevant = r.status === 'pago' ? r.paid_at : r.due_date;
-      if (!relevant || relevant.slice(0, 7) !== monthFilter) return false;
+      if (!monthInRange(relevant, monthRange)) return false;
     }
     return true;
   });
@@ -286,10 +286,9 @@ export default function AccountsPayableTab() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Valores a Pagar</CardTitle>
           <div className="flex items-center gap-2">
-            <MonthSelect
-              value={monthFilter}
-              onChange={setMonthFilter}
-              allowAll
+            <MonthRangeSelect
+              value={monthRange}
+              onChange={setMonthRange}
               extraMonths={rowMonths}
               title="Filtra pagos pela data de pagamento; em aberto/atrasados pelo vencimento"
             />

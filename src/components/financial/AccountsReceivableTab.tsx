@@ -19,7 +19,7 @@ import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
-import { MonthSelect } from './MonthSelect';
+import { MonthRangeSelect, currentMonthRange, monthInRange, monthRangeLabel } from './MonthSelect';
 import { ClientDebitNotePdfDialog } from '@/components/quotes/ClientDebitNotePdfDialog';
 import { GenerateClientNdDialog, type ClientDnCharge } from '@/components/quotes/ClientDebitNotesTab';
 import { cancelClientDn } from '@/lib/debitNotes';
@@ -75,7 +75,7 @@ export default function AccountsReceivableTab() {
   // recebimento (received_at) — não pela data de vencimento/lançamento.
   // Contas ainda em aberto/atrasadas não têm data de recebimento, então
   // continuam localizadas pelo vencimento.
-  const [monthFilter, setMonthFilter] = useState<string>(() => format(new Date(), 'yyyy-MM'));
+  const [monthRange, setMonthRange] = useState(() => currentMonthRange());
   const [searchDesc, setSearchDesc] = useState('');
   const [searchDescOpen, setSearchDescOpen] = useState(false);
   const [searchClient, setSearchClient] = useState('');
@@ -154,9 +154,9 @@ export default function AccountsReceivableTab() {
       const ref = (r.quote_id ? quoteMap.get(r.quote_id) : null) || '';
       if (!ref.toLowerCase().includes(searchProcess.toLowerCase())) return false;
     }
-    if (monthFilter && monthFilter !== 'todos') {
+    if (monthRange.from !== 'todos') {
       const relevant = r.status === 'recebido' ? r.received_at : r.due_date;
-      if (!relevant || relevant.slice(0, 7) !== monthFilter) return false;
+      if (!monthInRange(relevant, monthRange)) return false;
     }
     return true;
   };
@@ -203,8 +203,8 @@ export default function AccountsReceivableTab() {
     }
     return { aReceber, vencidos, recebidos, global };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enriched, monthFilter, searchDesc, searchClient, searchProcess, usdBrl, eurBrl, dnRateMap]);
-  const periodo = monthFilter && monthFilter !== 'todos' ? 'mês' : 'todos os meses';
+  }, [enriched, monthRange, searchDesc, searchClient, searchProcess, usdBrl, eurBrl, dnRateMap]);
+  const periodo = monthRangeLabel(monthRange);
 
   async function markReceived() {
     if (!target) return;
@@ -355,10 +355,9 @@ export default function AccountsReceivableTab() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Valores a Receber</CardTitle>
           <div className="flex items-center gap-2">
-            <MonthSelect
-              value={monthFilter}
-              onChange={setMonthFilter}
-              allowAll
+            <MonthRangeSelect
+              value={monthRange}
+              onChange={setMonthRange}
               extraMonths={rows.map((r) => (r.status === 'recebido' ? r.received_at : r.due_date)).filter(Boolean).map((d) => (d as string).slice(0, 7))}
               title="Filtra recebidos pela data de recebimento; em aberto/atrasados pelo vencimento"
             />
