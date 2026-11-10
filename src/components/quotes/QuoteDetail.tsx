@@ -3696,7 +3696,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                           // Do lado venda, gerar a ND já trava o valor cobrado do cliente — não
                           // tem uma etapa de "conferência" separada como o lado compra. Só dá pra
                           // editar de novo reabrindo (o que exclui a ND vinculada).
-                          const lockedForEdit = amountKey === 'sell_amount' && (!!c.sent_in_debit_note_id || !!c.sell_confirmed_at);
+                          const lockedForEdit = amountKey === 'sell_amount' && (!!c.sent_in_debit_note_id || !!c.sell_confirmed_at || !!c.is_auto_tax);
                           return (
                           <React.Fragment key={c.id}>
                             <TableRow
@@ -4242,8 +4242,9 @@ function QuotePartnersList({ quoteId, companyId, partners, quotePartners, onChan
 /* ── Botão "Conferir" das taxas de venda de uma empresa (lança em Receita por Processo) ── */
 function SellConferirButton({ group, onConferir }: { group: any; onConferir: (charges: any[]) => Promise<void> }) {
   const [busy, setBusy] = useState(false);
-  const todo = group.charges.filter((c: any) => !c.sent_in_debit_note_id && !c.sell_confirmed_at && Number(c.sell_amount) > 0);
-  const hasAny = group.charges.some((c: any) => Number(c.sell_amount) > 0);
+  // Impostos automáticos (is_auto_tax) aparecem na venda só p/ fechar a conta; a receita deles já vem do Numerário.
+  const todo = group.charges.filter((c: any) => !c.is_auto_tax && !c.sent_in_debit_note_id && !c.sell_confirmed_at && Number(c.sell_amount) > 0);
+  const hasAny = group.charges.some((c: any) => !c.is_auto_tax && Number(c.sell_amount) > 0);
   const allDone = hasAny && todo.length === 0;
   return (
     <Button

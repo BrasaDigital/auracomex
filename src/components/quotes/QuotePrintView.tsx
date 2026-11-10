@@ -96,7 +96,7 @@ export default function QuotePrintView() {
   const volMode = (data.volumes || []).length > 0 && quote.transport_mode !== 'ocean_fcl';
 
   // Only sell charges
-  const sellCharges = charges.filter((c: any) => (c.sell_amount || 0) > 0);
+  const sellCharges = charges.filter((c: any) => !c.is_auto_tax && (c.sell_amount || 0) > 0);
 
   // Group by leg in order
   const groupedByLeg = LEG_ORDER.map((leg) => ({

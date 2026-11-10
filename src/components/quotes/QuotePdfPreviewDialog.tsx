@@ -260,7 +260,7 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
       return `${ref} × ${c.currency || 'USD'} ${unitPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${minApplied ? ' (mínimo aplicado)' : ''}`;
     }
 
-    const sellCharges = charges.filter((c: any) => (c.sell_amount || 0) > 0);
+    const sellCharges = charges.filter((c: any) => !c.is_auto_tax && (c.sell_amount || 0) > 0);
     const groupedByLeg = LEG_ORDER.map((leg) => {
       const legCharges = sellCharges.filter((c: any) => c.leg === leg);
       const subtotalByCurrency = groupByCurrency(

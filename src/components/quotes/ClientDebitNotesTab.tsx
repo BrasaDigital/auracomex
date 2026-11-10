@@ -90,12 +90,12 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly, hi
     queryFn: async () => {
       const { data, error } = await supabase
         .from('quote_charges')
-        .select('id, description, sell_amount, currency, leg, exchange_rate, sent_in_debit_note_id')
+        .select('id, description, sell_amount, currency, leg, exchange_rate, sent_in_debit_note_id, is_auto_tax')
         .eq('quote_id', quoteId);
       if (error) throw error;
       // Taxas já enviadas numa ND anterior ficam de fora — pra reentrar numa
       // ND nova é preciso reabrir (excluir a ND antiga) primeiro.
-      return (data ?? []).filter((c: any) => Number(c.sell_amount) > 0 && !c.sent_in_debit_note_id) as Charge[];
+      return ((data ?? []) as any[]).filter((c: any) => !c.is_auto_tax && Number(c.sell_amount) > 0 && !c.sent_in_debit_note_id) as Charge[];
     },
   });
 

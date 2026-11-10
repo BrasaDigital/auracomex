@@ -3,8 +3,9 @@
  * ICMS, Taxa Siscomex, AFRMM) na aba Taxas do processo, ligadas ao catálogo global e ao órgão
  * arrecadador (fornecedor padrão do catálogo; o ICMS fica sem fornecedor até escolher a UF).
  *
- * Só lado da compra (sell_amount = 0): venda é o Numerário/Estimativa. As linhas levam
- * is_auto_tax = true — ficam fora do Lucro Estimado e do espelhamento Taxas → Estimativa.
+ * Venda = compra (repasse ao custo), só p/ a aba Taxas não mostrar compra maior que venda. A receita
+ * real dos impostos é o Numerário, então as linhas levam is_auto_tax = true — ficam fora do Lucro
+ * Estimado, do espelhamento Taxas → Estimativa, do Conferir, da ND e da proposta ao cliente.
  */
 export interface TaxTarget { name: string; amountBrl: number }
 
@@ -34,7 +35,7 @@ export async function syncTaxCharges(quoteId: string, companyId: string, targets
   const [{ data: catalog }, { data: existing }] = await Promise.all([
     sb.from('charge_catalog').select('id, name, default_partner_id').is('company_id', null),
     sb.from('quote_charges')
-      .select('id, description, buy_amount, buy_paid_at, sent_in_debit_note_id')
+      .select('id, description, buy_amount, sell_amount, buy_paid_at, sent_in_debit_note_id')
       .eq('quote_id', quoteId).eq('is_auto_tax', true),
   ]);
   const catByName = new Map<string, any>((catalog || []).map((c: any) => [c.name, c]));
@@ -46,8 +47,8 @@ export async function syncTaxCharges(quoteId: string, companyId: string, targets
     if (ex) {
       // Já paga/enviada em ND: congelada. Fora isso, acompanha o valor da Estimativa.
       if (ex.buy_paid_at || ex.sent_in_debit_note_id) continue;
-      if (Math.abs((Number(ex.buy_amount) || 0) - t.amountBrl) < 0.005) continue;
-      const { error } = await sb.from('quote_charges').update({ buy_amount: t.amountBrl }).eq('id', ex.id);
+      if (Math.abs((Number(ex.buy_amount) || 0) - t.amountBrl) < 0.005 && Math.abs((Number(ex.sell_amount) || 0) - t.amountBrl) < 0.005) continue;
+      const { error } = await sb.from('quote_charges').update({ buy_amount: t.amountBrl, sell_amount: t.amountBrl }).eq('id', ex.id);
       if (error) throw error;
       changed = true;
     } else if (t.amountBrl > 0) {
@@ -61,7 +62,7 @@ export async function syncTaxCharges(quoteId: string, companyId: string, targets
         currency: 'BRL',
         billing_unit: 'fixed',
         buy_amount: t.amountBrl,
-        sell_amount: 0,
+        sell_amount: t.amountBrl,
         charge_catalog_id: cat?.id ?? null,
         partner_id: cat?.default_partner_id ?? null,
         is_auto_tax: true,
