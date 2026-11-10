@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
-import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2 } from 'lucide-react';
+import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2, FileText, Ban } from 'lucide-react';
 import { format, isBefore, addDays, startOfDay, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
@@ -19,6 +19,9 @@ import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
 import { MonthSelect } from './MonthSelect';
+import { ClientDebitNotePdfDialog } from '@/components/quotes/ClientDebitNotePdfDialog';
+import { cancelClientDn } from '@/lib/debitNotes';
+import { useAuth } from '@/contexts/AuthContext';
 
 type AR = {
   id: string;
@@ -56,6 +59,10 @@ const SOURCE_LABEL: Record<string, string> = {
 
 export default function AccountsReceivableTab() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const [pdfTarget, setPdfTarget] = useState<AR | null>(null);
+  const [inactivateTarget, setInactivateTarget] = useState<AR | null>(null);
+  const [inactivating, setInactivating] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('todos');
   // Filtro de mês: para contas já recebidas, localiza pela data de
   // recebimento (received_at) — não pela data de vencimento/lançamento.
@@ -220,6 +227,43 @@ export default function AccountsReceivableTab() {
     qc.invalidateQueries({ queryKey: ['client_debit_notes'] });
   }
 
+  // Inativa a conta (status "Cancelado"). Se veio de uma ND, cancela a ND também
+  // (fica no histórico) e libera as taxas de venda pra irem numa ND nova.
+  async function inactivate() {
+    if (!inactivateTarget) return;
+    setInactivating(true);
+    let errMsg: string | null = null;
+    if (inactivateTarget.debit_note_id) {
+      const res = await cancelClientDn({
+        dnId: inactivateTarget.debit_note_id,
+        companyId: inactivateTarget.company_id,
+        quoteId: inactivateTarget.quote_id,
+        userId: user?.id,
+      });
+      if (res.ok === false) errMsg = res.error;
+    } else {
+      const { error } = await supabase.from('accounts_receivable' as any).update({ status: 'cancelado' }).eq('id', inactivateTarget.id);
+      if (error) errMsg = error.message;
+    }
+    setInactivating(false);
+    if (errMsg) return toast.error('Erro ao inativar', { description: errMsg });
+    toast.success(inactivateTarget.debit_note_id ? 'ND inativada — taxas liberadas para uma nova ND' : 'Conta inativada');
+    setInactivateTarget(null);
+    refetch();
+    qc.invalidateQueries({ queryKey: ['client_debit_notes'] });
+    qc.invalidateQueries({ queryKey: ['quote-charges'] });
+    qc.invalidateQueries({ queryKey: ['quote_sell_charges'] });
+  }
+
+  // Reativa uma conta manual inativada. Conta de ND cancelada não volta: as taxas
+  // já foram liberadas, então o caminho é emitir uma ND nova.
+  async function reactivate(r: AR) {
+    const { error } = await supabase.from('accounts_receivable' as any).update({ status: 'aberto' }).eq('id', r.id);
+    if (error) return toast.error('Erro ao reativar', { description: error.message });
+    toast.success('Conta reativada');
+    refetch();
+  }
+
   // Desfaz um recebimento já registrado — volta a conta pra "Em aberto" e,
   // se vier de uma ND, reabre a ND (status 'emitida').
   async function unreceive() {
@@ -361,6 +405,11 @@ export default function AccountsReceivableTab() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {r.debit_note_id && r.quote_id && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7" title="Ver PDF da ND" onClick={() => setPdfTarget(r)}>
+                            <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+                          </Button>
+                        )}
                         {r.receipt_url && (
                           <Button variant="ghost" size="icon" className="h-7 w-7" title="Ver comprovante" onClick={() => openSignedDoc(r.receipt_url).catch((e) => toast.error(e.message))}>
                             <Paperclip className="w-3.5 h-3.5 text-muted-foreground" />
@@ -369,6 +418,16 @@ export default function AccountsReceivableTab() {
                         {r.status !== 'recebido' && r.status !== 'cancelado' && (
                           <Button size="sm" variant="outline" onClick={() => { setTarget(r); setForm({ received_at: format(new Date(), 'yyyy-MM-dd'), received_amount: String(r.amount), receipt_reference: '', file: null }); }}>
                             Receber
+                          </Button>
+                        )}
+                        {r.status !== 'recebido' && r.status !== 'cancelado' && (
+                          <Button size="sm" variant="ghost" className="text-muted-foreground" title="Inativar (cancelar) esta conta" onClick={() => setInactivateTarget(r)}>
+                            <Ban className="w-3.5 h-3.5 mr-1" /> Inativar
+                          </Button>
+                        )}
+                        {r.status === 'cancelado' && !r.debit_note_id && (
+                          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => reactivate(r)}>
+                            <Undo2 className="w-3.5 h-3.5 mr-1" /> Reativar
                           </Button>
                         )}
                         {r.status === 'recebido' && (
@@ -423,6 +482,35 @@ export default function AccountsReceivableTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {pdfTarget?.debit_note_id && pdfTarget.quote_id && (
+        <ClientDebitNotePdfDialog
+          open
+          onClose={() => setPdfTarget(null)}
+          debitNoteId={pdfTarget.debit_note_id}
+          companyId={pdfTarget.company_id}
+          quoteId={pdfTarget.quote_id}
+        />
+      )}
+
+      <AlertDialog open={!!inactivateTarget} onOpenChange={(o) => !inactivating && !o && setInactivateTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Inativar esta conta?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {inactivateTarget?.debit_note_id
+                ? 'A Nota de Débito fica no histórico como cancelada, a conta sai do que está a receber e as taxas de venda voltam a ficar livres para uma nova ND.'
+                : 'A conta fica como "Cancelado" e sai do que está a receber. Dá para reativar depois.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={inactivating}>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={inactivate} disabled={inactivating}>
+              {inactivating ? 'Inativando…' : 'Sim, inativar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!unreceiveTarget} onOpenChange={(o) => !unreceiving && !o && setUnreceiveTarget(null)}>
         <AlertDialogContent>

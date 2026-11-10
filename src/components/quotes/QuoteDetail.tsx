@@ -16,6 +16,7 @@ import { FloatingSaveButton } from './estimate/FloatingSaveButton';
 import { QuotePdfPreviewDialog } from './QuotePdfPreviewDialog';
 import { SendSupplierDnDialog } from './DebitNotesTab';
 import { GenerateClientNdDialog } from './ClientDebitNotesTab';
+import { ClientDebitNotePdfDialog } from './ClientDebitNotePdfDialog';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -231,6 +232,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   const [sendDnPartner, setSendDnPartner] = useState<{ id: string; name: string; amount: number; currency: string; chargeIds: string[] } | null>(null);
   // Botão "Gerar ND" no cabeçalho de cada empresa na aba Taxas (Venda).
   const [generateNdPartner, setGenerateNdPartner] = useState<{ id: string; name: string; charges: any[] } | null>(null);
+  const [createdNdId, setCreatedNdId] = useState<string | null>(null);
 
   // Handler para o botão voltar: se houver alterações não salvas, confirma antes.
   const handleBackClick = () => {
@@ -3356,7 +3358,18 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
           companyId={profile?.company_id || ''}
           clientId={generateNdPartner.id}
           charges={generateNdPartner.charges}
-          onCreated={() => setGenerateNdPartner(null)}
+          onCreated={(dnId) => { setGenerateNdPartner(null); setCreatedNdId(dnId); }}
+        />
+      )}
+
+      {/* Logo depois de emitir, abre o PDF da ND — que já é guardado sozinho em Documentos */}
+      {createdNdId && profile?.company_id && (
+        <ClientDebitNotePdfDialog
+          open
+          onClose={() => setCreatedNdId(null)}
+          debitNoteId={createdNdId}
+          companyId={profile.company_id}
+          quoteId={quoteId}
         />
       )}
 

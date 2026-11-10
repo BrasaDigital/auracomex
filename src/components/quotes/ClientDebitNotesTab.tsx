@@ -279,7 +279,7 @@ export function GenerateClientNdDialog({
   companyId: string;
   clientId: string;
   charges: Charge[];
-  onCreated?: () => void;
+  onCreated?: (dnId: string) => void;
 }) {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -306,10 +306,11 @@ export function GenerateClientNdDialog({
       charges={charges}
       bankAccounts={bankAccounts}
       userId={user?.id || null}
-      onCreated={() => {
+      onCreated={(dnId) => {
         qc.invalidateQueries({ queryKey: ['client_debit_notes', quoteId] });
         qc.invalidateQueries({ queryKey: ['quote-charges', quoteId] });
-        onCreated?.();
+        qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
+        onCreated?.(dnId);
       }}
     />
   );
@@ -319,7 +320,7 @@ function CreateClientDnDialog({
   open, onClose, quoteId, companyId, clientId, charges, bankAccounts, userId, onCreated,
 }: {
   open: boolean; onClose: () => void; quoteId: string; companyId: string; clientId: string;
-  charges: Charge[]; bankAccounts: any[]; userId: string | null; onCreated: () => void;
+  charges: Charge[]; bankAccounts: any[]; userId: string | null; onCreated: (dnId: string) => void;
 }) {
   // Moedas estrangeiras presentes nas taxas (sempre cobradas em BRL)
   const foreignCurrencies = useMemo(() => {
@@ -466,7 +467,7 @@ function CreateClientDnDialog({
       });
 
       toast.success(`DN ${dn_number} emitida`);
-      onCreated();
+      onCreated((dn as any).id);
       onClose();
     } catch (e: any) {
       toast.error(e.message);
