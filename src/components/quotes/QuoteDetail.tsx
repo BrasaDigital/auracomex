@@ -3482,7 +3482,6 @@ function TaxOrgPicker({ value, disabled, onChange }: {
     },
   });
   const sefaz = orgs.filter((o) => o.name.startsWith('SEFAZ-'));
-  const short = (n: string) => n.split(' - ')[0];
   return (
     <span className="inline-block" onClick={(e) => e.stopPropagation()}>
       <Select value={value || ''} onValueChange={onChange} disabled={disabled}>
@@ -3494,7 +3493,7 @@ function TaxOrgPicker({ value, disabled, onChange }: {
         </SelectTrigger>
         <SelectContent>
           {sefaz.map((o) => (
-            <SelectItem key={o.id} value={o.id} title={o.name}>{o.name}</SelectItem>
+            <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
           ))}
         </SelectContent>
       </Select>
@@ -3656,10 +3655,10 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                               <div className="flex items-center gap-2.5">
                                 <div className="flex items-center gap-1.5">
                                   <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
-                                  {icmsCharge && (isIcmsPick || group.partnerCategory === 'orgao_publico') ? (
+                                  {icmsCharge ? (
                                     <TaxOrgPicker
                                       value={isIcmsPick ? null : group.partnerId}
-                                      disabled={readOnly || !!icmsCharge.buy_paid_at || !!icmsCharge.sent_in_debit_note_id}
+                                      disabled={readOnly}
                                       onChange={(partnerId) => onUpdate(icmsCharge.id, { partner_id: partnerId })}
                                     />
                                   ) : (

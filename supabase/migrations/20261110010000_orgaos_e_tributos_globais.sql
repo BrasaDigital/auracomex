@@ -29,7 +29,7 @@ WHERE NOT EXISTS (SELECT 1 FROM public.clients WHERE company_id IS NULL AND lowe
 
 -- SEFAZ por UF (ICMS) — sem CNPJ: o ICMS é recolhido por GNRE/DARE da UF, não por CNPJ.
 INSERT INTO public.clients (company_id, name, type, partner_category, is_foreign)
-SELECT NULL, 'SEFAZ-' || u.uf || ' - SECRETARIA DA FAZENDA ' || u.nome, 'supplier', 'orgao_publico', false
+SELECT NULL, 'SEFAZ-' || u.uf, 'supplier', 'orgao_publico', false
 FROM (VALUES
   ('AC','DO ACRE'),('AL','DE ALAGOAS'),('AP','DO AMAPÁ'),('AM','DO AMAZONAS'),('BA','DA BAHIA'),
   ('CE','DO CEARÁ'),('DF','DO DISTRITO FEDERAL'),('ES','DO ESPÍRITO SANTO'),('GO','DE GOIÁS'),
@@ -41,7 +41,7 @@ FROM (VALUES
 ) AS u(uf, nome)
 WHERE NOT EXISTS (
   SELECT 1 FROM public.clients c
-  WHERE c.company_id IS NULL AND lower(c.name) = lower('SEFAZ-' || u.uf || ' - SECRETARIA DA FAZENDA ' || u.nome)
+  WHERE c.company_id IS NULL AND lower(c.name) = lower('SEFAZ-' || u.uf)
 );
 
 -- Catálogo global de tributos. charge_type 'freight' segue o padrão das demais linhas do catálogo.
