@@ -102,6 +102,8 @@ export function useCostEstimate(quoteId: string, companyId: string | undefined) 
     },
     enabled: !!quoteId,
     staleTime: 3 * 60 * 1000,
+    // sempre busca do banco ao voltar para a aba: Taxas/Carga espelham aqui por fora
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
   });
 

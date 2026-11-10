@@ -668,6 +668,24 @@ export function CostEstimateTab({
         items: draftItems.map(i => ({ ...i })),
         expenses: draftExpenses.map(e => ({ ...e })),
       };
+      // Linhas novas já gravadas deixam de ser "novas": sem isso o dirtyCount
+      // contava cada `_new` pra sempre e o hasDirty ficava travado em true,
+      // bloqueando TODOS os espelhos (Taxas/Carga → Estimativa, tributos → Taxas,
+      // recarga do rascunho) até a aba ser remontada.
+      const savedNewItemIds = new Set(draftItems.filter(i => i._new).map(i => i.id));
+      const savedNewExpenseIds = new Set(draftExpenses.filter(e => e._new).map(e => e.id));
+      const stripNew = <T extends { _new?: boolean }>(r: T): T => {
+        const { _new, ...rest } = r as any;
+        return rest as T;
+      };
+      if (savedNewItemIds.size > 0) {
+        setDraftItems(prev => prev.map(i => (savedNewItemIds.has(i.id) ? stripNew(i) : i)));
+        snapshotRef.current.items = snapshotRef.current.items.map((i: any) => (savedNewItemIds.has(i.id) ? stripNew(i) : i));
+      }
+      if (savedNewExpenseIds.size > 0) {
+        setDraftExpenses(prev => prev.map(e => (savedNewExpenseIds.has(e.id) ? stripNew(e) : e)));
+        snapshotRef.current.expenses = snapshotRef.current.expenses.map((e: any) => (savedNewExpenseIds.has(e.id) ? stripNew(e) : e));
+      }
       setDeletedItemIds([]);
       setDeletedExpenseIds([]);
 
@@ -848,7 +866,6 @@ export function CostEstimateTab({
       usd: usdBrl || 0,
       eur: eurBrl || 0,
     };
-    let cancelled = false;
     (async () => {
       try {
         if (charges && getBillingMultiplier && usdBrl) {
@@ -875,14 +892,16 @@ export function CostEstimateTab({
             })),
           );
         }
-        if (!cancelled) invalidate();
+        // Sempre recarrega: o sync já gravou no banco. Se o efeito reiniciou
+        // (ex.: câmbio chegou depois) e pulássemos o invalidate, a tela ficava
+        // com o cache antigo até o F5.
+        invalidate();
       } catch (err) {
         console.error('auto-sync estimativa falhou', err);
         // libera o gate para tentar novamente na próxima mudança
         lastSyncedRef.current = null;
       }
     })();
-    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverEstimate?.id, hasDirty, chargesKey, itemsKey, usdBrl, eurBrl, companyId]);
 
