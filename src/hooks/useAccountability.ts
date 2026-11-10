@@ -180,7 +180,7 @@ export function useAccountability(quoteId: string, companyId: string | undefined
    */
   const generateFinancialEntries = async (
     acc: AccountabilityRow,
-    lines: { descricao: string; valor_orcado_brl: number }[],
+    lines: { descricao: string; valor_orcado_brl: number; source_expense_id?: string | null }[],
     inserted: { id: string; ordem: number }[],
     userId?: string | null,
   ) => {
@@ -190,9 +190,25 @@ export function useAccountability(quoteId: string, companyId: string | undefined
     const today = new Date().toISOString().slice(0, 10);
     const idByOrdem = new Map(inserted.map(i => [i.ordem, i.id]));
 
+    // Taxa que já tem despesa criada pela aba Taxas (quote_charge_id) não gera outra aqui.
+    const expenseIds = lines.map(l => l.source_expense_id).filter(Boolean) as string[];
+    const skipExpenseIds = new Set<string>();
+    if (expenseIds.length > 0) {
+      const { data: exps } = await (supabase as any)
+        .from('cost_estimate_expenses').select('id, source_charge_id').in('id', expenseIds);
+      const chargeByExpense = new Map<string, string>((exps || []).filter((e: any) => e.source_charge_id).map((e: any) => [e.id, e.source_charge_id]));
+      const chargeIds = Array.from(new Set(chargeByExpense.values()));
+      if (chargeIds.length > 0) {
+        const { data: existing } = await (supabase as any)
+          .from('accounts_payable').select('quote_charge_id').eq('quote_id', quoteId).in('quote_charge_id', chargeIds).neq('status', 'cancelado');
+        const done = new Set((existing || []).map((r: any) => r.quote_charge_id));
+        chargeByExpense.forEach((chargeId, expId) => { if (done.has(chargeId)) skipExpenseIds.add(expId); });
+      }
+    }
+
     const payables = lines
       .map((l, idx) => ({ l, idx }))
-      .filter(({ l }) => l.valor_orcado_brl > 0)
+      .filter(({ l }) => l.valor_orcado_brl > 0 && !(l.source_expense_id && skipExpenseIds.has(l.source_expense_id)))
       .map(({ l, idx }) => ({
         company_id: companyId,
         source: 'numerario',
