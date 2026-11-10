@@ -27,7 +27,7 @@ const QUOTES_ACCESS_ROLES = [...FULL_ACCESS_ROLES, "coordenador_comercial", "ins
 const SHIPMENTS_ACCESS_ROLES = [...QUOTES_ACCESS_ROLES, "coordenador_operacional", "operator", "operador"];
 
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "auracomex", version: "0.20.0" };
+const SERVER_INFO = { name: "auracomex", version: "0.21.0" };
 
 // ---------- helpers ----------
 
@@ -1005,18 +1005,23 @@ const CARGO_HIDE = ["quote_id", "company_id", "created_at"];
 const pickCargo = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([k]) => !CARGO_HIDE.includes(k)));
 
 async function listarCarga(ctx: Ctx, a: Args) {
-  const { sh, quoteId, itens, volumes } = await cargaDoProcesso(ctx, a, false);
-  const { data: fq } = await ctx.sb.from("quotes").select("cargo_pallets,cargo_packages,cargo_package_type,cargo_value_total,cargo_value_currency").eq("id", quoteId).maybeSingle();
+  const { sh, quoteId, itens, volumes, mode } = await cargaDoProcesso(ctx, a, false);
+  const { data: fq } = await ctx.sb.from("quotes").select("cargo_pallets,cargo_packages,cargo_package_type,cargo_value_total,cargo_value_currency,cargo_weight_total_kg,cargo_cbm_total").eq("id", quoteId).maybeSingle();
+  const fcl = mode === "ocean_fcl";
+  const totaisApp = cargoAppTotals(itens, volumes);
   return ok({
     processo: sh.reference_number,
     carga_fisica_do_embarque: {
+      ...(fcl ? { peso_total_kg: fq?.cargo_weight_total_kg ?? null, cubagem_total_m3: fq?.cargo_cbm_total ?? null } : {}),
       pallets: fq?.cargo_pallets ?? null, caixas_ou_volumes: fq?.cargo_packages ?? null, tipo_do_volume: fq?.cargo_package_type ?? null,
       valor_total_da_carga: fq?.cargo_value_total ?? null, moeda_do_valor_total: fq?.cargo_value_currency ?? null,
     },
     volumes_do_embarque: volumes.map(shapeVolume),
     observacao: "Peso, cubagem e peso taxado vêm das linhas de volume (peso e cubagem POR UNIDADE × quantidade); sem linhas, do formato antigo dentro do item (weight_kg/volume_cbm POR VOLUME × packages). Os itens são comerciais (mercadoria, NCM, peças, valor). 'totais_no_app' é o que a tela mostra. valor_total_da_carga em branco = soma dos itens.",
     itens: itens.map(pickCargo),
-    totais_no_app: cargoAppTotals(itens, volumes),
+    totais_no_app: fcl && (fq?.cargo_weight_total_kg != null || fq?.cargo_cbm_total != null)
+      ? { peso_total_kg: Number(fq?.cargo_weight_total_kg) || 0, volume_total_cbm: Number(fq?.cargo_cbm_total) || 0, total_volumes: totaisApp.total_volumes, origem: "totais informados do embarque (FCL, só informativos: não entram em peso taxado nem em taxas)" }
+      : totaisApp,
   });
 }
 
@@ -1102,9 +1107,19 @@ async function atualizarCarga(ctx: Ctx, a: Args) {
 
 // Carga FÍSICA do embarque (totais): pallets e caixas/volumes. Independe dos itens/produtos (que têm só peças e valor).
 async function atualizarCargaFisica(ctx: Ctx, a: Args) {
-  const { sh, quoteId } = await cargaDoProcesso(ctx, a, true);
-  const { data: cur } = await ctx.sb.from("quotes").select("cargo_pallets,cargo_packages,cargo_package_type,cargo_value_total,cargo_value_currency").eq("id", quoteId).maybeSingle();
+  const { sh, quoteId, mode } = await cargaDoProcesso(ctx, a, true);
+  const { data: cur } = await ctx.sb.from("quotes").select("cargo_pallets,cargo_packages,cargo_package_type,cargo_value_total,cargo_value_currency,cargo_weight_total_kg,cargo_cbm_total").eq("id", quoteId).maybeSingle();
   const upd: Record<string, unknown> = {};
+  const totalOf = (v: unknown, label: string) => {
+    if (v === null) return null;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1e9) throw new ToolError(`"${label}" deve ser número >= 0 (ou null para limpar).`);
+    return v === 0 ? null : round6(v);
+  };
+  if ("peso_total_kg" in a || "cubagem_total_m3" in a) {
+    if (mode !== "ocean_fcl") throw new ToolError("Peso e cubagem totais só se informam direto em processos marítimos FCL. Nos demais modais (LCL, aéreo etc.) use atualizar_volumes_carga: o sistema calcula peso, cubagem e peso taxado a partir dos volumes.");
+    if ("peso_total_kg" in a) upd.cargo_weight_total_kg = totalOf(a.peso_total_kg, "peso_total_kg");
+    if ("cubagem_total_m3" in a) upd.cargo_cbm_total = totalOf(a.cubagem_total_m3, "cubagem_total_m3");
+  }
   const intOf = (v: unknown, label: string) => {
     if (v === null) return null;
     if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 1_000_000) throw new ToolError(`"${label}" deve ser inteiro >= 0 (ou null para limpar).`);
@@ -1128,14 +1143,21 @@ async function atualizarCargaFisica(ctx: Ctx, a: Args) {
     if (m !== null && !/^[A-Z]{3}$/.test(m)) throw new ToolError('"moeda_valor" deve ter 3 letras (ex.: USD).');
     upd.cargo_value_currency = m;
   }
-  if (!Object.keys(upd).length) throw new ToolError('Informe "pallets", "caixas", "tipo_volume", "valor_total" e/ou "moeda_valor".');
+  if (!Object.keys(upd).length) throw new ToolError('Informe "pallets", "caixas", "tipo_volume", "valor_total", "moeda_valor" e/ou (só FCL) "peso_total_kg" e "cubagem_total_m3".');
   const str = (x: unknown) => (x === null || x === undefined ? "" : String(x));
   const mudou = Object.entries(upd).filter(([k, v]) => str((cur as Record<string, unknown> | null)?.[k]) !== str(v));
   if (!mudou.length) return ok({ alterado: false, processo: sh.reference_number, motivo: "Os valores já eram esses." });
   const mudancas = mudou.map(([k, v]) => ({ campo: k, como_era: str((cur as Record<string, unknown> | null)?.[k]) || null, como_vai_ficar: str(v) || null }));
-  if (!confirmado(a)) return previa({ processo: sh.reference_number, nota: "Totais do embarque (pallets, caixas, valor total da invoice). Não altera peso, cubagem nem itens.", mudancas });
+  if (!confirmado(a)) return previa({ processo: sh.reference_number, nota: "Totais do embarque (pallets, caixas, valor total da invoice e, em FCL, peso e cubagem totais — só informativos, não alteram peso taxado, taxas nem itens). Peso e cubagem em FCL também são espelhados no campo do processo (weight_kg / volume_cbm).", mudancas });
   const { error } = await ctx.sb.from("quotes").update(Object.fromEntries(mudou)).eq("id", quoteId);
   if (error) throw new ToolError(`Não foi possível salvar: ${error.message.slice(0, 200)}`);
+  // Espelha peso/cubagem totais (FCL) no processo, para a consulta do processo devolver os mesmos valores.
+  const espelho: Record<string, unknown> = {};
+  for (const [k, v] of mudou) { if (k === "cargo_weight_total_kg") espelho.weight_kg = v; if (k === "cargo_cbm_total") espelho.volume_cbm = v; }
+  if (Object.keys(espelho).length) {
+    const { error: e2 } = await ctx.sb.from("shipments").update(espelho).eq("id", sh.id);
+    if (e2) throw new ToolError(`Totais salvos na cotação, mas falhou ao espelhar no processo: ${e2.message.slice(0, 200)}. Repita a operação.`);
+  }
   await ctx.sb.from("shipment_audit_log").insert(mudou.map(([k, v]) => ({
     shipment_id: sh.id, quote_id: quoteId, company_id: sh.company_id, user_id: ctx.userId, field_name: `cargo_fisica.${k}`,
     old_value: str((cur as Record<string, unknown> | null)?.[k]) || null, new_value: `${str(v) || "-"} (via AuraComexAI)`,
@@ -2811,7 +2833,7 @@ const TOOLS: Tool[] = [
   {
     name: "atualizar_carga_fisica",
     description:
-      "Define a carga FÍSICA do embarque (totais): pallets, caixas/volumes e o tipo do volume (caixa, pallet, volume, saco, fardo, tambor, rolo, engradado, outro). Ex.: 4 pallets e 320 caixas = pallets 4, caixas 320, tipo_volume caixa. Também o valor total da carga (invoice) com a moeda; em branco o sistema soma o valor dos itens. São totais do embarque e não dependem dos itens (um pallet mistura caixas e produtos); os itens/produtos têm só peças (pieces), NCM e valor. Peso e cubagem NÃO ficam aqui: use atualizar_volumes_carga. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
+      "Define a carga FÍSICA do embarque (totais): pallets, caixas/volumes e o tipo do volume (caixa, pallet, volume, saco, fardo, tambor, rolo, engradado, outro). Ex.: 4 pallets e 320 caixas = pallets 4, caixas 320, tipo_volume caixa. Também o valor total da carga (invoice) com a moeda; em branco o sistema soma o valor dos itens. São totais do embarque e não dependem dos itens (um pallet mistura caixas e produtos); os itens/produtos têm só peças (pieces), NCM e valor. Em processos FCL (sem linhas de volume) informe também peso_total_kg e cubagem_total_m3 do embarque (HBL/packing list): são só informativos, não mudam peso taxado nem taxas, e também aparecem no peso/cubagem do processo. Nos demais modais, peso e cubagem NÃO ficam aqui: use atualizar_volumes_carga. Escrita em 2 etapas: sem confirmar só devolve a prévia; grave (confirmar: true) só depois que o usuário aprovar.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2821,6 +2843,8 @@ const TOOLS: Tool[] = [
         tipo_volume: { type: ["string", "null"], enum: [...PACKAGE_TYPE_KEYS, null], description: "Tipo do volume contado em caixas." },
         valor_total: { type: ["number", "null"], description: "Valor total da carga conforme a invoice. null = voltar a somar os itens." },
         moeda_valor: { type: ["string", "null"], description: "Moeda do valor_total (3 letras, ex.: USD)." },
+        peso_total_kg: { type: ["number", "null"], description: "Só FCL: peso bruto total do embarque em kg (HBL/packing list). null limpa." },
+        cubagem_total_m3: { type: ["number", "null"], description: "Só FCL: cubagem total do embarque em m³. null limpa." },
         confirmar: CONFIRMAR_PROP,
       },
     },

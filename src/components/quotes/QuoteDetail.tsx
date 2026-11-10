@@ -1136,9 +1136,16 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
       // Modal e Incoterm são espelhados com a aba Logística (tabela shipments) —
       // editar aqui também atualiza o embarque vinculado, pra nunca ficarem divergentes.
       if (isShipmentMode && shipmentId) {
+        // FCL: peso/cubagem totais (HBL/packing list) também vão para o embarque, só quando editados aqui.
+        const fclTotals: Record<string, number | null> = {};
+        if (!usesVolumes(form.transport_mode)) {
+          if ((form.cargo_weight_total || '') !== ((quote as any).cargo_weight_total_kg?.toString() || '')) fclTotals.weight_kg = parseFloat(form.cargo_weight_total) || null;
+          if ((form.cargo_cbm_total || '') !== ((quote as any).cargo_cbm_total?.toString() || '')) fclTotals.volume_cbm = parseFloat(form.cargo_cbm_total) || null;
+        }
         await (supabase.from('shipments') as any).update({
           transport_mode: form.transport_mode,
           incoterm: (form.incoterm && form.incoterm !== 'NONE') ? form.incoterm : null,
+          ...fclTotals,
         }).eq('id', shipmentId);
         queryClient.invalidateQueries({ queryKey: ['shipment', shipmentId] });
       }
@@ -2496,7 +2503,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                       </SelectContent>
                     </Select>
                   </div>
-                  {usesVolumes(form.transport_mode) && (() => {
+                  {(() => {
                     const detailed = hasVolumeDetail(cargoVolumes);
                     const auto = calcItems.reduce((a, i) => ({ w: a.w + calcItemWeight(i), c: a.c + getEffectiveVolume(i) }), { w: 0, c: 0 });
                     return (
