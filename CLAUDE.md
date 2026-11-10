@@ -90,6 +90,11 @@ da pasta. Opcional: script `.ps1` que faz esse sync em loop.
 - Backend: Supabase (Postgres/Auth/Storage/Edge Functions, pg_cron) — projeto `pqiuxojgjmqhdajdhgqk`
 - Testes: Vitest (`npx vitest run`)
 - Repo GitHub: `BrasaDigital/auracomex`, branch de produção `main`
+  O dono oficial é a conta pessoal `BrasaDigital` (confirmado em 09/nov/2026; ela não pertence a
+  nenhuma organização). O nome `AuraComexBR/auracomex` que aparece no `origin` do clone da sessão
+  e na fonte sincronizada do Project é só um alias do mesmo repo — o push chega no mesmo lugar.
+  O que dá permissão de escrita à sessão é o app GitHub "Claude" instalado na conta `BrasaDigital`
+  (acesso a todos os repositórios); não desinstalar/suspender. Não existe conector MCP de GitHub.
 - Deploy: Vercel, auto-deploy no push pro `main` — projeto `auracomex`
   (id `prj_gS2iVXFhlHTqHspNQ79m2AsDz0wA`, team `team_72KuLwbJZBtnU2NFLrfHBomJ`)
 - **Deploy Hook APAGADO** (retorna "not found"). Se o auto-deploy do push não disparar,
