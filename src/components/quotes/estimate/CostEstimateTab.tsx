@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { Info } from 'lucide-react';
 import { differenceInCalendarDays } from 'date-fns';
 import { buildTaxTargets, syncTaxCharges } from '@/lib/estimateTaxCharges';
+import { getAgencyRate } from '@/lib/estimateSync';
 
 interface Props {
   quoteId: string;
@@ -168,6 +169,8 @@ export function CostEstimateTab({
     enabled: !!quote?.client_id,
   });
   const clientExchangeSpreadPct = Number((estimateClient as any)?.exchange_spread_pct || 0);
+  // Câmbio da agência efetivo (0 = não definido → despesas caem no fiscal)
+  const agencyRate = getAgencyRate(estimate as any, clientExchangeSpreadPct);
 
   // País de Origem: mesma fonte que a aba Geral usa pro ícone de bandeira —
   // busca o country_code do porto de origem (quote.origin) na tabela `ports`.
@@ -640,8 +643,11 @@ export function CostEstimateTab({
           if (aduChanged) patch.aduaneira = e.aduaneira;
           if (valChanged) {
             const cur = (ch.currency || 'BRL').toUpperCase();
-            const usd = draftEstimate.usd_brl || 0;
-            const eur = draftEstimate.eur_brl || 0;
+            // inverso do sync: despesa em BRL veio da conversão pelo câmbio da agência
+            const fiscal = draftEstimate.usd_brl || 0;
+            const ag = getAgencyRate(draftEstimate as any, clientExchangeSpreadPct);
+            const usd = ag > 0 ? ag : fiscal;
+            const eur = (draftEstimate.eur_brl || 0) * (ag > 0 && fiscal > 0 ? ag / fiscal : 1);
             if (cur === 'BRL') patch.buy_amount = Number(e.valor_brl);
             else if (cur === 'USD' && usd > 0) patch.buy_amount = Number(e.valor_brl) / usd;
             else if (cur === 'EUR' && eur > 0) patch.buy_amount = Number(e.valor_brl) / eur;
@@ -814,7 +820,7 @@ export function CostEstimateTab({
       });
       if (est && companyId && charges && charges.length > 0 && getBillingMultiplier && usdBrl) {
         try {
-          await syncEstimateFromCharges(est.id, companyId, charges, { usd_brl: usdBrl, eur_brl: eurBrl || 0 }, getBillingMultiplier);
+          await syncEstimateFromCharges(est.id, companyId, charges, { usd_brl: usdBrl, eur_brl: eurBrl || 0, usd_brl_agencia: agencyRate }, getBillingMultiplier);
         } catch (err) { console.error('sync charges failed', err); }
         invalidate();
       }
@@ -847,7 +853,7 @@ export function CostEstimateTab({
     id: q.id, commodity: q.commodity, ncm_code: q.ncm_code,
     weight_kg: q.weight_kg, packages: q.packages, container_qty: q.container_qty,
   }))), [quoteItems]);
-  const lastSyncedRef = useRef<{ estimateId: string; charges: string; items: string; usd: number; eur: number } | null>(null);
+  const lastSyncedRef = useRef<{ estimateId: string; charges: string; items: string; usd: number; eur: number; ag: number } | null>(null);
   useEffect(() => {
     if (!serverEstimate || !companyId || hasDirty) return;
     const last = lastSyncedRef.current;
@@ -856,7 +862,8 @@ export function CostEstimateTab({
       && last.charges === chargesKey
       && last.items === itemsKey
       && last.usd === (usdBrl || 0)
-      && last.eur === (eurBrl || 0)) {
+      && last.eur === (eurBrl || 0)
+      && last.ag === agencyRate) {
       return;
     }
     lastSyncedRef.current = {
@@ -865,13 +872,14 @@ export function CostEstimateTab({
       items: itemsKey,
       usd: usdBrl || 0,
       eur: eurBrl || 0,
+      ag: agencyRate,
     };
     (async () => {
       try {
         if (charges && getBillingMultiplier && usdBrl) {
           await syncEstimateFromCharges(
             serverEstimate.id, companyId, charges,
-            { usd_brl: usdBrl, eur_brl: eurBrl || 0 },
+            { usd_brl: usdBrl, eur_brl: eurBrl || 0, usd_brl_agencia: agencyRate },
             getBillingMultiplier,
           );
         }
@@ -903,7 +911,7 @@ export function CostEstimateTab({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverEstimate?.id, hasDirty, chargesKey, itemsKey, usdBrl, eurBrl, companyId]);
+  }, [serverEstimate?.id, hasDirty, chargesKey, itemsKey, usdBrl, eurBrl, agencyRate, companyId]);
 
   // ===== Auto-sync silencioso: Numerário total (numerario_total_usd) =====
   // Esse valor alimenta o campo exposto no portal de tracking (fase 3,

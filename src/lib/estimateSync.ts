@@ -27,8 +27,33 @@ export interface ChargeLike {
 }
 
 export interface FxRates {
+  /** Câmbio fiscal (padrão): mercadoria, valor aduaneiro e tributos. */
   usd_brl: number;
   eur_brl: number;
+  /** Câmbio da agência: TODAS as outras conversões (taxas/despesas em moeda estrangeira → BRL).
+   *  Vazio/0 = cai pro câmbio fiscal. */
+  usd_brl_agencia?: number | null;
+}
+
+/** Câmbio da agência efetivo: automático = fiscal + spread do cliente; manual = valor digitado; 0 = não definido. */
+export function getAgencyRate(
+  estimate: { usd_brl?: number | null; usd_brl_agencia?: number | null; usd_brl_agencia_auto?: boolean | null } | null | undefined,
+  spreadPct = 0,
+): number {
+  if (!estimate) return 0;
+  if (estimate.usd_brl_agencia_auto) {
+    const base = Number(estimate.usd_brl || 0);
+    return base > 0 ? Number((base * (1 + (Number(spreadPct) || 0) / 100)).toFixed(4)) : 0;
+  }
+  return Number(estimate.usd_brl_agencia || 0);
+}
+
+/** Câmbio usado pra converter despesas (não-mercadoria) em BRL: agência quando definida, senão fiscal. */
+export function expenseFxRates(fx: FxRates): FxRates {
+  const ag = Number(fx.usd_brl_agencia || 0);
+  if (!(ag > 0) || !(fx.usd_brl > 0)) return { usd_brl: fx.usd_brl, eur_brl: fx.eur_brl };
+  // EUR acompanha o mesmo spread da agência sobre o fiscal.
+  return { usd_brl: ag, eur_brl: fx.eur_brl * (ag / fx.usd_brl) };
 }
 
 export interface MappedExpense {
@@ -103,6 +128,10 @@ export function mapChargesToEstimate(
     ignored: [],
   };
 
+  // Despesas/taxas (tudo que não é mercadoria) convertem pelo câmbio da agência; a base em USD
+  // dos tributos (frete/seguro/acréscimos/deduções) segue no câmbio fiscal (fx).
+  const expenseFx = expenseFxRates(fx);
+
   for (const c of charges) {
     if (c.is_auto_tax) continue;
     const desc = (c.description || '').trim();
@@ -130,7 +159,7 @@ export function mapChargesToEstimate(
     // cobrou), usamos ele em vez da taxa fiscal única — mesmo padrão já usado pra
     // usd_brl_agencia. Sem câmbio próprio, cai pra conversão pela taxa fiscal (fx).
     const ownRate = Number(c.exchange_rate) || 0;
-    const brl = (ownRate > 0 && cur !== 'BRL') ? rawAmount * ownRate : toBRL(rawAmount, cur, fx);
+    const brl = (ownRate > 0 && cur !== 'BRL') ? rawAmount * ownRate : toBRL(rawAmount, cur, expenseFx);
 
     if (isDiscount) {
       const usd = toUSD(Math.abs(rawAmount), cur, fx);
