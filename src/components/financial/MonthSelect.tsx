@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { createContext, useContext, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { addMonths, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,11 +17,26 @@ interface MonthSelectProps {
 }
 
 /**
+ * Posição fixa do seletor de mês: a página (Movimentações) provê o elemento da linha do submenu,
+ * alinhado à direita. undefined = fora da página (renderiza no próprio lugar); null = página
+ * montando o slot (não renderiza ainda); elemento = renderiza nele via portal.
+ */
+export const MonthSlotContext = createContext<HTMLElement | null | undefined>(undefined);
+
+/**
  * Seletor de mês padrão do Financeiro (Valores a Pagar, Valores a Receber,
  * Geral e Visão Geral). Janela de 12 meses atrás até 2 à frente, mais qualquer
  * mês que já tenha lançamento (pra nunca esconder dado antigo).
  */
-export function MonthSelect({ value, onChange, allowAll = false, extraMonths = [], className = 'w-44', title }: MonthSelectProps) {
+export function MonthSelect(props: MonthSelectProps) {
+  const slot = useContext(MonthSlotContext);
+  const el = <MonthSelectBase {...props} />;
+  if (slot === undefined) return el;
+  if (slot === null) return null;
+  return createPortal(el, slot);
+}
+
+function MonthSelectBase({ value, onChange, allowAll = false, extraMonths = [], className = 'w-44', title }: MonthSelectProps) {
   const extraKey = extraMonths.join(',');
   const options = useMemo(() => {
     const set = new Set<string>();
