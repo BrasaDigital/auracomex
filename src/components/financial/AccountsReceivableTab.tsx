@@ -12,13 +12,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
-import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2, FileText, Ban } from 'lucide-react';
+import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2, FileText, Ban, Download } from 'lucide-react';
 import { format, isBefore, startOfDay, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
+import { exportRowsToXlsx, ymdToDate } from '@/lib/exportXlsx';
 import { MonthRangeSelect, currentMonthRange, monthInRange, monthRangeLabel } from './MonthSelect';
 import { ClientDebitNotePdfDialog } from '@/components/quotes/ClientDebitNotePdfDialog';
 import { GenerateClientNdDialog, type ClientDnCharge } from '@/components/quotes/ClientDebitNotesTab';
@@ -206,6 +207,53 @@ export default function AccountsReceivableTab() {
   }, [enriched, monthRange, searchDesc, searchClient, searchProcess, usdBrl, eurBrl, dnRateMap]);
   const periodo = monthRangeLabel(monthRange);
 
+  async function exportXlsx() {
+    if (filtered.length === 0) return toast.error('Nada para exportar com os filtros atuais');
+    let total = 0;
+    const out = filtered.map((r) => {
+      const shown = Number(r.status === 'recebido' ? (r.received_amount ?? r.amount) : r.amount) || 0;
+      const brl = toBRL(shown, r.currency, r.debit_note_id);
+      if (r.status !== 'cancelado') total += brl;
+      const cur = (r.currency || 'BRL').toUpperCase();
+      return {
+        origem: r.quote_charge_id ? 'Taxa conferida' : (SOURCE_LABEL[r.source] || r.source),
+        descricao: r.description ?? '',
+        cliente: r.client_id ? clientMap.get(r.client_id) ?? '' : '',
+        processo: (r.quote_id && quoteMap.get(r.quote_id)) || '',
+        vencimento: ymdToDate(r.due_date),
+        recebido_em: ymdToDate(r.received_at),
+        moeda: cur,
+        valor: shown,
+        cambio: cur === 'BRL' ? null : rateFor(r.currency, r.debit_note_id),
+        valor_brl: brl,
+        status: STATUS_LABEL[r.status] ?? r.status,
+      };
+    });
+    try {
+      await exportRowsToXlsx({
+        filename: `receita-por-processo-${format(new Date(), 'yyyy-MM-dd')}.xlsx`,
+        sheetName: 'Receita por Processo',
+        columns: [
+          { header: 'Origem', key: 'origem', width: 16 },
+          { header: 'Descrição', key: 'descricao', width: 40 },
+          { header: 'Cliente', key: 'cliente', width: 28 },
+          { header: 'Processo', key: 'processo', width: 16 },
+          { header: 'Vencimento', key: 'vencimento', width: 13, kind: 'date' },
+          { header: 'Recebido em', key: 'recebido_em', width: 13, kind: 'date' },
+          { header: 'Moeda', key: 'moeda', width: 8 },
+          { header: 'Valor', key: 'valor', width: 14, kind: 'money' },
+          { header: 'Câmbio', key: 'cambio', width: 10, kind: 'rate' },
+          { header: 'Valor (R$)', key: 'valor_brl', width: 14, kind: 'money' },
+          { header: 'Status', key: 'status', width: 12 },
+        ],
+        rows: out,
+        totalRow: { descricao: 'TOTAL (sem canceladas)', valor_brl: total },
+      });
+    } catch (e: any) {
+      toast.error('Erro ao exportar', { description: e?.message });
+    }
+  }
+
   async function markReceived() {
     if (!target) return;
     const receivedAmount = Number(form.received_amount);
@@ -361,6 +409,9 @@ export default function AccountsReceivableTab() {
               extraMonths={rows.map((r) => (r.status === 'recebido' ? r.received_at : r.due_date)).filter(Boolean).map((d) => (d as string).slice(0, 7))}
               title="Filtra recebidos pela data de recebimento; em aberto/atrasados pelo vencimento"
             />
+            <Button variant="outline" size="sm" onClick={exportXlsx} title="Exporta para Excel o que está filtrado na tela">
+              <Download className="w-4 h-4 mr-1" /> Exportar
+            </Button>
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none whitespace-nowrap">
               <Checkbox checked={showInactive} onCheckedChange={(v) => setShowInactive(v === true)} />
               Mostrar inativas

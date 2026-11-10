@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
-import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2 } from 'lucide-react';
+import { CheckCircle, Wallet, AlertTriangle, CalendarClock, Paperclip, Undo2, Download } from 'lucide-react';
 import { format, isBefore, addDays, addMonths, startOfDay, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -20,6 +20,7 @@ import { DOCS_BUCKET, openSignedDoc } from '@/lib/storage';
 import { sanitizeStorageFileName } from '@/lib/sanitizeFileName';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
+import { exportRowsToXlsx, ymdToDate } from '@/lib/exportXlsx';
 import { MonthRangeSelect, currentMonthRange, monthInRange, monthRangeLabel } from './MonthSelect';
 
 type AP = {
@@ -141,9 +142,8 @@ export default function AccountsPayableTab() {
     return { ...r, status: overdue ? ('atrasado' as const) : r.status };
   });
 
-  const filtered = enriched.filter((r) => {
-    if (statusFilter !== 'todos' && r.status !== statusFilter) return false;
-    if (!showInactive && statusFilter !== 'cancelado' && r.status === 'cancelado') return false;
+  // Escopo = busca por coluna + período de meses (sem olhar o filtro de status).
+  const inScope = (r: (typeof enriched)[number]) => {
     if (searchDesc && !r.description?.toLowerCase().includes(searchDesc.toLowerCase())) return false;
     if (searchPartner) {
       const name = r.partner_id ? partnerMap.get(r.partner_id) ?? '' : '';
@@ -158,6 +158,12 @@ export default function AccountsPayableTab() {
       if (!monthInRange(relevant, monthRange)) return false;
     }
     return true;
+  };
+
+  const filtered = enriched.filter((r) => {
+    if (statusFilter !== 'todos' && r.status !== statusFilter) return false;
+    if (!showInactive && statusFilter !== 'cancelado' && r.status === 'cancelado') return false;
+    return inScope(r);
   });
 
   // Meses que já têm lançamento (o MonthSelect os inclui na lista).
@@ -186,21 +192,70 @@ export default function AccountsPayableTab() {
     return amount * rateFor(currency, debitNoteId, apRate);
   }
 
+  // Cartões: os do período somam o que está no período escolhido (e na busca), sem olhar o filtro
+  // de status; inativas (canceladas) nunca entram. "A vencer" = em aberto ainda no prazo,
+  // "Vencidos" = atrasados. O cartão Global soma tudo que falta pagar, de todos os meses.
   const kpis = useMemo(() => {
-    const in7 = addDays(today, 7);
-    let vencidos = 0, aVencer = 0, pagos = 0, aberto = 0;
+    let aVencer = 0, vencidos = 0, pagos = 0, global = 0;
     for (const r of enriched) {
+      if (r.status === 'cancelado') continue;
       const amt = toBRL(Number(r.amount) || 0, r.currency, r.debit_note_id, r.exchange_rate);
+      if (r.status !== 'pago') global += amt;
+      if (!inScope(r)) continue;
       if (r.status === 'pago') pagos += amt;
       else if (r.status === 'atrasado') vencidos += amt;
-      else if (r.status === 'aberto') {
-        aberto += amt;
-        if (isBefore(parseISO(r.due_date), in7)) aVencer += amt;
-      }
+      else aVencer += amt;
     }
-    return { vencidos, aVencer, pagos, aberto };
+    return { aVencer, vencidos, pagos, global };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enriched, today, usdBrl, eurBrl, dnRateMap]);
+  }, [enriched, monthRange, searchDesc, searchPartner, searchProcess, usdBrl, eurBrl, dnRateMap]);
+  const periodo = monthRangeLabel(monthRange);
+
+  async function exportXlsx() {
+    if (filtered.length === 0) return toast.error('Nada para exportar com os filtros atuais');
+    let total = 0;
+    const out = filtered.map((r) => {
+      const brl = toBRL(Number(r.amount) || 0, r.currency, r.debit_note_id, r.exchange_rate);
+      if (r.status !== 'cancelado') total += brl;
+      const cur = (r.currency || 'BRL').toUpperCase();
+      return {
+        origem: r.source,
+        descricao: r.description ?? '',
+        fornecedor: r.partner_id ? partnerMap.get(r.partner_id) ?? '' : '',
+        processo: (r.shipment_id && shipmentMap.get(r.shipment_id)) || (r.quote_id && quoteMap.get(r.quote_id)) || '',
+        vencimento: ymdToDate(r.due_date),
+        pago_em: ymdToDate(r.paid_at),
+        moeda: cur,
+        valor: Number(r.amount) || 0,
+        cambio: cur === 'BRL' ? null : rateFor(r.currency, r.debit_note_id, r.exchange_rate),
+        valor_brl: brl,
+        status: STATUS_LABEL[r.status] ?? r.status,
+      };
+    });
+    try {
+      await exportRowsToXlsx({
+        filename: `despesa-por-processo-${format(new Date(), 'yyyy-MM-dd')}.xlsx`,
+        sheetName: 'Despesa por Processo',
+        columns: [
+          { header: 'Origem', key: 'origem', width: 14 },
+          { header: 'Descrição', key: 'descricao', width: 40 },
+          { header: 'Fornecedor', key: 'fornecedor', width: 28 },
+          { header: 'Processo', key: 'processo', width: 16 },
+          { header: 'Vencimento', key: 'vencimento', width: 13, kind: 'date' },
+          { header: 'Pago em', key: 'pago_em', width: 13, kind: 'date' },
+          { header: 'Moeda', key: 'moeda', width: 8 },
+          { header: 'Valor', key: 'valor', width: 14, kind: 'money' },
+          { header: 'Câmbio', key: 'cambio', width: 10, kind: 'rate' },
+          { header: 'Valor (R$)', key: 'valor_brl', width: 14, kind: 'money' },
+          { header: 'Status', key: 'status', width: 12 },
+        ],
+        rows: out,
+        totalRow: { descricao: 'TOTAL (sem canceladas)', valor_brl: total },
+      });
+    } catch (e: any) {
+      toast.error('Erro ao exportar', { description: e?.message });
+    }
+  }
 
   async function markPaid() {
     if (!payTarget) return;
@@ -276,10 +331,10 @@ export default function AccountsPayableTab() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Kpi title="A vencer (7d)" value={kpis.aVencer} icon={<CalendarClock className="w-4 h-4" />} tone="amber" />
-        <Kpi title="Vencidos" value={kpis.vencidos} icon={<AlertTriangle className="w-4 h-4" />} tone="red" />
-        <Kpi title="Em aberto" value={kpis.aberto} icon={<Wallet className="w-4 h-4" />} tone="slate" />
-        <Kpi title="Pagos" value={kpis.pagos} icon={<CheckCircle className="w-4 h-4" />} tone="emerald" />
+        <Kpi title={`A vencer (${periodo})`} value={kpis.aVencer} icon={<CalendarClock className="w-4 h-4" />} tone="amber" />
+        <Kpi title={`Vencidos (${periodo})`} value={kpis.vencidos} icon={<AlertTriangle className="w-4 h-4" />} tone="red" />
+        <Kpi title={`Pagos (${periodo})`} value={kpis.pagos} icon={<CheckCircle className="w-4 h-4" />} tone="emerald" />
+        <Kpi title="A pagar — global (todos os meses)" value={kpis.global} icon={<Wallet className="w-4 h-4" />} tone="slate" />
       </div>
 
       <Card className="glass">
@@ -292,6 +347,9 @@ export default function AccountsPayableTab() {
               extraMonths={rowMonths}
               title="Filtra pagos pela data de pagamento; em aberto/atrasados pelo vencimento"
             />
+            <Button variant="outline" size="sm" onClick={exportXlsx} title="Exporta para Excel o que está filtrado na tela">
+              <Download className="w-4 h-4 mr-1" /> Exportar
+            </Button>
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none whitespace-nowrap">
               <Checkbox checked={showInactive} onCheckedChange={(v) => setShowInactive(v === true)} />
               Mostrar inativas
