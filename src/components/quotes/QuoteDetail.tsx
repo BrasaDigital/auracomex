@@ -3467,6 +3467,42 @@ interface ChargeColumnProps {
   onReopenSellCharge?: (charge: any, partnerName: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
+/** Seletor do órgão arrecadador (fornecedor global "Órgão público") numa taxa de tributo gerada pela Estimativa. */
+function TaxOrgPicker({ description, value, disabled, onChange }: {
+  description: string; value: string | null | undefined; disabled?: boolean; onChange: (partnerId: string) => void;
+}) {
+  const { data: orgs = [] } = useQuery({
+    queryKey: ['orgaos-publicos'],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).from('clients')
+        .select('id, name').eq('partner_category', 'orgao_publico').is('company_id', null).order('name');
+      if (error) throw error;
+      return (data || []) as Array<{ id: string; name: string }>;
+    },
+  });
+  // ICMS é recolhido pela SEFAZ da UF; os demais tributos vão para a Receita Federal.
+  const list = description === 'ICMS' ? orgs.filter((o) => o.name.startsWith('SEFAZ-')) : orgs;
+  const short = (n: string) => (n.startsWith('SEFAZ-') ? n.split(' - ')[0] : n);
+  return (
+    <span className="inline-block ml-1.5 align-middle" onClick={(e) => e.stopPropagation()}>
+      <Select value={value || ''} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger
+          className={`h-5 w-auto min-w-[110px] gap-1 px-1.5 py-0 text-[10px] ${value ? '' : 'border-dashed border-amber-500/50 text-amber-600'}`}
+          title="Órgão arrecadador desta taxa"
+        >
+          <SelectValue placeholder={description === 'ICMS' ? 'Escolher UF (SEFAZ)' : 'Escolher órgão'} />
+        </SelectTrigger>
+        <SelectContent>
+          {list.map((o) => (
+            <SelectItem key={o.id} value={o.id} title={o.name}>{short(o.name)}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </span>
+  );
+}
+
 /** Valor mínimo da taxa (só para unidades de peso/medida). Confirma no blur/Enter; vazio remove o mínimo. */
 function ChargeMinInput({ value, disabled, applied, onCommit }: { value: number | null | undefined; disabled?: boolean; applied?: boolean; onCommit: (v: number | null) => void }) {
   const [text, setText] = useState(value ? String(value) : '');
@@ -3783,6 +3819,16 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     >
                                       {c.payment_term === 'prepaid' ? 'Prepaid' : 'Collect'}
                                     </button>
+                                  )}
+                                  {/* Tributos gerados pela Estimativa: troca do órgão arrecadador
+                                      (ex.: ICMS → SEFAZ da UF de destino). */}
+                                  {c.is_auto_tax && (
+                                    <TaxOrgPicker
+                                      description={c.description}
+                                      value={c.partner_id}
+                                      disabled={readOnly || lockedForEdit || !!c.buy_paid_at || !!c.sent_in_debit_note_id}
+                                      onChange={(partnerId) => onUpdate(c.id, { partner_id: partnerId })}
+                                    />
                                   )}
                                 </div>
                                 {c.billing_unit === 'percent' ? (
