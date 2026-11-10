@@ -206,6 +206,31 @@ export function useAccountability(quoteId: string, companyId: string | undefined
       }
     }
 
+    // Fornecedor (partner_id) de cada linha: impostos automáticos vêm da taxa
+    // is_auto_tax da cotação (Receita Federal, SEFAZ-UF...); despesas vindas de
+    // uma taxa herdam o partner dela.
+    const TAX_DESC_TO_CHARGE: Record<string, string> = {
+      'I.I.': 'II', 'I.P.I.': 'IPI', 'P.I.S.': 'PIS', 'COFINS': 'COFINS',
+      'I.C.M.S.': 'ICMS', 'Taxa Siscomex': 'TAXA SISCOMEX', 'AFRMM': 'AFRMM',
+    };
+    const partnerByChargeName = new Map<string, string>();
+    const partnerByExpense = new Map<string, string>();
+    {
+      const { data: autoCharges } = await (supabase as any)
+        .from('quote_charges').select('description, partner_id').eq('quote_id', quoteId).eq('is_auto_tax', true);
+      (autoCharges || []).forEach((c: any) => { if (c.partner_id) partnerByChargeName.set(c.description, c.partner_id); });
+      if (expenseIds.length > 0) {
+        const { data: exps2 } = await (supabase as any)
+          .from('cost_estimate_expenses').select('id, source_charge_id').in('id', expenseIds);
+        const cIds = Array.from(new Set((exps2 || []).map((e: any) => e.source_charge_id).filter(Boolean)));
+        if (cIds.length > 0) {
+          const { data: chs } = await (supabase as any).from('quote_charges').select('id, partner_id').in('id', cIds);
+          const pByCharge = new Map<string, string>((chs || []).filter((c: any) => c.partner_id).map((c: any) => [c.id, c.partner_id]));
+          (exps2 || []).forEach((e: any) => { const pid = e.source_charge_id && pByCharge.get(e.source_charge_id); if (pid) partnerByExpense.set(e.id, pid); });
+        }
+      }
+    }
+
     const payables = lines
       .map((l, idx) => ({ l, idx }))
       .filter(({ l }) => l.valor_orcado_brl > 0 && !(l.source_expense_id && skipExpenseIds.has(l.source_expense_id)))
@@ -214,6 +239,7 @@ export function useAccountability(quoteId: string, companyId: string | undefined
         source: 'numerario',
         quote_id: quoteId,
         shipment_id: q?.shipment_id || null,
+        partner_id: (l.source_expense_id && partnerByExpense.get(l.source_expense_id)) || partnerByChargeName.get(TAX_DESC_TO_CHARGE[l.descricao] || '') || null,
         description: l.descricao,
         currency: 'BRL',
         amount: l.valor_orcado_brl,
