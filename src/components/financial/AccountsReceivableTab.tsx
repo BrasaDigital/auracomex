@@ -43,10 +43,10 @@ const STATUS_LABEL: Record<string, string> = {
   aberto: 'Em aberto', recebido: 'Recebido', atrasado: 'Atrasado', cancelado: 'Cancelado',
 };
 const STATUS_COLOR: Record<string, string> = {
-  aberto: 'bg-slate-500/20 text-slate-300',
-  recebido: 'bg-emerald-500/20 text-emerald-300',
-  atrasado: 'bg-red-500/20 text-red-300',
-  cancelado: 'bg-muted text-muted-foreground',
+  aberto: 'bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-500/20 dark:text-slate-300 dark:border-slate-500/30',
+  recebido: 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30',
+  atrasado: 'bg-red-100 text-red-800 border border-red-300 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
+  cancelado: 'bg-muted text-muted-foreground border border-border',
 };
 const SOURCE_LABEL: Record<string, string> = {
   debit_note: 'Nota de Débito',

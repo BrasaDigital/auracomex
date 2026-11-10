@@ -283,9 +283,9 @@ function EditableAmountCell({ value, currency, disabled, onSave }: { value: numb
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; className: string }> = {
-    pending: { label: 'Pendente', className: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
-    paid: { label: 'Pago', className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
-    late: { label: 'Atrasado', className: 'bg-destructive/10 text-destructive border-destructive/20' },
+    pending: { label: 'Pendente', className: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20' },
+    paid: { label: 'Pago', className: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20' },
+    late: { label: 'Atrasado', className: 'bg-red-100 text-red-800 border-red-300 dark:bg-destructive/10 dark:text-destructive dark:border-destructive/20' },
     cancelled: { label: 'Cancelado', className: 'bg-muted text-muted-foreground border-border' },
   };
   const m = map[status] || map.pending;
