@@ -335,8 +335,21 @@ export function useAccountability(quoteId: string, companyId: string | undefined
   };
 
   const updateItem = async (itemId: string, patch: { valor_pago_brl?: number | null; confirmado?: boolean; observacao?: string | null }) => {
-    const { error } = await (supabase as any).from('accountability_items').update(patch).eq('id', itemId);
+    const { data: row, error } = await (supabase as any)
+      .from('accountability_items').update(patch).eq('id', itemId)
+      .select('valor_orcado_brl, valor_pago_brl').single();
     if (error) throw error;
+    // Valor real digitado na conferência substitui o estimado lançado em Custos por Processo
+    // (Movimentações). Só contas geradas pelo Numerário (vínculo accountability_item_id);
+    // itens manuais não têm conta. Pago apagado (null) volta ao orçado. Vale também p/ contas já pagas.
+    if ('valor_pago_brl' in patch) {
+      const novo = Number(row?.valor_pago_brl ?? row?.valor_orcado_brl ?? 0);
+      const { error: e2 } = await (supabase as any)
+        .from('accounts_payable').update({ amount: novo })
+        .eq('accountability_item_id', itemId).eq('source', 'numerario').neq('status', 'cancelado');
+      if (e2) throw e2;
+      qc.invalidateQueries({ queryKey: ['accounts_payable'] });
+    }
     invalidate();
   };
 
