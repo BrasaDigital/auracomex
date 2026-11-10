@@ -187,7 +187,6 @@ export function useAccountability(quoteId: string, companyId: string | undefined
     const { data: q, error: qErr } = await (supabase as any)
       .from('quotes').select('quote_number, base_reference, client_id, shipment_id').eq('id', quoteId).maybeSingle();
     if (qErr) throw qErr;
-    const ref = q?.quote_number || q?.base_reference || '';
     const today = new Date().toISOString().slice(0, 10);
     const idByOrdem = new Map(inserted.map(i => [i.ordem, i.id]));
 
@@ -199,7 +198,7 @@ export function useAccountability(quoteId: string, companyId: string | undefined
         source: 'numerario',
         quote_id: quoteId,
         shipment_id: q?.shipment_id || null,
-        description: `Numerário ${ref} — ${l.descricao}`.trim(),
+        description: l.descricao,
         currency: 'BRL',
         amount: l.valor_orcado_brl,
         due_date: today,
@@ -219,7 +218,7 @@ export function useAccountability(quoteId: string, companyId: string | undefined
         quote_id: quoteId,
         shipment_id: q?.shipment_id || null,
         client_id: q?.client_id || null,
-        description: `Numerário ${ref} — venda`.trim(),
+        description: 'Venda de Numerário',
         currency: 'BRL',
         amount: total,
         due_date: today,
