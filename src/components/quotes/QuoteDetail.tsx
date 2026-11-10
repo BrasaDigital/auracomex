@@ -14,7 +14,6 @@ import { FinanceiroTab } from './estimate/FinanceiroTab';
 import { useAccountability } from '@/hooks/useAccountability';
 import { FloatingSaveButton } from './estimate/FloatingSaveButton';
 import { QuotePdfPreviewDialog } from './QuotePdfPreviewDialog';
-import { SendSupplierDnDialog } from './DebitNotesTab';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -228,7 +227,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   const [pendingClientChange, setPendingClientChange] = useState<string | null>(null);
   const [clientChangeWarnings, setClientChangeWarnings] = useState<string[]>([]);
   // Botão "Enviar DN" no cabeçalho de cada fornecedor na aba Taxas (Compra).
-  const [sendDnPartner, setSendDnPartner] = useState<{ id: string; name: string; amount: number; currency: string; chargeIds: string[] } | null>(null);
   // Botão "Gerar ND" no cabeçalho de cada empresa na aba Taxas (Venda).
 
   // Handler para o botão voltar: se houver alterações não salvas, confirma antes.
@@ -3188,7 +3186,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                     showReconciliation={isShipmentMode && canSeeFinancials}
                     currentUserId={profile?.user_id}
                     onPercentClick={(id) => setPercentDialogChargeId(id)}
-                    onSendDn={(id, name, amount, currency, chargeIds) => setSendDnPartner({ id, name, amount, currency, chargeIds })}
                     onReopenCharge={handleReopenChargeWithDn}
                   />
                   <ChargeColumn
@@ -3366,21 +3363,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         onClose={() => setPdfPreviewOpen(false)}
       />
 
-      {sendDnPartner && (
-        <SendSupplierDnDialog
-          open={!!sendDnPartner}
-          onOpenChange={(o) => { if (!o) setSendDnPartner(null); }}
-          quoteId={quoteId}
-          companyId={profile?.company_id || ''}
-          partnerId={sendDnPartner.id}
-          partnerName={sendDnPartner.name}
-          suggestedAmount={sendDnPartner.amount}
-          suggestedCurrency={sendDnPartner.currency}
-          chargeIds={sendDnPartner.chargeIds}
-          onSent={() => setSendDnPartner(null)}
-        />
-      )}
-
       <HistoryPanel
         open={historyOpen}
         onOpenChange={setHistoryOpen}
@@ -3479,10 +3461,6 @@ interface ChargeColumnProps {
   showReconciliation?: boolean;
   currentUserId?: string;
   onPercentClick?: (chargeId: string) => void;
-  /** Botão "Enviar DN" no cabeçalho de cada fornecedor (só faz sentido do
-   *  lado Compra) — habilitado só quando todas as taxas do grupo já foram
-   *  conferidas (buy_actual_confirmed_at preenchido). */
-  onSendDn?: (partnerId: string, partnerName: string, suggestedAmount: number, suggestedCurrency: string, chargeIds: string[]) => void;
   /** Botão "Conferir" no cabeçalho de cada empresa (lado Venda, processos sem estimativa de
    *  custo) — lança as taxas em Receita por Processo; a ND é gerada de lá. */
   onConferirSell?: (charges: any[]) => Promise<void>;
@@ -3549,7 +3527,7 @@ function ChargeMinInput({ value, disabled, applied, onCommit }: { value: number 
   );
 }
 
-function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, legColors, legBorderLeftColors, onDelete, onClone, onUpdate, colorClass, borderClass, bgClass, cloneLabel, partners, defaultClonePartnerId, cargoMetrics, readOnly, showReconciliation, currentUserId, onPercentClick, onSendDn, onConferirSell, onReopenCharge, onReopenSellCharge }: ChargeColumnProps) {
+function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, legColors, legBorderLeftColors, onDelete, onClone, onUpdate, colorClass, borderClass, bgClass, cloneLabel, partners, defaultClonePartnerId, cargoMetrics, readOnly, showReconciliation, currentUserId, onPercentClick, onConferirSell, onReopenCharge, onReopenSellCharge }: ChargeColumnProps) {
   const { t } = useLanguage();
   const [cloningId, setCloningId] = useState<string | null>(null);
   const [cloneAmount, setCloneAmount] = useState('');
@@ -3707,48 +3685,6 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 <SupplierReconcileButton group={group as any} getMult={getBillingMultiplier} onUpdate={onUpdate}
                                   currentUserId={currentUserId} onReopenCharge={onReopenCharge} />
                               )}
-                              {onSendDn && amountKey === 'buy_amount' && showPartnerActions && (() => {
-                                // Taxas já enviadas numa DN anterior (paga ou não) não entram de
-                                // novo — se o fornecedor mandar uma cobrança nova, ela chega como
-                                // taxa nova (sem sent_in_debit_note_id) e é essa que conta aqui.
-                                const pendingCharges = group.charges.filter((c: any) => !c.sent_in_debit_note_id);
-                                const hasPending = pendingCharges.length > 0;
-                                const allConfirmed = pendingCharges.every((c: any) => !!c.buy_actual_confirmed_at);
-                                const enabled = hasPending && allConfirmed;
-                                return (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 gap-1.5 text-xs"
-                                    disabled={!enabled}
-                                    title={
-                                      !hasPending
-                                        ? 'Todas as taxas deste fornecedor já foram enviadas em uma DN'
-                                        : allConfirmed
-                                          ? 'Enviar Debit Note deste fornecedor'
-                                          : 'Confira todas as taxas deste fornecedor antes de enviar a DN'
-                                    }
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      // Soma o valor já conferido (buy_amount_actual) das taxas
-                                      // ainda não enviadas, na moeda predominante entre elas.
-                                      const currency = pendingCharges[0]?.currency || 'USD';
-                                      const amount = pendingCharges.reduce((s: number, c: any) => {
-                                        if ((c.currency || 'USD') !== currency) return s;
-                                        if (c.billing_unit === 'percent') return s + (Number(c.computed_buy_amount) || 0);
-                                        const unit = Number(c.buy_amount_actual ?? c.buy_amount) || 0;
-                                        const mult = c.billing_unit && c.billing_unit !== 'fixed' ? getBillingMultiplier(c.billing_unit) : 1;
-                                        return s + chargeLineTotal(unit, mult, c.billing_unit, c.buy_min_amount);
-                                      }, 0);
-                                      const ids = pendingCharges.map((c: any) => c.id).filter(Boolean);
-                                      onSendDn(group.partnerId, group.partnerName, amount, currency, ids);
-                                    }}
-                                  >
-                                    <Send className="w-3.5 h-3.5" /> Enviar DN
-                                  </Button>
-                                );
-                              })()}
                               </div>
                               {onConferirSell && amountKey === 'sell_amount' && showPartnerActions && !readOnly && (
                                 <SellConferirButton group={group} onConferir={onConferirSell} />
