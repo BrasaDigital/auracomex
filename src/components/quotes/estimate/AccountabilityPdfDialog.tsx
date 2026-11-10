@@ -59,17 +59,24 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
     }
   }, [open, quote?.company_id, quote?.client_id]);
 
-  // Depósitos do cliente (caixa do processo) — entram no PDF e definem o resultado
-  // quando o valor orçado está oculto.
+  // Recebimentos do cliente (Movimentações: Receita do Numerário + complementos já recebidos) —
+  // entram no PDF e definem o resultado quando o valor orçado está oculto.
   useEffect(() => {
-    if (!open || !quote?.id) { setDeposits([]); return; }
+    const accId = accountability?.id;
+    if (!open || !accId) { setDeposits([]); return; }
     (supabase as any)
-      .from('process_deposits')
-      .select('id, deposit_date, amount_brl, note')
-      .eq('quote_id', quote.id)
-      .order('deposit_date', { ascending: true })
-      .then((r: any) => setDeposits(r.data || []));
-  }, [open, quote?.id]);
+      .from('accounts_receivable')
+      .select('id, received_at, received_amount, amount, description')
+      .eq('accountability_id', accId)
+      .eq('status', 'recebido')
+      .order('received_at', { ascending: true })
+      .then((r: any) => setDeposits((r.data || []).map((x: any) => ({
+        id: x.id,
+        deposit_date: x.received_at || new Date().toISOString().slice(0, 10),
+        amount_brl: Number(x.received_amount ?? x.amount ?? 0),
+        note: x.description || null,
+      }))));
+  }, [open, accountability?.id]);
 
   // Dados bancários só fazem sentido quando sobra valor a cobrar do cliente
   // (mesmo critério/conta do Numerário em EstimatePdfDialog.tsx): conta padrão
