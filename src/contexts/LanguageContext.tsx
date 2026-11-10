@@ -254,6 +254,7 @@ const translations: Record<string, Record<Language, string>> = {
   'registrations.category_ocean_carrier': { pt: 'Armador (Marítimo)', en: 'Ocean Carrier' },
   'registrations.category_air_carrier': { pt: 'Cia Aérea', en: 'Air Carrier' },
   'registrations.category_terminal': { pt: 'Terminal', en: 'Terminal' },
+  'registrations.category_orgao_publico': { pt: 'Órgão público', en: 'Public agency' },
   'registrations.category_other': { pt: 'Outros', en: 'Others' },
 
   // Commission

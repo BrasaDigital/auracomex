@@ -481,7 +481,10 @@ export default function Registrations() {
                     ) : (
                       filtered.map((c: any) => (
                         <TableRow key={c.id} className="hover:bg-secondary/50 whitespace-nowrap">
-                          <TableCell className="py-2 px-3 font-medium max-w-[180px] truncate">{c.name}</TableCell>
+                          <TableCell className="py-2 px-3 font-medium max-w-[180px] truncate">
+                            {c.name}
+                            {!c.company_id && <Badge variant="secondary" className="ml-2 text-[10px]">Padrão Aura</Badge>}
+                          </TableCell>
                           <TableCell className="py-2 px-3">
                             <div className="flex flex-col gap-1">
                               {activeTab === 'client' ? (
@@ -523,11 +526,11 @@ export default function Registrations() {
                                   Tracking
                                 </Button>
                               )}
-                              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs px-2" onClick={() => openEdit(c)} title="Editar">
+                              {c.company_id && <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs px-2" onClick={() => openEdit(c)} title="Editar">
                                 <Pencil className="h-3.5 w-3.5" />
                                 Editar
-                              </Button>
-                              <Button
+                              </Button>}
+                              {c.company_id && <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 gap-1 text-xs px-2 text-destructive hover:text-destructive"
@@ -536,7 +539,7 @@ export default function Registrations() {
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                                 Excluir
-                              </Button>
+                              </Button>}
                             </div>
                           </TableCell>
                         </TableRow>

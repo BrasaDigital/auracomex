@@ -153,8 +153,11 @@ export function ChargeCatalogTab() {
                 </TableRow>
               ) : (
                 charges.map((c: any) => (
-                  <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => openEdit(c)}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                  <TableRow key={c.id} className={c.company_id ? 'cursor-pointer hover:bg-muted/50' : 'hover:bg-muted/50'} onClick={() => { if (c.company_id) openEdit(c); }}>
+                    <TableCell className="font-medium">
+                      {c.name}
+                      {!c.company_id && <Badge variant="secondary" className="ml-2 text-[10px]">Padrão Aura</Badge>}
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">
                         {(Array.isArray(c.legs) ? c.legs : ['freight']).map((leg: string) => (
@@ -165,14 +168,14 @@ export function ChargeCatalogTab() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
+                      {c.company_id && <div className="flex gap-1">
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); openEdit(c); }}>
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); deleteCharge.mutate(c.id); }}>
                           <Trash2 className="w-3.5 h-3.5 text-destructive" />
                         </Button>
-                      </div>
+                      </div>}
                     </TableCell>
                   </TableRow>
                 ))
