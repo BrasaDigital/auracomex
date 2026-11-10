@@ -205,6 +205,7 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
           companyId={companyId}
           clientId={quote?.client_id || null}
           readOnly={locked}
+          hideCreate
         />
       )}
 

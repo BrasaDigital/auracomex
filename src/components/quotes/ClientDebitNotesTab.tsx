@@ -58,9 +58,11 @@ interface Props {
   /** Modo somente leitura — usado na aba Documentos: lista informativa, sem
    *  nenhum botão de ação (nem "Emitir Nova DN", nem os botões por linha). */
   readOnly?: boolean;
+  /** Esconde o botão "Emitir Nova DN" (a DN do cliente nasce em "Gerar ND", na aba Taxas). */
+  hideCreate?: boolean;
 }
 
-export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: Props) {
+export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly, hideCreate }: Props) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -144,14 +146,14 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly }: 
         <CardTitle className="text-base flex items-center gap-2">
           <DollarSign className="w-4 h-4" /> Notas de Débito ao Cliente
         </CardTitle>
-        {!readOnly && (
+        {!readOnly && !hideCreate && (
           <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!clientId}>
             <Plus className="w-4 h-4 mr-1" /> Emitir Nova DN
           </Button>
         )}
       </CardHeader>
       <CardContent>
-        {!clientId && <p className="text-sm text-amber-400 mb-3">Defina o cliente na aba Geral antes de emitir DN.</p>}
+        {!clientId && !hideCreate && <p className="text-sm text-amber-400 mb-3">Defina o cliente na aba Geral antes de emitir DN.</p>}
         {notes.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">Nenhuma DN emitida.</p>
         ) : (
