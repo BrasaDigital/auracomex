@@ -288,6 +288,25 @@ export interface QuoteItemLike {
   container_qty: number | null;
 }
 
+/**
+ * Um item da Estimativa SEM vínculo com a Carga "parece" o mesmo item da Carga? Usado pra juntar
+ * duplicados antigos (a Carga foi recriada e o item da Estimativa ficou solto).
+ * Precisa bater NOME (e NCM, se a Carga tiver NCM). NUNCA casa só por NCM: dois itens diferentes
+ * da mesma NCM são comuns, e a Carga sem mercadoria preenchida fazia o item digitado à mão ser
+ * tratado como duplicado e APAGADO da Estimativa.
+ */
+export function isLooseQuoteItemMatch(
+  e: { nome?: string | null; ncm?: string | null },
+  q: { commodity?: string | null; ncm_code?: string | null },
+): boolean {
+  const norm = (s: string | null | undefined) => (s || '').trim().toLowerCase();
+  const qName = norm(q.commodity);
+  const qNcm = norm(q.ncm_code);
+  if (!qName) return false;
+  if (norm(e.nome) !== qName) return false;
+  return !qNcm || norm(e.ncm) === qNcm;
+}
+
 export interface MergedItem {
   action: 'update' | 'insert';
   estimate_item_id?: string;

@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { calcEstimativa, EstimateInput, EstimateBreakdown } from '@/lib/costEstimate';
-import { mapChargesToEstimate, mergeItemsWithQuoteItems, ChargeLike, FxRates, QuoteItemLike, ExistingItem } from '@/lib/estimateSync';
+import { mapChargesToEstimate, mergeItemsWithQuoteItems, isLooseQuoteItemMatch, ChargeLike, FxRates, QuoteItemLike, ExistingItem } from '@/lib/estimateSync';
 
 export interface EstimateRow {
   id: string;
@@ -289,9 +289,7 @@ export async function syncEstimateItemsFromQuote(
       if (e.quote_item_id === qi.id) return true;
       if (e.quote_item_id && currentQuoteItemIds.has(e.quote_item_id)) return false;
       if ((quoteKeyCounts.get(qKey) || 0) > 1) return false;
-      const sameName = qName && norm(e.nome) === qName;
-      const sameNcm = qNcm && norm(e.ncm) === qNcm;
-      return Boolean((sameName && sameNcm) || (sameName && !qNcm) || (sameNcm && !qName));
+      return isLooseQuoteItemMatch(e, qi);
     });
 
     if (candidates.length <= 1) continue;

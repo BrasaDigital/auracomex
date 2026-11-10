@@ -132,6 +132,10 @@ export function CostEstimateTab({
 
   const hasInsurance = useMemo(() => chargesHaveInsurance(charges), [charges]);
 
+  // Regra: Numerário (PDF + aprovação que gera a Prestação de Contas) só com a cotação aprovada.
+  // 'converted' = já virou embarque; quote.shipment_id cobre processos criados direto como embarque.
+  const numerarioLiberado = !!(quote && (['approved', 'converted'].includes(String((quote as any).status)) || (quote as any).shipment_id));
+
   const { data: siscomexConfig } = useQuery({
     queryKey: ['siscomex-config', companyId],
     queryFn: async () => {
@@ -1090,7 +1094,13 @@ export function CostEstimateTab({
             <Button size="sm" variant="outline" onClick={() => { setPdfMode('estimativa'); setPdfOpen(true); }}>
               <FileDown className="w-3.5 h-3.5 mr-1" /> Estimativa
             </Button>
-            <Button size="sm" onClick={() => { setPdfMode('numerario'); setPdfOpen(true); }}>
+            {/* Numerário só depois da cotação aprovada (ou já convertida em embarque). */}
+            <Button
+              size="sm"
+              disabled={!numerarioLiberado}
+              title={numerarioLiberado ? undefined : 'O Numerário só fica disponível depois que a cotação for aprovada.'}
+              onClick={() => { setPdfMode('numerario'); setPdfOpen(true); }}
+            >
               <FileDown className="w-3.5 h-3.5 mr-1" /> Numerário
             </Button>
             {serverEstimate && !accountability && !isFinalized && (
@@ -1776,7 +1786,7 @@ export function CostEstimateTab({
         hasInsurance={hasInsurance}
         mode={pdfMode}
         onApproveNumerario={
-          pdfMode === 'numerario' && !accountability && breakdown && estimate
+          pdfMode === 'numerario' && numerarioLiberado && !accountability && breakdown && estimate
             ? async () => {
                 await createAccountabilityFromEstimate({
                   estimate: estimate as any,
