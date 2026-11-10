@@ -204,6 +204,19 @@ export function useAccountability(quoteId: string, companyId: string | undefined
         const done = new Set((existing || []).map((r: any) => r.quote_charge_id));
         chargeByExpense.forEach((chargeId, expId) => { if (done.has(chargeId)) skipExpenseIds.add(expId); });
       }
+      // A despesa pode ter sido agregada de várias taxas de mesmo nome (ex.: duas
+      // linhas FRETE INTERNACIONAL, uma só de venda) e apontar pra uma que não é a
+      // que virou conta a pagar. Então também compara pela descrição da taxa já lançada.
+      const { data: launched } = await (supabase as any)
+        .from('accounts_payable').select('quote_charge_id').eq('quote_id', quoteId).not('quote_charge_id', 'is', null).neq('status', 'cancelado');
+      const launchedIds = Array.from(new Set((launched || []).map((r: any) => r.quote_charge_id)));
+      if (launchedIds.length > 0) {
+        const { data: lch } = await (supabase as any).from('quote_charges').select('description').in('id', launchedIds);
+        const launchedNames = new Set((lch || []).map((c: any) => String(c.description || '').trim().toUpperCase()));
+        lines.forEach(l => {
+          if (l.source_expense_id && launchedNames.has(String(l.descricao || '').trim().toUpperCase())) skipExpenseIds.add(l.source_expense_id);
+        });
+      }
     }
 
     // Fornecedor (partner_id) de cada linha: impostos automáticos vêm da taxa
