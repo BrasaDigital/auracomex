@@ -124,7 +124,8 @@ export function AiImportQuoteModal({ open, onClose, onCreated }: Props) {
       .from('clients')
       .select('id, name, tax_id')
       .eq('company_id', profile.company_id)
-      .eq('type', 'client');
+      .eq('type', 'client')
+      .eq('is_active', true);
     if (!clients) return;
     const taxId = data.direction === 'IMP' ? data.consignee_tax_id : data.shipper_tax_id;
     let match = taxId
@@ -149,6 +150,7 @@ export function AiImportQuoteModal({ open, onClose, onCreated }: Props) {
       .from('clients')
       .select('id, name')
       .eq('type', 'client')
+      .eq('is_active', true)
       .ilike('name', `%${term}%`)
       .order('name')
       .limit(8);

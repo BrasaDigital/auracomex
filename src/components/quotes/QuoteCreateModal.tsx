@@ -90,6 +90,7 @@ function ClientAutocomplete({ value, onChange }: { value: string; onChange: (id:
       .from('clients')
       .select('id, name')
       .eq('type', 'client')
+      .eq('is_active', true)
       .ilike('name', `%${term}%`)
       .order('name')
       .limit(10);

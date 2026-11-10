@@ -58,6 +58,7 @@ export default function Registrations() {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('client');
   const [showAdd, setShowAdd] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
@@ -392,6 +393,7 @@ export default function Registrations() {
   };
 
   const filtered = registrations.filter((c: any) => {
+    if (!showInactive && c.is_active === false) return false;
     const matchesSearch =
       c.name?.toLowerCase().includes(search.toLowerCase()) ||
       c.tax_id?.includes(cleanCnpj(search)) ||
@@ -433,6 +435,12 @@ export default function Registrations() {
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-10"
                 />
+              </div>
+            )}
+            {showClientControls && (
+              <div className="flex items-center gap-2">
+                <Switch id="show-inactive" checked={showInactive} onCheckedChange={setShowInactive} />
+                <Label htmlFor="show-inactive" className="text-xs text-muted-foreground cursor-pointer">Mostrar inativas</Label>
               </div>
             )}
           </div>
@@ -484,6 +492,7 @@ export default function Registrations() {
                           <TableCell className="py-2 px-3 font-medium max-w-[180px] truncate">
                             {c.name}
                             {!c.company_id && <Badge variant="secondary" className="ml-2 text-[10px]">Padrão Aura</Badge>}
+                            {c.is_active === false && <Badge variant="outline" className="ml-2 text-[10px] text-muted-foreground">Inativa</Badge>}
                           </TableCell>
                           <TableCell className="py-2 px-3">
                             <div className="flex flex-col gap-1">

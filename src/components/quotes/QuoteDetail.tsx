@@ -402,7 +402,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   const { data: clients = [] } = useQuery({
     queryKey: ['clients-select'],
     queryFn: async () => {
-      const { data } = await supabase.from('clients').select('id, name, partner_category').eq('type', 'client').order('name');
+      const { data } = await supabase.from('clients').select('id, name, partner_category, is_active').eq('type', 'client').order('name');
       return data || [];
     },
   });
@@ -410,7 +410,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   const { data: partners = [] } = useQuery({
     queryKey: ['partners-select'],
     queryFn: async () => {
-      const { data } = await supabase.from('clients').select('id, name, type, partner_category, tax_id').order('name');
+      const { data } = await supabase.from('clients').select('id, name, type, partner_category, tax_id, is_active').order('name');
       return data || [];
     },
   });
@@ -2273,7 +2273,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                       >
                         <SelectTrigger><SelectValue placeholder={t('quotes.select_client')} /></SelectTrigger>
                         <SelectContent>
-                          {clients.map((c: any) => (
+                          {clients.filter((c: any) => c.is_active !== false || c.id === form.client_id).map((c: any) => (
                             <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -2581,7 +2581,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
               <QuotePartnersList
                 quoteId={quoteId}
                 companyId={profile?.company_id || ''}
-                partners={partners}
+                partners={partners.filter((p: any) => p.is_active !== false)}
                 quotePartners={quotePartners}
                 isFinalized={isFinalized}
                 onChanged={() => {

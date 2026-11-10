@@ -650,6 +650,9 @@ export type Database = {
           email: string | null
           exchange_spread_pct: number | null
           id: string
+          inactivated_at: string | null
+          inactivated_by: string | null
+          is_active: boolean
           insurance_rate_pct: number | null
           is_foreign: boolean | null
           name: string
@@ -673,6 +676,9 @@ export type Database = {
           email?: string | null
           exchange_spread_pct?: number | null
           id?: string
+          inactivated_at?: string | null
+          inactivated_by?: string | null
+          is_active?: boolean
           insurance_rate_pct?: number | null
           is_foreign?: boolean | null
           name: string
@@ -696,6 +702,9 @@ export type Database = {
           email?: string | null
           exchange_spread_pct?: number | null
           id?: string
+          inactivated_at?: string | null
+          inactivated_by?: string | null
+          is_active?: boolean
           insurance_rate_pct?: number | null
           is_foreign?: boolean | null
           name?: string
