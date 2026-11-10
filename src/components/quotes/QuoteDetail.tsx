@@ -3467,9 +3467,9 @@ interface ChargeColumnProps {
   onReopenSellCharge?: (charge: any, partnerName: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
-/** Seletor do órgão arrecadador (fornecedor global "Órgão público") numa taxa de tributo gerada pela Estimativa. */
-function TaxOrgPicker({ description, value, disabled, onChange }: {
-  description: string; value: string | null | undefined; disabled?: boolean; onChange: (partnerId: string) => void;
+/** Seletor da SEFAZ (fornecedor global "Órgão público") do ICMS gerado pela Estimativa — fica no cabeçalho do grupo. */
+function TaxOrgPicker({ value, disabled, onChange }: {
+  value: string | null | undefined; disabled?: boolean; onChange: (partnerId: string) => void;
 }) {
   const { data: orgs = [] } = useQuery({
     queryKey: ['orgaos-publicos'],
@@ -3481,21 +3481,20 @@ function TaxOrgPicker({ description, value, disabled, onChange }: {
       return (data || []) as Array<{ id: string; name: string }>;
     },
   });
-  // ICMS é recolhido pela SEFAZ da UF; os demais tributos vão para a Receita Federal.
-  const list = description === 'ICMS' ? orgs.filter((o) => o.name.startsWith('SEFAZ-')) : orgs;
-  const short = (n: string) => (n.startsWith('SEFAZ-') ? n.split(' - ')[0] : n);
+  const sefaz = orgs.filter((o) => o.name.startsWith('SEFAZ-'));
+  const short = (n: string) => n.split(' - ')[0];
   return (
-    <span className="inline-block ml-1.5 align-middle" onClick={(e) => e.stopPropagation()}>
+    <span className="inline-block" onClick={(e) => e.stopPropagation()}>
       <Select value={value || ''} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger
-          className={`h-5 w-auto min-w-[110px] gap-1 px-1.5 py-0 text-[10px] ${value ? '' : 'border-dashed border-amber-500/50 text-amber-600'}`}
-          title="Órgão arrecadador desta taxa"
+          className={`h-7 w-auto min-w-[200px] gap-1.5 px-2 py-0 text-sm font-bold ${value ? '' : 'border-dashed border-amber-500/60 text-amber-600'}`}
+          title="Empresa (SEFAZ da UF) que recebe o ICMS"
         >
-          <SelectValue placeholder={description === 'ICMS' ? 'Escolher UF (SEFAZ)' : 'Escolher órgão'} />
+          <SelectValue placeholder="ICMS — escolher a SEFAZ (UF)" />
         </SelectTrigger>
         <SelectContent>
-          {list.map((o) => (
-            <SelectItem key={o.id} value={o.id} title={o.name}>{short(o.name)}</SelectItem>
+          {sefaz.map((o) => (
+            <SelectItem key={o.id} value={o.id} title={o.name}>{o.name}</SelectItem>
           ))}
         </SelectContent>
       </Select>
@@ -3589,8 +3588,8 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
     const partnerMap = new Map<string, { partnerId: string; partnerName: string; partnerCategory: string; charges: any[] }>();
     for (const leg of LEGS) {
       for (const c of charges.filter((c: any) => c.leg === leg)) {
-        const pid = c.partner_id || '__none__';
-        const pname = c.clients?.name || t('financial.no_partner');
+        const pid = c.partner_id || (c.is_auto_tax && c.description === 'ICMS' ? '__icms__' : '__none__');
+        const pname = c.clients?.name || (pid === '__icms__' ? 'ICMS — escolher a SEFAZ' : t('financial.no_partner'));
         const pcategory = c.clients?.partner_category || '';
         if (!partnerMap.has(pid)) {
           partnerMap.set(pid, { partnerId: pid, partnerName: pname, partnerCategory: pcategory, charges: [] });
@@ -3643,6 +3642,10 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
               </TableRow>
             ) : (
               groupedByPartner.map((group) => {
+                // ICMS gerado pela Estimativa: a empresa (SEFAZ da UF) é escolhida no cabeçalho do grupo.
+                const icmsCharge = group.charges.find((c: any) => c.is_auto_tax && c.description === 'ICMS');
+                const isIcmsPick = group.partnerId === '__icms__';
+                const showPartnerActions = !!group.partnerId && !isIcmsPick;
                 return (
                   <React.Fragment key={group.partnerId}>
                         {/* Partner sub-header — uma linha só por empresa, mesmo que tenha
@@ -3653,9 +3656,17 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                               <div className="flex items-center gap-2.5">
                                 <div className="flex items-center gap-1.5">
                                   <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
-                                  <span className="text-sm font-bold text-foreground">
-                                    {group.partnerName}
-                                  </span>
+                                  {icmsCharge && (isIcmsPick || group.partnerCategory === 'orgao_publico') ? (
+                                    <TaxOrgPicker
+                                      value={isIcmsPick ? null : group.partnerId}
+                                      disabled={readOnly || !!icmsCharge.buy_paid_at || !!icmsCharge.sent_in_debit_note_id}
+                                      onChange={(partnerId) => onUpdate(icmsCharge.id, { partner_id: partnerId })}
+                                    />
+                                  ) : (
+                                    <span className="text-sm font-bold text-foreground">
+                                      {group.partnerName}
+                                    </span>
+                                  )}
                                   {group.partnerCategory && (
                                     <Badge variant="secondary" className="text-[10px] h-5 bg-primary/10 text-primary border-primary/20">
                                       {t(`registrations.category_${group.partnerCategory}`) !== `registrations.category_${group.partnerCategory}`
@@ -3666,11 +3677,11 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 </div>
                               </div>
                               <div className="flex items-center gap-1.5">
-                              {showReconciliation && amountKey === 'buy_amount' && group.partnerId && (
+                              {showReconciliation && amountKey === 'buy_amount' && showPartnerActions && (
                                 <SupplierReconcileButton group={group as any} getMult={getBillingMultiplier} onUpdate={onUpdate}
                                   currentUserId={currentUserId} onReopenCharge={onReopenCharge} />
                               )}
-                              {onSendDn && amountKey === 'buy_amount' && group.partnerId && (() => {
+                              {onSendDn && amountKey === 'buy_amount' && showPartnerActions && (() => {
                                 // Taxas já enviadas numa DN anterior (paga ou não) não entram de
                                 // novo — se o fornecedor mandar uma cobrança nova, ela chega como
                                 // taxa nova (sem sent_in_debit_note_id) e é essa que conta aqui.
@@ -3713,7 +3724,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 );
                               })()}
                               </div>
-                              {onGenerateNd && amountKey === 'sell_amount' && group.partnerId && (() => {
+                              {onGenerateNd && amountKey === 'sell_amount' && showPartnerActions && (() => {
                                 // Taxas já enviadas numa ND anterior ficam de fora — reentram só
                                 // se a ND antiga for reaberta/excluída primeiro.
                                 const pending = group.charges.filter((c: any) => !c.sent_in_debit_note_id);
@@ -3819,16 +3830,6 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     >
                                       {c.payment_term === 'prepaid' ? 'Prepaid' : 'Collect'}
                                     </button>
-                                  )}
-                                  {/* Tributos gerados pela Estimativa: troca do órgão arrecadador
-                                      (ex.: ICMS → SEFAZ da UF de destino). */}
-                                  {c.is_auto_tax && (
-                                    <TaxOrgPicker
-                                      description={c.description}
-                                      value={c.partner_id}
-                                      disabled={readOnly || lockedForEdit || !!c.buy_paid_at || !!c.sent_in_debit_note_id}
-                                      onChange={(partnerId) => onUpdate(c.id, { partner_id: partnerId })}
-                                    />
                                   )}
                                 </div>
                                 {c.billing_unit === 'percent' ? (
