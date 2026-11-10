@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -51,7 +53,23 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const items = accData?.items || [];
-  const totalDepositado = deposits.reduce((s, d) => s + Number(d.amount_brl || 0), 0);
+  // Receita do Numerário (venda gerada na aprovação) já confirmada como recebida
+  // em Movimentações → conta como saldo do cliente, igual a um depósito.
+  const accountabilityId = accData?.accountability?.id;
+  const { data: numerarioRecebido = 0 } = useQuery({
+    queryKey: ['accounts_receivable', 'numerario', accountabilityId],
+    enabled: !!accountabilityId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('accounts_receivable')
+        .select('amount, received_amount')
+        .eq('accountability_id', accountabilityId)
+        .eq('status', 'recebido');
+      if (error) throw error;
+      return (data || []).reduce((s: number, r: any) => s + Number(r.received_amount ?? r.amount ?? 0), 0);
+    },
+  });
+  const totalDepositado = deposits.reduce((s, d) => s + Number(d.amount_brl || 0), 0) + numerarioRecebido;
   // Só abate o que o usuário já marcou como pago (confirmado).
   const totalPago = items
     .filter(i => i.confirmado)
@@ -112,6 +130,9 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
             <div>
               <p className="text-xs text-muted-foreground">Depositado pelo cliente</p>
               <p className="text-lg font-semibold font-mono">R$ {fmtBRL(totalDepositado)}</p>
+              {numerarioRecebido > 0 && (
+                <p className="text-[11px] text-muted-foreground">inclui Numerário recebido: R$ {fmtBRL(numerarioRecebido)}</p>
+              )}
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Pago (confirmado na prestação)</p>

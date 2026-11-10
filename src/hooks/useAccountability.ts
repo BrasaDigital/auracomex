@@ -141,24 +141,95 @@ export function useAccountability(quoteId: string, companyId: string | undefined
         valor_orcado_brl: l.valor_orcado_brl,
         source_expense_id: l.source_expense_id || null,
       }));
-      let { error: itemsErr } = await (supabase as any).from('accountability_items').insert(payload);
+      let { data: insertedItems, error: itemsErr } = await (supabase as any).from('accountability_items').insert(payload).select('id, ordem');
       // Se uma despesa referenciada em source_expense_id foi editada/excluída entre o
       // cálculo em tela e este insert (FK stale), tenta de novo sem o vínculo de
       // rastreabilidade em vez de deixar o cabeçalho órfão sem nenhum item.
       if (itemsErr && itemsErr.code === '23503') {
         const payloadNoRef = payload.map(p => ({ ...p, source_expense_id: null }));
-        const retry = await (supabase as any).from('accountability_items').insert(payloadNoRef);
+        const retry = await (supabase as any).from('accountability_items').insert(payloadNoRef).select('id, ordem');
         itemsErr = retry.error;
+        insertedItems = retry.data;
       }
       if (itemsErr) {
         // Não deixa o cabeçalho órfão (sem nenhum item) — desfaz e propaga o erro.
         await (supabase as any).from('accountability').delete().eq('id', acc.id);
         throw itemsErr;
       }
+
+      // Numerário aprovado → movimentações financeiras automáticas (Despesa por
+      // Processo por item + Receita por Processo com o total). Falha aqui não
+      // desfaz a Prestação de Contas; o erro sobe pra equipe saber que faltou.
+      try {
+        await generateFinancialEntries(acc as AccountabilityRow, lines, (insertedItems || []) as { id: string; ordem: number }[], userId);
+      } catch (e: any) {
+        invalidate();
+        throw new Error(`Prestação de Contas criada, mas as movimentações financeiras não foram geradas: ${e.message || e}`);
+      }
     }
 
     invalidate();
     return acc as AccountabilityRow;
+  };
+
+  /**
+   * Despesa por Processo (accounts_payable, source 'numerario') para cada item e
+   * UMA Receita por Processo (accounts_receivable, source 'numerario') com o total
+   * do Numerário. Quando a receita é marcada como recebida, ela entra no saldo da
+   * aba Financeiro do processo (ver FinanceiroTab).
+   */
+  const generateFinancialEntries = async (
+    acc: AccountabilityRow,
+    lines: { descricao: string; valor_orcado_brl: number }[],
+    inserted: { id: string; ordem: number }[],
+    userId?: string | null,
+  ) => {
+    const { data: q, error: qErr } = await (supabase as any)
+      .from('quotes').select('quote_number, base_reference, client_id, shipment_id').eq('id', quoteId).maybeSingle();
+    if (qErr) throw qErr;
+    const ref = q?.quote_number || q?.base_reference || '';
+    const today = new Date().toISOString().slice(0, 10);
+    const idByOrdem = new Map(inserted.map(i => [i.ordem, i.id]));
+
+    const payables = lines
+      .map((l, idx) => ({ l, idx }))
+      .filter(({ l }) => l.valor_orcado_brl > 0)
+      .map(({ l, idx }) => ({
+        company_id: companyId,
+        source: 'numerario',
+        quote_id: quoteId,
+        shipment_id: q?.shipment_id || null,
+        description: `Numerário ${ref} — ${l.descricao}`.trim(),
+        currency: 'BRL',
+        amount: l.valor_orcado_brl,
+        due_date: today,
+        accountability_item_id: idByOrdem.get(idx) || null,
+        created_by: userId || null,
+      }));
+    if (payables.length > 0) {
+      const { error } = await (supabase as any).from('accounts_payable').insert(payables);
+      if (error) throw error;
+    }
+
+    const total = lines.reduce((s, l) => s + l.valor_orcado_brl, 0);
+    if (total > 0) {
+      const { error } = await (supabase as any).from('accounts_receivable').insert({
+        company_id: companyId,
+        source: 'numerario',
+        quote_id: quoteId,
+        shipment_id: q?.shipment_id || null,
+        client_id: q?.client_id || null,
+        description: `Numerário ${ref} — venda`.trim(),
+        currency: 'BRL',
+        amount: total,
+        due_date: today,
+        accountability_id: acc.id,
+        created_by: userId || null,
+      });
+      if (error) throw error;
+    }
+    qc.invalidateQueries({ queryKey: ['accounts_payable'] });
+    qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
   };
 
   /**
@@ -300,9 +371,18 @@ export function useAccountability(quoteId: string, companyId: string | undefined
 
   /** Exclui a prestação de contas — destrava a Estimativa correspondente. */
   const removeAccountability = async (accountabilityId: string) => {
+    // Remove só as movimentações geradas ainda em aberto; as já pagas/recebidas ficam (FK vira null).
+    const { data: itemRows } = await (supabase as any).from('accountability_items').select('id').eq('accountability_id', accountabilityId);
+    const itemIds = (itemRows || []).map((i: any) => i.id);
+    if (itemIds.length > 0) {
+      await (supabase as any).from('accounts_payable').delete().in('accountability_item_id', itemIds).eq('status', 'aberto');
+    }
+    await (supabase as any).from('accounts_receivable').delete().eq('accountability_id', accountabilityId).eq('status', 'aberto');
     await (supabase as any).from('accountability_items').delete().eq('accountability_id', accountabilityId);
     const { error } = await (supabase as any).from('accountability').delete().eq('id', accountabilityId);
     if (error) throw error;
+    qc.invalidateQueries({ queryKey: ['accounts_payable'] });
+    qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
     invalidate();
   };
 
