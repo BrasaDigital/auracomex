@@ -27,6 +27,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Badge } from '@/components/ui/badge';
 import { Info } from 'lucide-react';
 import { differenceInCalendarDays } from 'date-fns';
+import { buildTaxTargets, syncTaxCharges } from '@/lib/estimateTaxCharges';
 
 interface Props {
   quoteId: string;
@@ -889,6 +890,39 @@ export function CostEstimateTab({
   // Taxas/Carga acima — só grava a própria coluna numerario_total_usd,
   // nunca mexe em outro campo, então não tem risco de brigar com edição
   // local pendente (mesmo assim, espera !hasDirty por consistência).
+  // ===== Auto-sync: tributos da Estimativa → taxas do processo (aba Taxas) =====
+  // II, IPI, PIS, COFINS, ICMS, Siscomex e AFRMM viram taxas de COMPRA (venda = 0) ligadas ao órgão
+  // arrecadador do catálogo global. Só grava quando o valor muda; is_auto_tax mantém essas linhas
+  // fora do Lucro Estimado e do espelhamento Taxas → Estimativa (sem ciclo).
+  const taxChargesKey = useMemo(() => {
+    if (!breakdown || !usdBrl) return '';
+    const siscomex = Number((estimate as any)?.taxa_siscomex_brl || 0);
+    const afrmm = (estimate as any)?.afrmm_auto
+      ? computeAfrmmAutoBrl(estimate as any, expenses as any, quote?.transport_mode)
+      : Number((estimate as any)?.afrmm_brl || 0);
+    return JSON.stringify(buildTaxTargets({
+      ii_usd: breakdown.ii_usd, ipi_usd: breakdown.ipi_usd, pis_usd: breakdown.pis_usd,
+      cofins_usd: breakdown.cofins_usd, icms_usd: breakdown.icms_usd,
+      usd_brl: usdBrl, taxa_siscomex_brl: siscomex, afrmm_brl: afrmm,
+    }));
+  }, [breakdown, estimate, expenses, usdBrl, quote?.transport_mode]);
+  const lastTaxChargesRef = useRef<string>('');
+  useEffect(() => {
+    if (!serverEstimate || !companyId || hasDirty || !taxChargesKey) return;
+    const key = `${serverEstimate.id}|${taxChargesKey}`;
+    if (lastTaxChargesRef.current === key) return;
+    lastTaxChargesRef.current = key;
+    (async () => {
+      try {
+        const changed = await syncTaxCharges(quoteId, companyId, JSON.parse(taxChargesKey));
+        if (changed) queryClient.invalidateQueries({ queryKey: ['quote-charges', quoteId] });
+      } catch (err) {
+        console.error('auto-sync tributos → taxas falhou', err);
+        lastTaxChargesRef.current = '';
+      }
+    })();
+  }, [serverEstimate?.id, hasDirty, taxChargesKey, companyId, quoteId]);
+
   const numerarioExpensesKey = useMemo(() => JSON.stringify(
     expenses.map((e: any) => ({ id: e.id, valor_brl: e.valor_brl, category: e.category, is_prepaid: e.is_prepaid })),
   ), [expenses]);

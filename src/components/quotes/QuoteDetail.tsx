@@ -813,7 +813,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   // compra/venda e na Estimativa/Numerário — só não conta no Lucro do
   // processo. Por isso filtra aqui, na base do cálculo de lucro, e não em
   // `charges` (que alimenta as tabelas de exibição mais abaixo).
-  const profitCharges = charges.filter((c: any) => c.payment_term !== 'prepaid');
+  const profitCharges = charges.filter((c: any) => c.payment_term !== 'prepaid' && !c.is_auto_tax);
 
   // Currency-grouped totals (accounting for billing unit multipliers and DESCONTO)
   const buyByCurrency = groupByCurrency(profitCharges, (c: any) => c.currency || 'USD', (c: any) => {
@@ -3725,6 +3725,11 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                               <TableCell className="font-medium text-sm pl-8 py-2">
                                 <div>
                                   {c.description}
+                                  {c.is_auto_tax && (
+                                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30" title="Gerada pela Estimativa; o valor acompanha o cálculo dos tributos">
+                                      Auto (Estimativa)
+                                    </span>
+                                  )}
                                   <span className={`ml-1.5 text-[10px] border rounded px-1 py-0.5 ${c.billing_unit === 'percent' ? 'text-primary border-primary/40 bg-primary/10' : 'text-muted-foreground'}`}>
                                     {t(`quotes.billing_${c.billing_unit || 'fixed'}`)}
                                   </span>

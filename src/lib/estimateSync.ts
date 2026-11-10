@@ -14,6 +14,8 @@ export interface ChargeLike {
   sell_amount: number | null;
   buy_amount: number | null;
   aduaneira?: boolean | null;
+  /** Taxa de tributo gerada pela própria Estimativa (estimateTaxCharges) — nunca volta pra Estimativa. */
+  is_auto_tax?: boolean | null;
   /** 'prepaid' = já pago na origem (não entra no Numerário). 'collect'/null = cobrado do cliente (entra no Numerário). */
   payment_term?: string | null;
   /** Câmbio próprio desta taxa (ex: câmbio que o fornecedor/parceiro desta linha realmente cobrou),
@@ -102,6 +104,7 @@ export function mapChargesToEstimate(
   };
 
   for (const c of charges) {
+    if (c.is_auto_tax) continue;
     const desc = (c.description || '').trim();
     const cur = (c.currency || 'USD').toUpperCase();
     const mult = getMultiplier(c.billing_unit || 'fixed');

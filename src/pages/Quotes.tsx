@@ -113,7 +113,7 @@ function computeQuoteProfitBrl(q: any, usdBrl: number, eurBrl: number): number {
   // regra que já exclui prepaid do Numerário em estimateSync.ts. Filtra aqui
   // antes de somar, pra não duplicar essa checagem em cada lugar que soma
   // quote_charges.
-  const profitCharges = qCharges.filter((c: any) => c.payment_term !== 'prepaid');
+  const profitCharges = qCharges.filter((c: any) => c.payment_term !== 'prepaid' && !c.is_auto_tax);
   const sellMap = groupByCurrency(profitCharges, (c: any) => c.currency || 'USD', (c: any) => chargeSideTotal(c, 'sell', mult(c.billing_unit || 'fixed')));
   const buyMap = groupByCurrency(profitCharges, (c: any) => c.currency || 'USD', (c: any) => chargeSideTotal(c, 'buy', mult(c.billing_unit || 'fixed')));
   const allCurs = [...new Set([...Object.keys(sellMap), ...Object.keys(buyMap)])];
