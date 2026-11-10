@@ -16,7 +16,7 @@ export default function CategoriesTab() {
   const receitas = (categories.data || []).filter((c) => c.kind === 'receita');
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 gap-4">
       <Card className="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
