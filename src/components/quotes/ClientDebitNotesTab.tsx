@@ -448,6 +448,9 @@ function CreateClientDnDialog({
       const includedChargeIds = rows.filter(r => selected.has(r.id)).map(r => r.id);
       if (includedChargeIds.length > 0) {
         await supabase.from('quote_charges' as any).update({ sent_in_debit_note_id: (dn as any).id }).in('id', includedChargeIds);
+        // A conta da ND passa a representar o valor: tira as contas avulsas dessas taxas
+        // (geradas ao Conferir) que ainda não foram recebidas.
+        await supabase.from('accounts_receivable' as any).delete().in('quote_charge_id', includedChargeIds).neq('status', 'recebido');
       }
 
       // Cria Conta a Receber no Financeiro

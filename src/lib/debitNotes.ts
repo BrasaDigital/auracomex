@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { logAuditEvent } from './auditLog';
+import { restoreChargeRevenue } from './chargeRevenue';
 
 /**
  * Exclui uma DN de fornecedor (e a conta a pagar vinculada) e libera de volta
@@ -96,11 +97,11 @@ export async function deleteClientDn({
   const { error: delErr } = await supabase.from('debit_notes' as any).delete().eq('id', dnId);
   if (delErr) return { ok: false, error: delErr.message };
 
-  // Libera as taxas de venda presas nesta ND — não existe "confirmação"
-  // separada do lado venda, então só o vínculo precisa ser limpo.
+  // Libera as taxas de venda presas nesta ND e desfaz a conferência delas (volta tudo
+  // pra edição, como se nunca tivessem sido conferidas).
   await supabase
     .from('quote_charges' as any)
-    .update({ sent_in_debit_note_id: null })
+    .update({ sent_in_debit_note_id: null, sell_confirmed_at: null, sell_confirmed_by: null, sell_confirmed_amount: null })
     .eq('sent_in_debit_note_id', dnId);
 
   const effectiveQuoteId = quoteId || (dn as any).quote_id || null;
@@ -154,7 +155,11 @@ export async function cancelClientDn({
   if (upErr) return { ok: false, error: upErr.message };
 
   await supabase.from('accounts_receivable' as any).update({ status: 'cancelado' }).eq('debit_note_id', dnId);
+  // Taxas conferidas voltam pra "conferida, sem ND" (a receita avulsa reaparece em Receita por
+  // Processo, pronta pra uma ND nova); as não conferidas (fluxo antigo) só ficam livres.
+  const { data: released } = await supabase.from('quote_charges' as any).select('id').eq('sent_in_debit_note_id', dnId);
   await supabase.from('quote_charges' as any).update({ sent_in_debit_note_id: null }).eq('sent_in_debit_note_id', dnId);
+  await restoreChargeRevenue(((released ?? []) as any[]).map((c) => c.id), companyId, userId);
 
   await logAuditEvent({
     quoteId: quoteId || (dn as any).quote_id || null,

@@ -20,6 +20,7 @@ import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { ColumnSearch } from '@/components/shared/ColumnSearch';
 import { MonthSelect } from './MonthSelect';
 import { ClientDebitNotePdfDialog } from '@/components/quotes/ClientDebitNotePdfDialog';
+import { GenerateClientNdDialog, type ClientDnCharge } from '@/components/quotes/ClientDebitNotesTab';
 import { cancelClientDn } from '@/lib/debitNotes';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -27,6 +28,7 @@ type AR = {
   id: string;
   source: string;
   debit_note_id: string | null;
+  quote_charge_id?: string | null;
   quote_id: string | null;
   shipment_id: string | null;
   client_id: string | null;
@@ -61,6 +63,8 @@ export default function AccountsReceivableTab() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [pdfTarget, setPdfTarget] = useState<AR | null>(null);
+  const [ndGen, setNdGen] = useState<{ row: AR; charges: ClientDnCharge[] } | null>(null);
+  const [createdNd, setCreatedNd] = useState<{ id: string; companyId: string; quoteId: string } | null>(null);
   const [inactivateTarget, setInactivateTarget] = useState<AR | null>(null);
   const [inactivating, setInactivating] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('todos');
@@ -228,6 +232,29 @@ export default function AccountsReceivableTab() {
     qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
   }
 
+  // Taxas conferidas na aba Taxas ficam aqui como receita avulsa, sem ND. "Gerar ND" reúne as
+  // taxas conferidas (ainda não recebidas) do mesmo processo e cliente numa ND só.
+  async function openGenerateNd(r: AR) {
+    if (!r.quote_id || !r.client_id) return toast.error('Conta sem processo ou cliente vinculado.');
+    const { data: ch, error } = await supabase
+      .from('quote_charges' as any)
+      .select('id, description, currency, leg, exchange_rate, sell_confirmed_amount')
+      .eq('quote_id', r.quote_id).eq('partner_id', r.client_id)
+      .not('sell_confirmed_at', 'is', null).is('sent_in_debit_note_id', null);
+    if (error) return toast.error('Erro ao buscar as taxas', { description: error.message });
+    const ids = ((ch ?? []) as any[]).map((c) => c.id);
+    const { data: ars } = ids.length
+      ? await supabase.from('accounts_receivable' as any).select('quote_charge_id, status').in('quote_charge_id', ids)
+      : { data: [] as any[] };
+    const open = new Set(((ars ?? []) as any[]).filter((a) => a.status !== 'recebido' && a.status !== 'cancelado').map((a) => a.quote_charge_id));
+    const charges: ClientDnCharge[] = ((ch ?? []) as any[]).filter((c) => open.has(c.id)).map((c) => ({
+      id: c.id, description: c.description, sell_amount: Number(c.sell_confirmed_amount) || 0,
+      currency: c.currency || 'USD', leg: c.leg, exchange_rate: c.exchange_rate,
+    }));
+    if (charges.length === 0) return toast.error('Não há taxas conferidas e em aberto para gerar a ND.');
+    setNdGen({ row: r, charges });
+  }
+
   // Inativa a conta (status "Cancelado"). Se veio de uma ND, cancela a ND também
   // (fica no histórico) e libera as taxas de venda pra irem numa ND nova.
   async function inactivate() {
@@ -291,8 +318,18 @@ export default function AccountsReceivableTab() {
     qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
   }
 
+  const semNd = rows.filter((r) => r.quote_charge_id && !r.debit_note_id && r.status === 'aberto');
+
   return (
     <div className="space-y-4">
+      {semNd.length > 0 && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>
+            {semNd.length} taxa(s) conferida(s) ainda sem ND — use "Gerar ND" na linha para emitir e enviar ao cliente.
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <Kpi title="A receber (7d)" value={kpis.aVencer} icon={<CalendarClock className="w-4 h-4" />} tone="amber" />
         <Kpi title="Atrasados" value={kpis.vencidos} icon={<AlertTriangle className="w-4 h-4" />} tone="red" />
@@ -359,7 +396,7 @@ export default function AccountsReceivableTab() {
               <TableBody>
                 {filtered.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="text-xs text-muted-foreground">{SOURCE_LABEL[r.source] || r.source}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{r.quote_charge_id ? 'Taxa conferida' : (SOURCE_LABEL[r.source] || r.source)}</TableCell>
                     <TableCell className="max-w-[220px] truncate whitespace-nowrap" title={r.description}>{r.description}</TableCell>
                     <TableCell>{r.client_id ? clientMap.get(r.client_id) ?? '—' : '—'}</TableCell>
                     <TableCell>
@@ -404,9 +441,17 @@ export default function AccountsReceivableTab() {
                       <Badge className={STATUS_COLOR[r.status]} variant="secondary">
                         {STATUS_LABEL[r.status]}
                       </Badge>
+                      {r.quote_charge_id && !r.debit_note_id && r.status !== 'recebido' && r.status !== 'cancelado' && (
+                        <Badge variant="outline" className="ml-1.5 bg-amber-500/15 text-amber-600 border-amber-500/40">Conferida · sem ND</Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {r.quote_charge_id && !r.debit_note_id && r.status !== 'recebido' && r.status !== 'cancelado' && (
+                          <Button size="sm" variant="outline" onClick={() => openGenerateNd(r)} title="Gerar a ND com as taxas conferidas deste processo e cliente">
+                            Gerar ND
+                          </Button>
+                        )}
                         {r.debit_note_id && r.quote_id && (
                           <Button variant="ghost" size="icon" className="h-7 w-7" title="Ver PDF da ND" onClick={() => setPdfTarget(r)}>
                             <FileText className="w-3.5 h-3.5 text-muted-foreground" />
@@ -484,6 +529,35 @@ export default function AccountsReceivableTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {ndGen && ndGen.row.quote_id && ndGen.row.client_id && (
+        <GenerateClientNdDialog
+          open
+          onClose={() => setNdGen(null)}
+          quoteId={ndGen.row.quote_id}
+          companyId={ndGen.row.company_id}
+          clientId={ndGen.row.client_id}
+          charges={ndGen.charges}
+          onCreated={(dnId) => {
+            const row = ndGen.row;
+            setNdGen(null);
+            setCreatedNd({ id: dnId, companyId: row.company_id, quoteId: row.quote_id! });
+            refetch();
+            qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
+          }}
+        />
+      )}
+
+      {/* Logo depois de emitir, abre o PDF da ND — que já é guardado sozinho em Documentos */}
+      {createdNd && (
+        <ClientDebitNotePdfDialog
+          open
+          onClose={() => setCreatedNd(null)}
+          debitNoteId={createdNd.id}
+          companyId={createdNd.companyId}
+          quoteId={createdNd.quoteId}
+        />
+      )}
 
       {pdfTarget?.debit_note_id && pdfTarget.quote_id && (
         <ClientDebitNotePdfDialog

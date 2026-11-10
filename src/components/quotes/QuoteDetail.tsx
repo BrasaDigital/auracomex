@@ -15,8 +15,6 @@ import { useAccountability } from '@/hooks/useAccountability';
 import { FloatingSaveButton } from './estimate/FloatingSaveButton';
 import { QuotePdfPreviewDialog } from './QuotePdfPreviewDialog';
 import { SendSupplierDnDialog } from './DebitNotesTab';
-import { GenerateClientNdDialog } from './ClientDebitNotesTab';
-import { ClientDebitNotePdfDialog } from './ClientDebitNotePdfDialog';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,6 +39,7 @@ import { AutoInsuranceCard } from '@/components/quotes/AutoInsuranceCard';
 import { format, parseISO } from 'date-fns';
 import { DateField } from '@/components/shared/DateField';
 import { registerChargeExpense, removeChargeExpense } from '@/lib/chargeExpense';
+import { registerChargeRevenue, removeChargeRevenue } from '@/lib/chargeRevenue';
 import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
 import { cn } from '@/lib/utils';
@@ -231,8 +230,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   // Botão "Enviar DN" no cabeçalho de cada fornecedor na aba Taxas (Compra).
   const [sendDnPartner, setSendDnPartner] = useState<{ id: string; name: string; amount: number; currency: string; chargeIds: string[] } | null>(null);
   // Botão "Gerar ND" no cabeçalho de cada empresa na aba Taxas (Venda).
-  const [generateNdPartner, setGenerateNdPartner] = useState<{ id: string; name: string; charges: any[] } | null>(null);
-  const [createdNdId, setCreatedNdId] = useState<string | null>(null);
 
   // Handler para o botão voltar: se houver alterações não salvas, confirma antes.
   const handleBackClick = () => {
@@ -1744,7 +1741,21 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
   async function handleReopenSellChargeWithNd(charge: any, partnerName: string) {
     if (!profile) return { ok: false as const, error: 'Não autenticado' };
     const dnId = charge.sent_in_debit_note_id;
-    if (!dnId) return { ok: false as const, error: 'Taxa não está vinculada a uma ND' };
+    if (!dnId) {
+      // Conferida, mas ainda sem ND: só desfaz a conferência e some a receita avulsa.
+      const { data: ar } = await supabase.from('accounts_receivable' as any).select('status').eq('quote_charge_id', charge.id);
+      if (((ar ?? []) as any[]).some((r) => r.status === 'recebido')) {
+        const error = 'Essa receita já foi recebida — desfaça o recebimento em Receita por Processo antes de reabrir.';
+        toast.error(error);
+        return { ok: false as const, error };
+      }
+      await removeChargeRevenue([charge.id]);
+      await supabase.from('quote_charges').update({ sell_confirmed_at: null, sell_confirmed_by: null, sell_confirmed_amount: null } as any).eq('id', charge.id);
+      queryClient.invalidateQueries({ queryKey: ['quote-charges', quoteId] });
+      queryClient.invalidateQueries({ queryKey: ['accounts_receivable'] });
+      toast.success('Taxa reaberta para edição');
+      return { ok: true as const };
+    }
     const result = await deleteClientDn({
       dnId,
       companyId: profile.company_id,
@@ -1762,6 +1773,40 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
       toast.error(result.error);
     }
     return result;
+  }
+
+  // Conferir taxas de VENDA (processos sem estimativa de custo): cada taxa vira uma receita a
+  // receber em Receita por Processo, sem ND. A ND é gerada de lá. Trava a taxa até reabrir.
+  async function handleConferirSellCharges(list: any[]) {
+    if (!profile) return;
+    let okCount = 0;
+    for (const c of list) {
+      const isPct = c.billing_unit === 'percent';
+      const mult = c.billing_unit && c.billing_unit !== 'fixed' ? getChargeMultiplier(c.billing_unit) : 1;
+      const amount = isPct
+        ? (Number(c.computed_sell_amount) || 0)
+        : chargeLineTotal(Number(c.sell_amount) || 0, mult, c.billing_unit, c.sell_min_amount);
+      if (amount <= 0) continue;
+      const res = await registerChargeRevenue({
+        chargeId: c.id,
+        description: c.description || 'Taxa',
+        amount,
+        currency: isPct ? 'USD' : (c.currency || 'USD'),
+        clientId: c.partner_id ?? null,
+        quoteId,
+        shipmentId: (quote as any)?.shipment_id ?? null,
+        companyId: profile.company_id,
+        userId: profile.user_id,
+      });
+      if (res.ok === false) { toast.error(`Erro ao conferir "${c.description}"`, { description: res.error }); continue; }
+      await supabase.from('quote_charges').update({
+        sell_confirmed_at: new Date().toISOString(), sell_confirmed_by: profile.user_id, sell_confirmed_amount: amount,
+      } as any).eq('id', c.id);
+      okCount++;
+    }
+    queryClient.invalidateQueries({ queryKey: ['quote-charges', quoteId] });
+    queryClient.invalidateQueries({ queryKey: ['accounts_receivable'] });
+    if (okCount > 0) toast.success(`${okCount} taxa(s) conferida(s) — lançadas em Receita por Processo (falta gerar a ND)`);
   }
 
   async function handleCloneCharge(charge: any, newAmount: number, targetSide: 'buy' | 'sell', partnerId?: string) {
@@ -2720,23 +2765,9 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                           </Button>
                         );
                       }
-                      const clientPending = (charges as any[]).filter((c: any) =>
-                        c.leg !== undefined && Number(c.sell_amount) > 0 && c.partner_id === form.client_id && !c.sent_in_debit_note_id);
-                      const clientName = (clientPending[0] as any)?.clients?.name || 'Cliente';
-                      return (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="gap-2"
-                          disabled={!form.client_id || clientPending.length === 0 || !canSeeFinancials}
-                          title={clientPending.length === 0 ? 'Não há taxas de venda pendentes no nome do cliente (ou já foram enviadas em uma ND)' : 'Gerar Nota de Débito para o cliente (com a conta bancária para pagamento)'}
-                          onClick={() => setGenerateNdPartner({ id: form.client_id, name: clientName, charges: clientPending })}
-                        >
-                          <Send className="w-4 h-4" />
-                          Gerar ND
-                        </Button>
-                      );
+                      // A ND não nasce mais aqui: confira as taxas de venda e gere a ND em
+                      // Financeiro → Receita por Processo (com estimativa de custo é Numerário).
+                      return null;
                     })()}
                     {isShipmentMode && isFullAccess && !isFinalized && (
                       <Button
@@ -3179,7 +3210,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                     cargoMetrics={cargoMetrics}
                     readOnly={!canEditCharges}
                     onPercentClick={(id) => setPercentDialogChargeId(id)}
-                    onGenerateNd={(id, name, groupCharges) => setGenerateNdPartner({ id, name, charges: groupCharges })}
+                    onConferirSell={showEstimateTab ? undefined : handleConferirSellCharges}
                     onReopenSellCharge={handleReopenSellChargeWithNd}
                   />
                 </div>
@@ -3350,29 +3381,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         />
       )}
 
-      {generateNdPartner && (
-        <GenerateClientNdDialog
-          open={!!generateNdPartner}
-          onClose={() => setGenerateNdPartner(null)}
-          quoteId={quoteId}
-          companyId={profile?.company_id || ''}
-          clientId={generateNdPartner.id}
-          charges={generateNdPartner.charges}
-          onCreated={(dnId) => { setGenerateNdPartner(null); setCreatedNdId(dnId); }}
-        />
-      )}
-
-      {/* Logo depois de emitir, abre o PDF da ND — que já é guardado sozinho em Documentos */}
-      {createdNdId && profile?.company_id && (
-        <ClientDebitNotePdfDialog
-          open
-          onClose={() => setCreatedNdId(null)}
-          debitNoteId={createdNdId}
-          companyId={profile.company_id}
-          quoteId={quoteId}
-        />
-      )}
-
       <HistoryPanel
         open={historyOpen}
         onOpenChange={setHistoryOpen}
@@ -3475,10 +3483,9 @@ interface ChargeColumnProps {
    *  lado Compra) — habilitado só quando todas as taxas do grupo já foram
    *  conferidas (buy_actual_confirmed_at preenchido). */
   onSendDn?: (partnerId: string, partnerName: string, suggestedAmount: number, suggestedCurrency: string, chargeIds: string[]) => void;
-  /** Botão "Gerar ND" no cabeçalho de cada empresa (só faz sentido do lado
-   *  Venda) — abre o mesmo formulário de emissão de DN ao Cliente, já
-   *  escopado às taxas daquele grupo. */
-  onGenerateNd?: (partnerId: string, partnerName: string, groupCharges: any[]) => void;
+  /** Botão "Conferir" no cabeçalho de cada empresa (lado Venda, processos sem estimativa de
+   *  custo) — lança as taxas em Receita por Processo; a ND é gerada de lá. */
+  onConferirSell?: (charges: any[]) => Promise<void>;
   /** "Reabrir" uma taxa já enviada numa DN (ainda não paga) — exclui a DN
    *  inteira e libera as taxas presas nela pra edição de novo. */
   onReopenCharge?: (charge: any, partnerName: string) => Promise<{ ok: boolean; error?: string }>;
@@ -3542,7 +3549,7 @@ function ChargeMinInput({ value, disabled, applied, onCommit }: { value: number 
   );
 }
 
-function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, legColors, legBorderLeftColors, onDelete, onClone, onUpdate, colorClass, borderClass, bgClass, cloneLabel, partners, defaultClonePartnerId, cargoMetrics, readOnly, showReconciliation, currentUserId, onPercentClick, onSendDn, onGenerateNd, onReopenCharge, onReopenSellCharge }: ChargeColumnProps) {
+function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, legColors, legBorderLeftColors, onDelete, onClone, onUpdate, colorClass, borderClass, bgClass, cloneLabel, partners, defaultClonePartnerId, cargoMetrics, readOnly, showReconciliation, currentUserId, onPercentClick, onSendDn, onConferirSell, onReopenCharge, onReopenSellCharge }: ChargeColumnProps) {
   const { t } = useLanguage();
   const [cloningId, setCloningId] = useState<string | null>(null);
   const [cloneAmount, setCloneAmount] = useState('');
@@ -3743,27 +3750,9 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 );
                               })()}
                               </div>
-                              {onGenerateNd && amountKey === 'sell_amount' && showPartnerActions && (() => {
-                                // Taxas já enviadas numa ND anterior ficam de fora — reentram só
-                                // se a ND antiga for reaberta/excluída primeiro.
-                                const pending = group.charges.filter((c: any) => !c.sent_in_debit_note_id);
-                                return (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 gap-1.5 text-xs"
-                                    disabled={pending.length === 0}
-                                    title={pending.length === 0 ? 'Todas as taxas desta empresa já foram enviadas em uma ND' : 'Gerar Nota de Débito para esta empresa (todas as taxas, todos os trechos)'}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onGenerateNd(group.partnerId, group.partnerName, pending);
-                                    }}
-                                  >
-                                    <Send className="w-3.5 h-3.5" /> Gerar ND
-                                  </Button>
-                                );
-                              })()}
+                              {onConferirSell && amountKey === 'sell_amount' && showPartnerActions && !readOnly && (
+                                <SellConferirButton group={group} onConferir={onConferirSell} />
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -3771,7 +3760,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                           // Do lado venda, gerar a ND já trava o valor cobrado do cliente — não
                           // tem uma etapa de "conferência" separada como o lado compra. Só dá pra
                           // editar de novo reabrindo (o que exclui a ND vinculada).
-                          const lockedForEdit = amountKey === 'sell_amount' && !!c.sent_in_debit_note_id;
+                          const lockedForEdit = amountKey === 'sell_amount' && (!!c.sent_in_debit_note_id || !!c.sell_confirmed_at);
                           return (
                           <React.Fragment key={c.id}>
                             <TableRow
@@ -3967,9 +3956,15 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   </>
                                 )}
                                 {lockedForEdit && (
-                                  <Badge variant="outline" className="ml-1.5 text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/30">
-                                    ND
-                                  </Badge>
+                                  c.sent_in_debit_note_id ? (
+                                    <Badge variant="outline" className="ml-1.5 text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/30">
+                                      ND
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="ml-1.5 text-[9px] h-4 px-1 bg-amber-500/15 text-amber-600 border-amber-500/40" title="Conferida e lançada em Receita por Processo — falta gerar a ND">
+                                      Conferida · sem ND
+                                    </Badge>
+                                  )
                                 )}
                               </TableCell>
                               {!readOnly && (
@@ -4308,6 +4303,25 @@ function QuotePartnersList({ quoteId, companyId, partners, quotePartners, onChan
   );
 }
 
+/* ── Botão "Conferir" das taxas de venda de uma empresa (lança em Receita por Processo) ── */
+function SellConferirButton({ group, onConferir }: { group: any; onConferir: (charges: any[]) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const todo = group.charges.filter((c: any) => !c.sent_in_debit_note_id && !c.sell_confirmed_at && Number(c.sell_amount) > 0);
+  const hasAny = group.charges.some((c: any) => Number(c.sell_amount) > 0);
+  const allDone = hasAny && todo.length === 0;
+  return (
+    <Button
+      type="button" size="sm" variant="outline"
+      className={`h-7 gap-1.5 text-xs ${allDone ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/40' : ''}`}
+      disabled={busy || todo.length === 0}
+      title={allDone ? 'Taxas conferidas — a ND é gerada em Financeiro → Receita por Processo' : 'Conferir as taxas de venda e lançar em Receita por Processo'}
+      onClick={async (e) => { e.stopPropagation(); setBusy(true); try { await onConferir(todo); } finally { setBusy(false); } }}
+    >
+      <CheckCircle className="w-3.5 h-3.5" /> {allDone ? 'Conferido' : 'Conferir'}
+    </Button>
+  );
+}
+
 /* ── Botão "Reabrir" de uma taxa de venda já enviada numa ND ao cliente ── */
 function ReopenNdButton({ charge, partnerName, onReopenSellCharge }: {
   charge: any;
@@ -4331,7 +4345,7 @@ function ReopenNdButton({ charge, partnerName, onReopenSellCharge }: {
         variant="ghost"
         size="icon"
         className="h-7 w-7"
-        title="Reabrir (exclui a ND vinculada)"
+        title={charge.sent_in_debit_note_id ? 'Reabrir (exclui a ND vinculada)' : 'Reabrir (desfaz a conferência)'}
         onClick={() => setOpen(true)}
       >
         <Undo2 className="w-3.5 h-3.5 text-primary" />
@@ -4339,16 +4353,17 @@ function ReopenNdButton({ charge, partnerName, onReopenSellCharge }: {
       <AlertDialog open={open} onOpenChange={(o) => !loading && setOpen(o)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Essa taxa já está numa ND emitida</AlertDialogTitle>
+            <AlertDialogTitle>{charge.sent_in_debit_note_id ? 'Essa taxa já está numa ND emitida' : 'Essa taxa já foi conferida'}</AlertDialogTitle>
             <AlertDialogDescription>
-              Reabrir vai excluir a Nota de Débito já emitida ao cliente e removê-la de Contas a
-              Receber. A taxa volta a ficar editável. Deseja continuar?
+              {charge.sent_in_debit_note_id
+                ? 'Reabrir vai excluir a Nota de Débito já emitida ao cliente e removê-la de Contas a Receber. A taxa volta a ficar editável. Deseja continuar?'
+                : 'Reabrir desfaz a conferência e remove a receita desta taxa de Receita por Processo. A taxa volta a ficar editável. Deseja continuar?'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={loading}>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirm} disabled={loading}>
-              {loading ? 'Excluindo…' : 'Sim, excluir ND'}
+              {loading ? 'Reabrindo…' : (charge.sent_in_debit_note_id ? 'Sim, excluir ND' : 'Sim, reabrir')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
