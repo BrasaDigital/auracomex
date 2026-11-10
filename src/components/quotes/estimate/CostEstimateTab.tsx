@@ -566,10 +566,13 @@ export function CostEstimateTab({
       }
 
       // 2. items
+      // Linha nova: upsert com id fixo SEM ignoreDuplicates. Com ignoreDuplicates, só a 1ª gravação
+      // valia (linha criada com os valores padrão) e tudo digitado depois era descartado em silêncio —
+      // a tela mostrava o rascunho, mas ao trocar de aba a linha voltava vazia.
       draftItems.forEach((it, idx) => {
         const { _new, id, ...rest } = it as any;
         if (_new) {
-          ops.push((supabase as any).from('cost_estimate_items').upsert({ ...rest, id: stableId(id), ordem: idx }, { onConflict: 'id', ignoreDuplicates: true }));
+          ops.push((supabase as any).from('cost_estimate_items').upsert({ ...rest, id: stableId(id), ordem: idx }, { onConflict: 'id' }));
         } else {
           const orig = snap.items.find((x: any) => x.id === id);
           if (!orig) return;
@@ -591,7 +594,7 @@ export function CostEstimateTab({
       draftExpenses.forEach((e, idx) => {
         const { _new, id, ...rest } = e as any;
         if (_new) {
-          ops.push((supabase as any).from('cost_estimate_expenses').upsert({ ...rest, id: stableId(id), ordem: idx }, { onConflict: 'id', ignoreDuplicates: true }));
+          ops.push((supabase as any).from('cost_estimate_expenses').upsert({ ...rest, id: stableId(id), ordem: idx }, { onConflict: 'id' }));
         } else {
           const orig = snap.expenses.find((x: any) => x.id === id);
           if (!orig) return;
