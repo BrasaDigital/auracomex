@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import { Bell, Globe, Sparkles, LogOut, CheckCheck, Trash2, X, UserCircle, CreditCard, RefreshCw, Check, Palette } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,6 +21,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTemaPorto } from '@/hooks/useTemaPorto';
 import { useExchangeRate } from '@/hooks/useExchangeRate';
+import { existeVersaoNova } from '@/hooks/useNewVersionCheck';
 import { allNavItems } from './AppSidebar';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -46,6 +49,36 @@ function CambioPorto() {
         <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
       </button>
     </div>
+  );
+}
+
+/** Botão Atualizar: busca de novo os dados da tela (sem recarregar o site). Se saiu uma versão nova do sistema, recarrega a página. */
+function BotaoAtualizar() {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const atualizar = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (await existeVersaoNova()) {
+        toast.info('Nova versão do sistema — recarregando…');
+        window.setTimeout(() => window.location.reload(), 600);
+        return;
+      }
+      // Invalida tudo: as consultas da tela aberta buscam de novo agora; as demais ficam marcadas como desatualizadas.
+      await queryClient.invalidateQueries();
+      toast.success('Dados atualizados');
+    } catch {
+      toast.error('Não foi possível atualizar agora. Tente de novo.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button variant="ghost" size="sm" className="gap-1.5" onClick={atualizar} disabled={busy} title="Atualizar os dados da tela (sem recarregar o site)" aria-label="Atualizar">
+      <RefreshCw className={cn('w-4 h-4', busy && 'animate-spin')} />
+      <span className="hidden md:inline">Atualizar</span>
+    </Button>
   );
 }
 
@@ -95,6 +128,8 @@ export function TopBar() {
           </span>
         )}
         <ReleaseNotesDialog mode="manual" open={notesOpen} onOpenChange={setNotesOpen} />
+
+        <BotaoAtualizar />
 
         {/* Notifications */}
         <DropdownMenu>

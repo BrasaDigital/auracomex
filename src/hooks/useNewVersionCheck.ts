@@ -9,6 +9,21 @@ import { toast } from 'sonner';
  */
 const BUNDLE_RE = /\/assets\/index-[A-Za-z0-9_-]+\.js/;
 
+/** true se saiu um deploy novo enquanto esta aba segue com o JavaScript antigo (usado pelo botão Atualizar). */
+export async function existeVersaoNova(): Promise<boolean> {
+  const loaded = Array.from(document.scripts).map((s) => s.src).find((src) => BUNDLE_RE.test(src));
+  const loadedPath = loaded?.match(BUNDLE_RE)?.[0];
+  if (!loadedPath) return false; // dev server ou build fora do padrão
+  try {
+    const res = await fetch('/', { cache: 'no-store' });
+    if (!res.ok) return false;
+    const latest = (await res.text()).match(BUNDLE_RE)?.[0];
+    return !!latest && latest !== loadedPath;
+  } catch {
+    return false;
+  }
+}
+
 export function useNewVersionCheck(intervalMs = 60_000) {
   useEffect(() => {
     const loaded = Array.from(document.scripts).map((s) => s.src).find((src) => BUNDLE_RE.test(src));
