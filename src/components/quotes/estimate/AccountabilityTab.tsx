@@ -88,6 +88,8 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
     return novo;
   });
   const colunasVisiveis = Object.keys(COLUNAS_PADRAO).filter(k => mostrarCompra || (k !== 'compra' && k !== 'saldo'));
+  // A tabela nunca fica mais estreita que a página (width 100%): sobra de largura é repartida entre as colunas; se as colunas
+  // somarem mais que a página, aparece rolagem horizontal (minWidth).
   const larguraTabela = colunasVisiveis.reduce((a, k) => a + widths[k], 0) + (isExport ? 32 : 0);
 
   const accountability = data?.accountability || null;
@@ -255,7 +257,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
           </div>
         </CardHeader>
         <CardContent>
-          <Table className="table-fixed" style={{ width: larguraTabela }}>
+          <Table className="table-fixed" style={{ width: '100%', minWidth: larguraTabela }}>
             <colgroup>
               {colunasVisiveis.map(k => <col key={k} style={{ width: widths[k] }} />)}
               {isExport && <col style={{ width: 32 }} />}
