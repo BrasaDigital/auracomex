@@ -22,6 +22,8 @@ interface Props {
   isFinalized?: boolean;
   /** Exportação: Prestação de Contas direta, sem Numerário. */
   isExport?: boolean;
+  /** Soma de TODAS as taxas de compra da aba Taxas, em R$ (calculada no QuoteDetail). */
+  custosProcessoBrl?: number;
 }
 
 function fmtBRL(n: number) {
@@ -31,13 +33,12 @@ function fmtBRL(n: number) {
 // Aba "Financeiro" do processo: o "caixa" do cliente. No topo, o saldo dos
 // depósitos; logo abaixo, os depósitos; e embaixo a Prestação de Contas, que
 // vai abatendo do saldo à medida que cada item é confirmado como pago.
-export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport }: Props) {
+export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport, custosProcessoBrl = 0 }: Props) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const locked = !!isFinalized;
   const { data: accData } = useAccountability(quoteId, companyId);
 
-  const items = accData?.items || [];
   // O valor depositado vem das Movimentações: Receita do Numerário (e complementos lançados
   // aqui no "+") já confirmada como recebida pelo usuário.
   const accountabilityId = accData?.accountability?.id;
@@ -58,11 +59,10 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
     },
   });
   const totalDepositado = recebimentos.reduce((s, r) => s + Number(r.received_amount ?? r.amount ?? 0), 0);
-  // Só abate o que o usuário já marcou como pago (confirmado).
-  const totalPago = items
-    .filter(i => i.confirmado)
-    .reduce((s, i) => s + Number(i.valor_pago_brl ?? i.valor_orcado_brl ?? 0), 0);
-  const saldo = totalDepositado - totalPago;
+  // Custos do processo = soma de todas as taxas de compra da aba Taxas. Saldo = Depositado − Custos.
+  const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100 || 0;
+  const custos = r2(custosProcessoBrl);
+  const saldo = r2(totalDepositado - custos);
 
   // "+" ao lado do saldo: lançamento adicional do cliente. Entra em Movimentações
   // (Receita por Processo, já recebida) e passa a compor o "Depositado".
@@ -124,16 +124,15 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
               <p className="text-[11px] text-muted-foreground">Numerário + NDs recebidos (Contas a Receber / Movimentações)</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Pago (confirmado na prestação)</p>
-              <p className="text-lg font-semibold font-mono">R$ {fmtBRL(totalPago)}</p>
+              <p className="text-xs text-muted-foreground">Custos do processo</p>
+              <p className="text-lg font-semibold font-mono">R$ {fmtBRL(custos)}</p>
+              <p className="text-[11px] text-muted-foreground">Soma de todas as taxas de compra da aba Taxas</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">
-                {saldo < 0 ? 'Adicional a cobrar do cliente' : 'Saldo do cliente'}
-              </p>
+              <p className="text-xs text-muted-foreground">Saldo (Depositado − Custos)</p>
               <div className="flex items-center gap-2">
                 <p className={`text-2xl font-bold font-mono ${saldo < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                  R$ {fmtBRL(Math.abs(saldo))}
+                  {saldo < 0 ? '− ' : ''}R$ {fmtBRL(Math.abs(saldo))}
                 </p>
                 {!locked && (
                   <Button
@@ -199,7 +198,7 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
         </DialogContent>
       </Dialog>
 
-      {/* Prestação de Contas (já existente) — o "Confirmado" de cada item abate do saldo acima */}
+      {/* Prestação de Contas (já existente) */}
       <AccountabilityTab quoteId={quoteId} quote={quote} companyId={companyId} isFinalized={isFinalized} isExport={isExport} />
     </div>
   );

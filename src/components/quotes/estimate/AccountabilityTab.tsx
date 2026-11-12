@@ -41,7 +41,7 @@ const categoriaLabels: Record<AccountabilityCategoria, string> = {
 };
 
 // Larguras padrão (px) das colunas; a pessoa ajusta arrastando a borda do cabeçalho e fica salvo no navegador dela.
-const COLUNAS_PADRAO: Record<string, number> = { cat: 110, desc: 260, est: 120, compra: 130, saldo: 120, venda: 130, conf: 90, comp: 170 };
+const COLUNAS_PADRAO: Record<string, number> = { cat: 110, desc: 260, est: 120, venda: 130, conf: 90, comp: 170 };
 
 function ResizableHead({ colKey, className, children, startResize, resetOne }: {
   colKey: string;
@@ -78,16 +78,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
   const [newValor, setNewValor] = useState('');
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const { widths, startResize, resetOne, reset: resetWidths, isCustom } = useColumnWidths('accountability-col-widths', COLUNAS_PADRAO);
-  // Compra e Saldo ficam OCULTAS por padrão; o botão "Mostrar Compra e Saldo" (guardado no navegador de cada pessoa) exibe.
-  const [mostrarCompra, setMostrarCompra] = useState<boolean>(() => {
-    try { return localStorage.getItem('accountability-show-compra') === '1'; } catch { return false; }
-  });
-  const alternarCompra = () => setMostrarCompra(v => {
-    const novo = !v;
-    try { localStorage.setItem('accountability-show-compra', novo ? '1' : '0'); } catch { /* sem armazenamento: vale só na sessão */ }
-    return novo;
-  });
-  const colunasVisiveis = Object.keys(COLUNAS_PADRAO).filter(k => mostrarCompra || (k !== 'compra' && k !== 'saldo'));
+  const colunasVisiveis = Object.keys(COLUNAS_PADRAO);
   // A tabela nunca fica mais estreita que a página (width 100%): sobra de largura é repartida entre as colunas; se as colunas
   // somarem mais que a página, aparece rolagem horizontal (minWidth).
   const larguraTabela = colunasVisiveis.reduce((a, k) => a + widths[k], 0) + (isExport ? 32 : 0);
@@ -123,16 +114,6 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
       </Card>
     );
   }
-
-  const handleCommitPago = async (item: AccountabilityItemRow, valor: number) => {
-    if (locked) { toast.error('Processo finalizado — não é possível editar a prestação de contas.'); return; }
-    try {
-      await updateItem(item.id, { valor_pago_brl: valor, confirmado: true });
-      await recomputeTotals(accountability.id);
-    } catch (e: any) {
-      toast.error(e.message || 'Erro ao salvar valor pago.');
-    }
-  };
 
   const handleCommitVendaFinal = async (item: AccountabilityItemRow, valor: number) => {
     if (locked) { toast.error('Processo finalizado — não é possível editar a prestação de contas.'); return; }
@@ -203,13 +184,11 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
     }
   };
 
-  // Estimado = valor_orcado_brl; Compra = valor pago real (vazio = igual ao Estimado); Venda Final vazia = Estimado.
-  // Saldo = Estimado − Compra: positivo = a compra saiu abaixo do estimado; negativo = acima (ajustar a venda final).
+  // Estimado = valor_orcado_brl; Venda Final vazia = Estimado. (Compra e Saldo saíram daqui: o custo real
+  // do processo e o saldo do cliente ficam nos cards do topo da aba Financeiro.)
   const totalEstimado = items.reduce((s, i) => s + Number(i.valor_orcado_brl || 0), 0);
-  const totalCompra = items.reduce((s, i) => s + Number(i.valor_pago_brl ?? i.valor_orcado_brl ?? 0), 0);
   const totalVendaFinal = items.reduce((s, i) => s + Number(i.valor_venda_final_brl ?? i.valor_orcado_brl ?? 0), 0);
   const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100 || 0;
-  const saldoTotal = r2(totalEstimado - totalCompra);
   const pendentes = items.filter(i => !i.confirmado).length;
 
   return (
@@ -223,17 +202,14 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
       {pendentes > 0 && (
         <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
           <Info className="w-4 h-4 shrink-0" />
-          <span><strong>{pendentes} ite{pendentes > 1 ? 'ns' : 'm'} pendente{pendentes > 1 ? 's' : ''} de confirmação:</strong> confira cada linha antes de gerar o PDF final (a compra real fica no botão Mostrar Compra e Saldo).</span>
+          <span><strong>{pendentes} ite{pendentes > 1 ? 'ns' : 'm'} pendente{pendentes > 1 ? 's' : ''} de confirmação:</strong> confira cada linha antes de gerar o PDF final.</span>
         </div>
       )}
 
       <Card className="glass">
         <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
-          <CardTitle className="text-base">{mostrarCompra ? 'Prestação de Contas — Estimado, Compra, Saldo e Venda Final' : 'Prestação de Contas — Estimado e Venda Final'}</CardTitle>
+          <CardTitle className="text-base">Prestação de Contas — Estimado e Venda Final</CardTitle>
           <div className="flex gap-2 flex-wrap">
-            <Button size="sm" variant="outline" onClick={alternarCompra}>
-              {mostrarCompra ? 'Ocultar Compra e Saldo' : 'Mostrar Compra e Saldo'}
-            </Button>
             {isCustom && (
               <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={resetWidths}>
                 Redefinir larguras
@@ -267,8 +243,6 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                 <ResizableHead colKey="cat" startResize={startResize} resetOne={resetOne}>Categoria</ResizableHead>
                 <ResizableHead colKey="desc" startResize={startResize} resetOne={resetOne}>Descrição</ResizableHead>
                 <ResizableHead colKey="est" className="text-right" startResize={startResize} resetOne={resetOne}>Estimado (R$)</ResizableHead>
-                {mostrarCompra && <ResizableHead colKey="compra" className="text-right" startResize={startResize} resetOne={resetOne}>Compra (R$)</ResizableHead>}
-                {mostrarCompra && <ResizableHead colKey="saldo" className="text-right" startResize={startResize} resetOne={resetOne}>Saldo (R$)</ResizableHead>}
                 <ResizableHead colKey="venda" className="text-right" startResize={startResize} resetOne={resetOne}>Venda Final (R$)</ResizableHead>
                 <ResizableHead colKey="conf" className="text-center" startResize={startResize} resetOne={resetOne}>Confirmado</ResizableHead>
                 <ResizableHead colKey="comp" startResize={startResize} resetOne={resetOne}>Comprovante</ResizableHead>
@@ -277,8 +251,6 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
             </TableHeader>
             <TableBody>
               {items.map(item => {
-                const compra = item.valor_pago_brl ?? item.valor_orcado_brl;
-                const saldo = Number(item.valor_orcado_brl) - Number(compra);
                 const vendaFinal = item.valor_venda_final_brl ?? item.valor_orcado_brl;
                 const uploading = uploadingId === item.id;
                 return (
@@ -286,22 +258,6 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                     <TableCell className="py-1"><Badge variant="outline" className="text-[10px]">{categoriaLabels[item.categoria] || item.categoria}</Badge></TableCell>
                     <TableCell className="py-1 text-xs break-words">{item.descricao}</TableCell>
                     <TableCell className="py-1 text-right font-mono text-xs text-muted-foreground">{fmtBRL(item.valor_orcado_brl)}</TableCell>
-                    {mostrarCompra && (
-                      <TableCell className="py-1 text-right">
-                        <DebouncedInput
-                          type="number"
-                          step="0.01"
-                          value={compra}
-                          onCommit={(v) => handleCommitPago(item, Number(v))}
-                          className="h-7 w-full min-w-0 text-right text-xs font-mono"
-                        />
-                      </TableCell>
-                    )}
-                    {mostrarCompra && (
-                      <TableCell className={`py-1 text-right font-mono text-xs ${saldo < 0 ? 'text-red-600' : saldo > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
-                        {saldo > 0 ? '+' : ''}{fmtBRL(saldo)}
-                      </TableCell>
-                    )}
                     <TableCell className="py-1 text-right">
                       <DebouncedInput
                         type="number"
@@ -360,13 +316,11 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                 );
               })}
             </TableBody>
-            {/* Linha TOTAL: soma de cada coluna (Venda Final = valor a receber). Saldo = Estimado − Compra. */}
+            {/* Linha TOTAL: soma de cada coluna (Venda Final = valor a receber). */}
             <TableFooter>
               <TableRow className="h-8 font-semibold">
                 <TableCell className="py-1 text-xs" colSpan={2}>TOTAL</TableCell>
                 <TableCell className="py-1 text-right font-mono text-xs">{fmtBRL(r2(totalEstimado))}</TableCell>
-                {mostrarCompra && <TableCell className="py-1 text-right font-mono text-xs">{fmtBRL(r2(totalCompra))}</TableCell>}
-                {mostrarCompra && <TableCell className={`py-1 text-right font-mono text-xs ${saldoTotal < 0 ? 'text-red-600' : saldoTotal > 0 ? 'text-emerald-600' : ''}`}>{saldoTotal > 0 ? '+' : ''}{fmtBRL(saldoTotal)}</TableCell>}
                 <TableCell className="py-1 text-right font-mono text-xs">{fmtBRL(r2(totalVendaFinal))}</TableCell>
                 <TableCell className="py-1" colSpan={isExport ? 3 : 2} />
               </TableRow>
