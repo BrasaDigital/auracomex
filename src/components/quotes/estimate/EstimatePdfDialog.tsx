@@ -418,6 +418,12 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
             </tbody>
           </table>
 
+          {!isNumerario && (
+            <div style={{ fontSize: 8, fontStyle: 'italic', color: '#000', marginTop: -14, marginBottom: 14 }}>
+              Valor aduaneiro (VMLD): mercadoria no câmbio fiscal; frete e seguro no câmbio da agência.
+            </div>
+          )}
+
           {/* Numerário: destaque do que o cliente precisa depositar — Impostos
               (com Taxa Siscomex junto), AFRMM, Desembaraço/despesas de destino
               e outras despesas não-Prepaid. NÃO inclui o valor da mercadoria

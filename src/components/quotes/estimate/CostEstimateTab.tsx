@@ -126,11 +126,6 @@ export function CostEstimateTab({
   // LCL/FCL) — não vem da própria estimativa, mas precisa constar no custo
   // nacional total dela.
   const armazenagemDestinoBrl = Number((quote as any)?.storage_fee_amount || 0);
-  const breakdown = useMemo(
-    () => computeBreakdown(estimate, items, expenses, armazenagemDestinoBrl, quote?.transport_mode),
-    [estimate, items, expenses, armazenagemDestinoBrl, quote?.transport_mode]
-  );
-
   const hasInsurance = useMemo(() => chargesHaveInsurance(charges), [charges]);
 
   // Regra: Numerário (PDF + aprovação que gera a Prestação de Contas) só com a cotação aprovada.
@@ -171,6 +166,12 @@ export function CostEstimateTab({
   const clientExchangeSpreadPct = Number((estimateClient as any)?.exchange_spread_pct || 0);
   // Câmbio da agência efetivo (0 = não definido → despesas caem no fiscal)
   const agencyRate = getAgencyRate(estimate as any, clientExchangeSpreadPct);
+
+  // Valor aduaneiro: mercadoria no câmbio fiscal; frete e seguro no câmbio da agência.
+  const breakdown = useMemo(
+    () => computeBreakdown(estimate, items, expenses, armazenagemDestinoBrl, quote?.transport_mode, agencyRate),
+    [estimate, items, expenses, armazenagemDestinoBrl, quote?.transport_mode, agencyRate]
+  );
 
   // País de Origem: mesma fonte que a aba Geral usa pro ícone de bandeira —
   // busca o country_code do porto de origem (quote.origin) na tabela `ports`.
@@ -1807,6 +1808,9 @@ export function CostEstimateTab({
                 })()}
               </TableBody>
             </Table>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Valor aduaneiro (VMLD): mercadoria no câmbio fiscal; frete e seguro no câmbio da agência. O R$ das linhas de frete e seguro é o valor em reais da despesa; no VMLD e nos tributos, o US$ já vem equivalente ao câmbio fiscal.
+            </p>
           </CardContent>
         </Card>
       )}

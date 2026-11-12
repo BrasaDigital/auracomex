@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { calcEstimativa, EstimateInput, EstimateBreakdown } from '@/lib/costEstimate';
-import { mapChargesToEstimate, mergeItemsWithQuoteItems, isLooseQuoteItemMatch, ChargeLike, FxRates, QuoteItemLike, ExistingItem } from '@/lib/estimateSync';
+import { mapChargesToEstimate, getAgencyRate, mergeItemsWithQuoteItems, isLooseQuoteItemMatch, ChargeLike, FxRates, QuoteItemLike, ExistingItem } from '@/lib/estimateSync';
 
 export interface EstimateRow {
   id: string;
@@ -458,6 +458,8 @@ export function computeBreakdown(
   /** Armazenagem no destino (BRL) — vem de fora da estimativa (quotes.storage_fee_amount, aba Geral do processo), então precisa ser passada explicitamente. */
   armazenagemDestinoBrl: number = 0,
   transportMode?: string | null,
+  /** Câmbio da agência efetivo (automático = fiscal + spread do cliente). Omitido: usa o valor gravado na estimativa. */
+  agencyRate?: number | null,
 ): EstimateBreakdown | null {
   if (!estimate) return null;
   const input: EstimateInput = {
@@ -466,6 +468,7 @@ export function computeBreakdown(
     frete_intl_usd: estimate.frete_intl_usd || 0,
     seguro_intl_usd: estimate.seguro_intl_usd || 0,
     usd_brl: estimate.usd_brl || 0,
+    usd_brl_agencia: agencyRate ?? getAgencyRate(estimate as any, 0),
     rateio_metodo: estimate.rateio_metodo || 'valor',
     taxa_siscomex_brl: Number((estimate as any).taxa_siscomex_brl || 0),
     afrmm_brl: (estimate as any).afrmm_auto
