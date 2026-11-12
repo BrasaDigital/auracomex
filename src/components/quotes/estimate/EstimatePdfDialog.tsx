@@ -343,21 +343,26 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
               ['VALOR FOB: R$', `R$ ${fmtBRL(vmcvBrl)}`, 'VALOR ADUANEIRO R$', `R$ ${fmtBRL(vmldBrl)}`],
               ['TAXA DE CÂMBIO FISCAL', `R$ ${fmtBRL(rate)}`, 'TAXA CÂMBIO AGÊNCIA', rateAgencia ? `R$ ${fmtBRL(rateAgencia)}` : '-'],
             ];
+            // Quadro em <table> (não flex/grid): o html2canvas desenha o texto de células com display:flex +
+            // align-items:center desalinhado (rótulos colados na linha de baixo), o que deixava o cabeçalho bagunçado.
+            const labelCell: React.CSSProperties = { fontSize: 7.5, fontWeight: 700, color: '#000', background: '#fff', borderLeft: `3px solid ${BRAND}`, padding: '3px 6px', width: '19%', whiteSpace: 'nowrap', overflow: 'hidden', verticalAlign: 'middle', lineHeight: '12px' };
+            const valueCell: React.CSSProperties = { fontSize: 8.5, padding: '3px 6px', width: '31%', verticalAlign: 'middle', lineHeight: '12px', wordBreak: 'break-word' };
+            const rowsPairs: React.ReactNode[] = pairs.map(([l1, v1, l2, v2], idx) => {
+              const last = idx === pairs.length - 1;
+              const border = last ? 'none' : '1px solid #ccc';
+              return (
+                <tr key={idx} style={{ borderBottom: border }}>
+                  <td style={{ ...labelCell, borderBottom: border }}>{l1}</td>
+                  <td style={{ ...valueCell, borderBottom: border, borderRight: '1px solid #ccc' }}>{v1}</td>
+                  <td style={{ ...labelCell, borderBottom: border }}>{l2}</td>
+                  <td style={{ ...valueCell, borderBottom: border }}>{v2}</td>
+                </tr>
+              );
+            });
             return (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, marginBottom: 10, border: '1px solid #ccc', width: '100%' }}>
-                {pairs.map(([l1, v1, l2, v2], idx) => (
-                  <React.Fragment key={idx}>
-                    <div style={{ display: 'flex', minWidth: 0, borderBottom: idx === pairs.length - 1 ? 'none' : '1px solid #ccc', borderRight: '1px solid #ccc' }}>
-                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#000', background: '#fff', borderLeft: `3px solid ${BRAND}`, padding: isNumerario ? '2px 6px' : '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l1}</div>
-                      <div style={{ fontSize: 8.5, padding: isNumerario ? '2px 6px' : '3px 6px', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.25 }}>{v1}</div>
-                    </div>
-                    <div style={{ display: 'flex', minWidth: 0, borderBottom: idx === pairs.length - 1 ? 'none' : '1px solid #ccc' }}>
-                      <div style={{ fontSize: 7.5, fontWeight: 700, color: '#000', background: '#fff', borderLeft: `3px solid ${BRAND}`, padding: isNumerario ? '2px 6px' : '3px 6px', width: '38%', flexShrink: 0, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l2}</div>
-                      <div style={{ fontSize: 8.5, padding: isNumerario ? '2px 6px' : '3px 6px', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.25 }}>{v2}</div>
-                    </div>
-                  </React.Fragment>
-                ))}
-              </div>
+              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', marginBottom: 10, border: '1px solid #ccc' }}>
+                <tbody>{rowsPairs}</tbody>
+              </table>
             );
           })() : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 15 }}>
