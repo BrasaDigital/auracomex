@@ -343,8 +343,8 @@ export function useAccountability(quoteId: string, companyId: string | undefined
       .from('accountability_items').update(patch).eq('id', itemId)
       .select('accountability_id, valor_orcado_brl, valor_pago_brl').single();
     if (error) throw error;
-    // Venda Final = valor a receber: a Receita por Processo do Numerário (ainda em aberto) acompanha a soma da Venda Final
-    // dos itens. Receita já recebida não muda (a diferença vira "adicional a cobrar/a devolver" na Prestação de Contas).
+    // Venda Final = valor a receber: a Receita por Processo do Numerário vale SÓ a soma da coluna Venda Final dos itens
+    // (em qualquer status; o que já foi recebido fica em received_amount e a diferença é cobrança/devolução).
     if ('valor_venda_final_brl' in patch && row?.accountability_id) {
       const { data: todos, error: e3 } = await (supabase as any)
         .from('accountability_items').select('valor_orcado_brl, valor_venda_final_brl').eq('accountability_id', row.accountability_id);
@@ -353,7 +353,7 @@ export function useAccountability(quoteId: string, companyId: string | undefined
       if (total > 0) {
         const { error: e4 } = await (supabase as any)
           .from('accounts_receivable').update({ amount: Number(total.toFixed(2)) })
-          .eq('accountability_id', row.accountability_id).eq('source', 'numerario').eq('status', 'aberto');
+          .eq('accountability_id', row.accountability_id).eq('source', 'numerario');
         if (e4) throw e4;
         qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
       }
