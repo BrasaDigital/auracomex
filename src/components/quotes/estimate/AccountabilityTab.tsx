@@ -13,6 +13,7 @@ import { DebouncedInput } from './DebouncedInput';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { AccountabilityPdfDialog } from './AccountabilityPdfDialog';
 import { openSignedDoc } from '@/lib/storage';
+import { useColumnWidths } from '@/hooks/useColumnWidths';
 
 interface Props {
   quoteId: string;
@@ -39,6 +40,31 @@ const categoriaLabels: Record<AccountabilityCategoria, string> = {
   other: 'Outro',
 };
 
+// Larguras padrão (px) das colunas; a pessoa ajusta arrastando a borda do cabeçalho e fica salvo no navegador dela.
+const COLUNAS_PADRAO: Record<string, number> = { cat: 110, desc: 260, est: 120, compra: 130, saldo: 120, venda: 130, conf: 90, comp: 170 };
+
+function ResizableHead({ colKey, className, children, startResize, resetOne }: {
+  colKey: string;
+  className?: string;
+  children: React.ReactNode;
+  startResize: (key: string) => (e: React.PointerEvent) => void;
+  resetOne: (key: string) => void;
+}) {
+  return (
+    <TableHead className={`relative py-1 ${className || ''}`}>
+      {children}
+      <span
+        role="separator"
+        aria-orientation="vertical"
+        title="Arraste para ajustar a largura (duplo clique restaura)"
+        onPointerDown={startResize(colKey)}
+        onDoubleClick={() => resetOne(colKey)}
+        className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none border-r border-border hover:bg-primary/30"
+      />
+    </TableHead>
+  );
+}
+
 export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isExport }: Props) {
   const { profile } = useAuth();
   const { data, isLoading, createManual, addItem, removeItem, updateItem, setConfirmado, attachComprovante, removeComprovante, recomputeTotals, removeAccountability } = useAccountability(quoteId, companyId);
@@ -51,6 +77,8 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
   const [newDesc, setNewDesc] = useState('');
   const [newValor, setNewValor] = useState('');
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const { widths, startResize, resetOne, reset: resetWidths, isCustom } = useColumnWidths('accountability-col-widths', COLUNAS_PADRAO);
+  const larguraTabela = Object.values(widths).reduce((a, b) => a + b, 0) + (isExport ? 32 : 0);
 
   const accountability = data?.accountability || null;
   const items = data?.items || [];
@@ -190,6 +218,11 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
         <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-base">Prestação de Contas — Estimado, Compra, Saldo e Venda Final</CardTitle>
           <div className="flex gap-2 flex-wrap">
+            {isCustom && (
+              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={resetWidths}>
+                Redefinir larguras
+              </Button>
+            )}
             <Button size="sm" onClick={() => setPdfOpen(true)}>
               <FileDown className="w-3.5 h-3.5 mr-1" /> Gerar PDF
             </Button>
@@ -208,17 +241,21 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
+          <Table className="table-fixed" style={{ width: larguraTabela }}>
+            <colgroup>
+              {Object.keys(COLUNAS_PADRAO).map(k => <col key={k} style={{ width: widths[k] }} />)}
+              {isExport && <col style={{ width: 32 }} />}
+            </colgroup>
             <TableHeader>
               <TableRow className="h-7">
-                <TableHead className="py-1">Categoria</TableHead>
-                <TableHead className="py-1">Descrição</TableHead>
-                <TableHead className="py-1 text-right">Estimado (R$)</TableHead>
-                <TableHead className="py-1 text-right">Compra (R$)</TableHead>
-                <TableHead className="py-1 text-right">Saldo (R$)</TableHead>
-                <TableHead className="py-1 text-right">Venda Final (R$)</TableHead>
-                <TableHead className="py-1 text-center">Confirmado</TableHead>
-                <TableHead className="py-1">Comprovante</TableHead>
+                <ResizableHead colKey="cat" startResize={startResize} resetOne={resetOne}>Categoria</ResizableHead>
+                <ResizableHead colKey="desc" startResize={startResize} resetOne={resetOne}>Descrição</ResizableHead>
+                <ResizableHead colKey="est" className="text-right" startResize={startResize} resetOne={resetOne}>Estimado (R$)</ResizableHead>
+                <ResizableHead colKey="compra" className="text-right" startResize={startResize} resetOne={resetOne}>Compra (R$)</ResizableHead>
+                <ResizableHead colKey="saldo" className="text-right" startResize={startResize} resetOne={resetOne}>Saldo (R$)</ResizableHead>
+                <ResizableHead colKey="venda" className="text-right" startResize={startResize} resetOne={resetOne}>Venda Final (R$)</ResizableHead>
+                <ResizableHead colKey="conf" className="text-center" startResize={startResize} resetOne={resetOne}>Confirmado</ResizableHead>
+                <ResizableHead colKey="comp" startResize={startResize} resetOne={resetOne}>Comprovante</ResizableHead>
                 {isExport && <TableHead className="py-1 w-8" />}
               </TableRow>
             </TableHeader>
@@ -231,7 +268,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                 return (
                   <TableRow key={item.id} className={`h-8 ${item.confirmado ? '' : 'bg-amber-50/40'}`}>
                     <TableCell className="py-1"><Badge variant="outline" className="text-[10px]">{categoriaLabels[item.categoria] || item.categoria}</Badge></TableCell>
-                    <TableCell className="py-1 text-xs">{item.descricao}</TableCell>
+                    <TableCell className="py-1 text-xs break-words">{item.descricao}</TableCell>
                     <TableCell className="py-1 text-right font-mono text-xs text-muted-foreground">{fmtBRL(item.valor_orcado_brl)}</TableCell>
                     <TableCell className="py-1 text-right">
                       <DebouncedInput
@@ -239,7 +276,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                         step="0.01"
                         value={compra}
                         onCommit={(v) => handleCommitPago(item, Number(v))}
-                        className="h-7 w-28 ml-auto text-right text-xs font-mono"
+                        className="h-7 w-full min-w-0 text-right text-xs font-mono"
                       />
                     </TableCell>
                     <TableCell className={`py-1 text-right font-mono text-xs ${saldo < 0 ? 'text-red-600' : saldo > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
@@ -251,7 +288,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                         step="0.01"
                         value={vendaFinal}
                         onCommit={(v) => handleCommitVendaFinal(item, Number(v))}
-                        className="h-7 w-28 ml-auto text-right text-xs font-mono"
+                        className="h-7 w-full min-w-0 text-right text-xs font-mono"
                       />
                     </TableCell>
                     <TableCell className="py-1 text-center">
@@ -267,7 +304,7 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                       {uploading ? (
                         <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Enviando…</span>
                       ) : item.comprovante_name ? (
-                        <div className="flex items-center gap-1 max-w-[160px]">
+                        <div className="flex items-center gap-1 min-w-0">
                           <button
                             type="button"
                             className="text-[11px] text-primary underline truncate"
