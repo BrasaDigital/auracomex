@@ -23,7 +23,8 @@ const BASE = {
   jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
 } as const;
 
-const suportaForeignObject = () => /Chrome\/|Edg\//.test(navigator.userAgent);
+// DESLIGADO: em produção a renderização nativa gerou PDF em branco. Reativar só com proteção contra canvas vazio.
+const suportaForeignObject = () => false && /Chrome\/|Edg\//.test(navigator.userAgent);
 
 /** Troca o src das imagens do clone por data URL. Devolve false se alguma não pôde ser convertida. */
 async function embutirImagens(root: HTMLElement): Promise<boolean> {
