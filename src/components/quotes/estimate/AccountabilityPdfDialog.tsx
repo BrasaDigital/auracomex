@@ -85,12 +85,16 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
   const showBudget = company?.accountability_show_budget !== false;
   const totalDepositado = deposits.reduce((s, d) => s + Number(d.amount_brl || 0), 0);
   const temDepositos = deposits.length > 0;
-  // Orçado visível: resultado = pago − orçado. Orçado oculto: resultado vem dos
-  // depósitos (depositado − pago), pra não revelar o orçado de forma indireta.
-  const saldoDepositos = totalDepositado - Number(accountability?.total_pago_brl || 0);
+  // O documento mostra o VALOR FINAL (venda final de cada item; vazio = igual ao orçado), não a compra real.
+  // Orçado visível: resultado = valor final − orçado. Orçado oculto: resultado vem dos depósitos
+  // (depositado − valor final), pra não revelar o orçado de forma indireta.
+  const totalOrcado = items.reduce((s, i) => s + Number(i.valor_orcado_brl || 0), 0);
+  const totalFinal = items.reduce((s, i) => s + Number(i.valor_venda_final_brl ?? i.valor_orcado_brl ?? 0), 0);
+  const diferenca = totalFinal - totalOrcado;
+  const saldoDepositos = totalDepositado - totalFinal;
   const precisaCobrarCliente = showBudget
-    ? Number(accountability?.diferenca_brl || 0) > 0
-    : temDepositos && saldoDepositos < 0;
+    ? diferenca > 0.004
+    : temDepositos && saldoDepositos < -0.004;
   useEffect(() => {
     if (!open || !quote?.company_id || !precisaCobrarCliente) { setBank(null); return; }
     supabase
@@ -105,10 +109,6 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
   }, [open, quote?.company_id, precisaCobrarCliente]);
 
   if (!open) return null;
-
-  const totalOrcado = Number(accountability.total_orcado_brl || 0);
-  const totalPago = Number(accountability.total_pago_brl || 0);
-  const diferenca = Number(accountability.diferenca_brl ?? (totalPago - totalOrcado));
 
   /** Baixa um comprovante do Storage e devolve os bytes + content-type. */
   async function fetchComprovante(path: string): Promise<{ bytes: Uint8Array; type: string } | null> {
@@ -259,19 +259,19 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
                 <tr>
                   <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}` }}>DESCRIÇÃO</th>
                   {showBudget && <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>ORÇADO (R$)</th>}
-                  <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>PAGO REAL (R$)</th>
+                  <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>VALOR FINAL (R$)</th>
                   {showBudget && <th style={{ ...th, background: '#fff', color: '#000', borderTop: `2px solid ${BRAND}`, borderBottom: `2px solid ${BRAND}`, textAlign: 'right' }}>DIFERENÇA (R$)</th>}
                 </tr>
               </thead>
               <tbody>
                 {items.map(item => {
-                  const pago = item.valor_pago_brl ?? item.valor_orcado_brl;
-                  const diff = Number(pago) - Number(item.valor_orcado_brl);
+                  const valorFinal = item.valor_venda_final_brl ?? item.valor_orcado_brl;
+                  const diff = Number(valorFinal) - Number(item.valor_orcado_brl);
                   return (
                     <tr key={item.id}>
                       <td style={td}>[{categoriaLabels[item.categoria] || item.categoria}] {item.descricao}</td>
                       {showBudget && <td style={tdR}>{fmtBRL(item.valor_orcado_brl)}</td>}
-                      <td style={tdR}>{fmtBRL(pago)}</td>
+                      <td style={tdR}>{fmtBRL(valorFinal)}</td>
                       {showBudget && (
                         <td style={{ ...tdR, color: diff > 0 ? '#b91c1c' : diff < 0 ? '#047857' : undefined }}>
                           {diff > 0 ? '+' : ''}{fmtBRL(diff)}
@@ -283,7 +283,7 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
                 <tr style={{ background: '#f5f5f5', fontWeight: 700 }}>
                   <td style={td}>TOTAL</td>
                   {showBudget && <td style={tdR}>{fmtBRL(totalOrcado)}</td>}
-                  <td style={tdR}>{fmtBRL(totalPago)}</td>
+                  <td style={tdR}>{fmtBRL(totalFinal)}</td>
                   {showBudget && (
                     <td style={{ ...tdR, color: diferenca > 0 ? '#b91c1c' : diferenca < 0 ? '#047857' : undefined }}>
                       {diferenca > 0 ? '+' : ''}{fmtBRL(diferenca)}
@@ -320,10 +320,10 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
             )}
 
             {(showBudget || temDepositos) && (() => {
-              // Orçado visível: resultado = pago − orçado (como sempre foi).
-              // Orçado oculto: resultado = depositado − pago (positivo = devolver).
-              const aCobrar = showBudget ? diferenca > 0 : saldoDepositos < 0;
-              const aDevolver = showBudget ? diferenca < 0 : saldoDepositos > 0;
+              // Orçado visível: resultado = valor final − orçado.
+              // Orçado oculto: resultado = depositado − valor final (positivo = devolver).
+              const aCobrar = showBudget ? diferenca > 0.004 : saldoDepositos < -0.004;
+              const aDevolver = showBudget ? diferenca < -0.004 : saldoDepositos > 0.004;
               const valor = showBudget ? Math.abs(diferenca) : Math.abs(saldoDepositos);
               return (
                 <div className="pdf-avoid-break" style={{ border: `2px solid ${BRAND}`, marginBottom: 10 }}>
