@@ -94,6 +94,15 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
     }
   };
 
+  const handleCommitVendaFinal = async (item: AccountabilityItemRow, valor: number) => {
+    if (locked) { toast.error('Processo finalizado — não é possível editar a prestação de contas.'); return; }
+    try {
+      await updateItem(item.id, { valor_venda_final_brl: Number.isFinite(valor) ? valor : null });
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao salvar a venda final.');
+    }
+  };
+
   const handleToggleConfirmado = async (item: AccountabilityItemRow, confirmado: boolean) => {
     if (locked) { toast.error('Processo finalizado — não é possível editar a prestação de contas.'); return; }
     try {
@@ -154,9 +163,12 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
     }
   };
 
-  const totalOrcado = Number(accountability.total_orcado_brl || 0);
-  const totalPago = Number(accountability.total_pago_brl || 0);
-  const diferenca = Number(accountability.diferenca_brl ?? (totalPago - totalOrcado));
+  // Estimado = valor_orcado_brl; Compra = valor pago real (vazio = igual ao Estimado); Venda Final vazia = Estimado.
+  // Saldo = Estimado − Compra: positivo = a compra saiu abaixo do estimado; negativo = acima (ajustar a venda final).
+  const totalEstimado = items.reduce((s, i) => s + Number(i.valor_orcado_brl || 0), 0);
+  const totalCompra = items.reduce((s, i) => s + Number(i.valor_pago_brl ?? i.valor_orcado_brl ?? 0), 0);
+  const totalVendaFinal = items.reduce((s, i) => s + Number(i.valor_venda_final_brl ?? i.valor_orcado_brl ?? 0), 0);
+  const saldoTotal = totalEstimado - totalCompra;
   const pendentes = items.filter(i => !i.confirmado).length;
 
   return (
@@ -170,13 +182,13 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
       {pendentes > 0 && (
         <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
           <Info className="w-4 h-4 shrink-0" />
-          <span><strong>{pendentes} ite{pendentes > 1 ? 'ns' : 'm'} pendente{pendentes > 1 ? 's' : ''} de confirmação:</strong> confira o valor pago real de cada linha antes de gerar o PDF final.</span>
+          <span><strong>{pendentes} ite{pendentes > 1 ? 'ns' : 'm'} pendente{pendentes > 1 ? 's' : ''} de confirmação:</strong> confira o valor da compra real de cada linha antes de gerar o PDF final.</span>
         </div>
       )}
 
       <Card className="glass">
         <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
-          <CardTitle className="text-base">Prestação de Contas — Orçado x Pago Real</CardTitle>
+          <CardTitle className="text-base">Prestação de Contas — Estimado, Compra, Saldo e Venda Final</CardTitle>
           <div className="flex gap-2 flex-wrap">
             <Button size="sm" onClick={() => setPdfOpen(true)}>
               <FileDown className="w-3.5 h-3.5 mr-1" /> Gerar PDF
@@ -201,9 +213,10 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
               <TableRow className="h-7">
                 <TableHead className="py-1">Categoria</TableHead>
                 <TableHead className="py-1">Descrição</TableHead>
-                <TableHead className="py-1 text-right">Orçado (R$)</TableHead>
-                <TableHead className="py-1 text-right">Pago Real (R$)</TableHead>
-                <TableHead className="py-1 text-right">Diferença (R$)</TableHead>
+                <TableHead className="py-1 text-right">Estimado (R$)</TableHead>
+                <TableHead className="py-1 text-right">Compra (R$)</TableHead>
+                <TableHead className="py-1 text-right">Saldo (R$)</TableHead>
+                <TableHead className="py-1 text-right">Venda Final (R$)</TableHead>
                 <TableHead className="py-1 text-center">Confirmado</TableHead>
                 <TableHead className="py-1">Comprovante</TableHead>
                 {isExport && <TableHead className="py-1 w-8" />}
@@ -211,8 +224,9 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
             </TableHeader>
             <TableBody>
               {items.map(item => {
-                const pago = item.valor_pago_brl ?? item.valor_orcado_brl;
-                const diff = Number(pago) - Number(item.valor_orcado_brl);
+                const compra = item.valor_pago_brl ?? item.valor_orcado_brl;
+                const saldo = Number(item.valor_orcado_brl) - Number(compra);
+                const vendaFinal = item.valor_venda_final_brl ?? item.valor_orcado_brl;
                 const uploading = uploadingId === item.id;
                 return (
                   <TableRow key={item.id} className={`h-8 ${item.confirmado ? '' : 'bg-amber-50/40'}`}>
@@ -223,13 +237,22 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                       <DebouncedInput
                         type="number"
                         step="0.01"
-                        value={pago}
+                        value={compra}
                         onCommit={(v) => handleCommitPago(item, Number(v))}
                         className="h-7 w-28 ml-auto text-right text-xs font-mono"
                       />
                     </TableCell>
-                    <TableCell className={`py-1 text-right font-mono text-xs ${diff > 0 ? 'text-red-600' : diff < 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
-                      {diff > 0 ? '+' : ''}{fmtBRL(diff)}
+                    <TableCell className={`py-1 text-right font-mono text-xs ${saldo < 0 ? 'text-red-600' : saldo > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                      {saldo > 0 ? '+' : ''}{fmtBRL(saldo)}
+                    </TableCell>
+                    <TableCell className="py-1 text-right">
+                      <DebouncedInput
+                        type="number"
+                        step="0.01"
+                        value={vendaFinal}
+                        onCommit={(v) => handleCommitVendaFinal(item, Number(v))}
+                        className="h-7 w-28 ml-auto text-right text-xs font-mono"
+                      />
                     </TableCell>
                     <TableCell className="py-1 text-center">
                       <Checkbox checked={item.confirmado} onCheckedChange={(c) => handleToggleConfirmado(item, !!c)} />
@@ -292,12 +315,13 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
 
           <div className="mt-4 flex justify-end">
             <div className="w-full max-w-sm space-y-1 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Total Orçado</span><span className="font-mono">R$ {fmtBRL(totalOrcado)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Total Pago Real</span><span className="font-mono">R$ {fmtBRL(totalPago)}</span></div>
-              <div className={`flex justify-between font-semibold text-base pt-2 border-t ${diferenca > 0 ? 'text-red-600' : diferenca < 0 ? 'text-emerald-600' : ''}`}>
-                <span>{diferenca > 0 ? 'Adicional a cobrar do cliente' : diferenca < 0 ? 'Saldo a devolver ao cliente' : 'Sem diferença'}</span>
-                <span className="font-mono">R$ {fmtBRL(Math.abs(diferenca))}</span>
+              <div className="flex justify-between"><span className="text-muted-foreground">Total Estimado</span><span className="font-mono">R$ {fmtBRL(totalEstimado)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Total Compra</span><span className="font-mono">R$ {fmtBRL(totalCompra)}</span></div>
+              <div className={`flex justify-between font-semibold pt-1 border-t ${saldoTotal < 0 ? 'text-red-600' : saldoTotal > 0 ? 'text-emerald-600' : ''}`}>
+                <span>{saldoTotal < 0 ? 'Saldo (compra acima do estimado)' : saldoTotal > 0 ? 'Saldo (compra abaixo do estimado)' : 'Saldo (sem diferença)'}</span>
+                <span className="font-mono">{saldoTotal > 0 ? '+' : saldoTotal < 0 ? '−' : ''}R$ {fmtBRL(Math.abs(saldoTotal))}</span>
               </div>
+              <div className="flex justify-between font-semibold text-base pt-2 border-t"><span>Total Venda Final</span><span className="font-mono">R$ {fmtBRL(totalVendaFinal)}</span></div>
             </div>
           </div>
         </CardContent>

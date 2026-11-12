@@ -29,6 +29,8 @@ export interface AccountabilityItemRow {
   descricao: string;
   valor_orcado_brl: number;
   valor_pago_brl: number | null;
+  /** Venda final do item: nasce igual ao Estimado (valor_orcado_brl) e pode ser ajustada. Null = usa o Estimado. */
+  valor_venda_final_brl: number | null;
   confirmado: boolean;
   observacao: string | null;
   source_expense_id: string | null;
@@ -139,6 +141,7 @@ export function useAccountability(quoteId: string, companyId: string | undefined
         categoria: l.categoria,
         descricao: l.descricao,
         valor_orcado_brl: l.valor_orcado_brl,
+        valor_venda_final_brl: l.valor_orcado_brl,
         source_expense_id: l.source_expense_id || null,
       }));
       let { data: insertedItems, error: itemsErr } = await (supabase as any).from('accountability_items').insert(payload).select('id, ordem');
@@ -323,6 +326,7 @@ export function useAccountability(quoteId: string, companyId: string | undefined
       categoria: item.categoria,
       descricao: item.descricao,
       valor_orcado_brl: item.valor_orcado_brl,
+      valor_venda_final_brl: item.valor_orcado_brl,
     });
     if (error) throw error;
     invalidate();
@@ -334,7 +338,7 @@ export function useAccountability(quoteId: string, companyId: string | undefined
     invalidate();
   };
 
-  const updateItem = async (itemId: string, patch: { valor_pago_brl?: number | null; confirmado?: boolean; observacao?: string | null }) => {
+  const updateItem = async (itemId: string, patch: { valor_pago_brl?: number | null; valor_venda_final_brl?: number | null; confirmado?: boolean; observacao?: string | null }) => {
     const { data: row, error } = await (supabase as any)
       .from('accountability_items').update(patch).eq('id', itemId)
       .select('valor_orcado_brl, valor_pago_brl').single();
