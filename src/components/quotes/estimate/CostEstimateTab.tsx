@@ -122,10 +122,9 @@ export function CostEstimateTab({
   const usdBrl = Number((estimate as any)?.usd_brl || 0) || frozenUsdBrl || 0;
   const eurBrl = Number((estimate as any)?.eur_brl || 0) || frozenEurBrl || 0;
 
-  // Armazenagem no destino (aba Geral do processo, quotes.storage_fee_amount,
-  // LCL/FCL) — não vem da própria estimativa, mas precisa constar no custo
-  // nacional total dela.
-  const armazenagemDestinoBrl = Number((quote as any)?.storage_fee_amount || 0);
+  // O campo automático "Armazenagem no destino" deixou de existir: a armazenagem agora é lançada
+  // manualmente (como taxa/despesa). Fica 0 aqui para não somar valor antigo do campo na estimativa.
+  const armazenagemDestinoBrl = 0;
   const breakdown = useMemo(
     () => computeBreakdown(estimate, items, expenses, armazenagemDestinoBrl, quote?.transport_mode),
     [estimate, items, expenses, armazenagemDestinoBrl, quote?.transport_mode]

@@ -166,9 +166,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     free_time: '',
     payment_terms: '',
     proposal_notes: '',
-    storage_fee_amount: '',
-    storage_fee_currency: 'BRL',
-    storage_fee_note: '',
     pickup_address: '',
     delivery_address: '',
     client_reference: '',
@@ -563,9 +560,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         free_time: (quote as any).free_time?.toString() || '',
         payment_terms: (quote as any).payment_terms || '',
         proposal_notes: (quote as any).proposal_notes || '',
-        storage_fee_amount: (quote as any).storage_fee_amount != null ? String((quote as any).storage_fee_amount) : '',
-        storage_fee_currency: (quote as any).storage_fee_currency || 'BRL',
-        storage_fee_note: (quote as any).storage_fee_note || '',
         pickup_address: (quote as any).pickup_address || '',
         delivery_address: (quote as any).delivery_address || '',
         client_reference: (quote as any).client_reference || '',
@@ -684,9 +678,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
       (form.notes || '') !== (quote.notes || '') ||
       (form.payment_terms || '') !== ((quote as any).payment_terms || '') ||
       (form.proposal_notes || '') !== ((quote as any).proposal_notes || '') ||
-      (form.storage_fee_amount || '') !== ((quote as any).storage_fee_amount != null ? String((quote as any).storage_fee_amount) : '') ||
-      (form.storage_fee_currency || 'BRL') !== ((quote as any).storage_fee_currency || 'BRL') ||
-      (form.storage_fee_note || '') !== ((quote as any).storage_fee_note || '') ||
       (form.pickup_address || '') !== ((quote as any).pickup_address || '') ||
       (form.delivery_address || '') !== ((quote as any).delivery_address || '') ||
       (form.client_reference || '') !== ((quote as any).client_reference || '') ||
@@ -749,7 +740,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     (!isShipmentMode && form.status !== 'converted') || isFullAccess || (profile?.user_id === quote?.created_by);
   // 'logistics' entra na lista pra cobrir o Card 6 (Observações/Condições de
   // pagamento) mesclado lá após virar embarque; 'charges' cobre o campo
-  // Armazenagem no destino, que mudou de aba (Geral → Taxas).
   function handleAutoSaveBlur(tab: 'general' | 'cargo' | 'logistics' | 'charges') {
     if (!quote || activeTab !== tab || !canEditCargoForAutoSave || !hasChanges || saving) return;
     handleSave();
@@ -959,102 +949,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     }
   }
 
-  // Regra de negócio: todo embarque LCL ou FCL com armazenagem lançada deve
-  // gerar (ou atualizar) uma conta a receber automática. Se o valor for
-  // zerado e a conta ainda não tiver sido recebida, ela é removida.
-  //
-  // LCL: pagador é o Co-loader (aba Empresas) e o valor é um PERCENTUAL de
-  // rebate cadastrado nele, calculado em cima da armazenagem lançada aqui.
-  //
-  // FCL: pagador é o Terminal (aba Empresas) e o valor é FIXO, cadastrado
-  // direto no Terminal (não é calculado a partir da armazenagem lançada
-  // aqui — é o rebate fixo que ele repassa por container/processo).
-  async function syncStorageFeeReceivable() {
-    if (!isShipmentMode || !shipmentId || !profile) return;
-    const isLCL = form.transport_mode === 'ocean_lcl';
-    const isFCL = form.transport_mode === 'ocean_fcl';
-    if (!isLCL && !isFCL) return;
-
-    const amount = form.storage_fee_amount ? parseFloat(form.storage_fee_amount) : 0;
-
-    const { data: existing } = await supabase
-      .from('accounts_receivable' as any)
-      .select('id, status')
-      .eq('quote_id', quoteId)
-      .eq('source', 'storage_fee')
-      .maybeSingle();
-
-    if (!amount || amount <= 0) {
-      if (existing && (existing as any).status === 'aberto') {
-        await supabase.from('accounts_receivable' as any).delete().eq('id', (existing as any).id);
-        queryClient.invalidateQueries({ queryKey: ['accounts_receivable'] });
-      }
-      return;
-    }
-
-    let payerId: string | undefined;
-    let payerName: string | undefined;
-    let rebateAmount: number | undefined;
-    let description: string;
-
-    if (isLCL) {
-      const coLoader = (quotePartners as any[]).find((qp) => qp.clients?.partner_category === 'co_loader');
-      if (!coLoader) {
-        toast.warning('Armazenagem lançada, mas nenhum Co-loader cadastrado neste processo — a conta a receber não foi gerada. Cadastre o Co-loader na aba Empresas.');
-        return;
-      }
-      // A conta a receber não é o valor cheio da armazenagem: é o rebate negociado
-      // com esse Co-loader, um percentual cadastrado no fornecedor (aba Cadastros).
-      const rebatePercent = coLoader.clients?.storage_rebate_percent;
-      if (rebatePercent == null) {
-        toast.warning(`Armazenagem lançada, mas o Co-loader "${coLoader.clients?.name}" não tem o percentual de rebate cadastrado — a conta a receber não foi gerada. Cadastre o rebate na aba Cadastros.`);
-        return;
-      }
-      payerId = coLoader.clients.id;
-      payerName = coLoader.clients?.name;
-      rebateAmount = Math.round(amount * (Number(rebatePercent) / 100) * 100) / 100;
-      description = `Rebate de armazenagem (${rebatePercent}% de ${form.storage_fee_currency || 'BRL'} ${amount.toFixed(2)}) - ${(quote as any)?.quote_number || ''}`;
-    } else {
-      const terminal = (quotePartners as any[]).find((qp) => qp.clients?.partner_category === 'terminal');
-      if (!terminal) {
-        toast.warning('Armazenagem lançada, mas nenhum Terminal cadastrado neste processo — a conta a receber não foi gerada. Cadastre o Terminal na aba Empresas.');
-        return;
-      }
-      // FCL não calcula em cima do valor lançado — é um valor fixo cadastrado
-      // direto no Terminal (aba Cadastros).
-      const fixedValue = terminal.clients?.storage_fixed_value;
-      if (fixedValue == null) {
-        toast.warning(`Armazenagem lançada, mas o Terminal "${terminal.clients?.name}" não tem o valor fixo de rebate cadastrado — a conta a receber não foi gerada. Cadastre o valor fixo na aba Cadastros.`);
-        return;
-      }
-      payerId = terminal.clients.id;
-      payerName = terminal.clients?.name;
-      rebateAmount = Number(fixedValue);
-      description = `Rebate de armazenagem (valor fixo do Terminal ${payerName || ''}) - ${(quote as any)?.quote_number || ''}`;
-    }
-
-    const payload = {
-      company_id: profile.company_id,
-      source: 'storage_fee' as any,
-      quote_id: quoteId,
-      shipment_id: shipmentId,
-      client_id: payerId,
-      description,
-      currency: form.storage_fee_currency || 'BRL',
-      amount: rebateAmount,
-      // Armazenagem não tem data de vencimento fixa (é cobrada quando o Co-loader/Terminal repassa o rebate).
-      due_date: null,
-      created_by: profile.user_id,
-    };
-
-    if (existing) {
-      await supabase.from('accounts_receivable' as any).update(payload).eq('id', (existing as any).id);
-    } else {
-      await supabase.from('accounts_receivable' as any).insert(payload);
-    }
-    queryClient.invalidateQueries({ queryKey: ['accounts_receivable'] });
-  }
-
   async function handleSave() {
     if (!profile) return;
     setSaving(true);
@@ -1099,9 +993,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         free_time: parseInt(form.free_time) || null,
         payment_terms: form.payment_terms || null,
         proposal_notes: form.proposal_notes || null,
-        storage_fee_amount: form.storage_fee_amount ? parseFloat(form.storage_fee_amount) : null,
-        storage_fee_currency: form.storage_fee_amount ? (form.storage_fee_currency || 'BRL') : null,
-        storage_fee_note: form.storage_fee_note || null,
         pickup_address: form.pickup_address || null,
         delivery_address: form.delivery_address || null,
         direction: getTradeDirection(form.origin, form.destination, ((quote as any)?.direction as any) || 'IMP'),
@@ -1161,8 +1052,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
         }).eq('id', shipmentId);
         queryClient.invalidateQueries({ queryKey: ['shipment', shipmentId] });
       }
-
-      await syncStorageFeeReceivable();
 
       const seenItemIds = new Set<string>();
       const itemPayload = (item: CargoItem) => ({
@@ -2716,39 +2605,12 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                 Processo finalizado — somente leitura. Para editar, reabra o processo em Admin &gt; Reabrir Processos.
               </div>
             )}
-            {/* Armazenagem no destino, Seguro Internacional e os botões de
-                ação da aba — tudo na mesma linha (quebra em telas menores). */}
+            {/* Botões de ação da aba. A armazenagem no destino não é mais um campo daqui: é lançada
+                manualmente como taxa (Taxas) / despesa. */}
             {(() => {
-              const showStorageFee = form.transport_mode === 'ocean_lcl' || form.transport_mode === 'ocean_fcl';
               return (
                 <div className="flex flex-col sm:flex-row items-start gap-3">
                   <div className="flex flex-wrap items-start gap-3 w-full sm:w-1/2">
-                  {showStorageFee && (
-                    <Card className="glass w-full sm:w-auto shrink-0">
-                      <CardHeader className="h-9 py-0 flex flex-row items-center gap-2 space-y-0 flex-nowrap" onBlur={() => handleAutoSaveBlur('charges')}>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Label className="text-xs whitespace-nowrap leading-none">Armazenagem no destino (R$)</Label>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-64 text-xs">
-                              Não compõe o total da cotação. Gera automaticamente uma conta a receber com o rebate: em LCL, um percentual cadastrado no Co-loader do processo; em FCL, um valor fixo cadastrado no Terminal do processo.
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={form.storage_fee_amount}
-                          onChange={(e) => setForm({ ...form, storage_fee_amount: e.target.value, storage_fee_currency: 'BRL' })}
-                          placeholder="0,00"
-                          className="w-24 h-[18px] py-0 px-1.5 text-[11px] leading-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                          disabled={!canEditGeneral}
-                        />
-                      </CardHeader>
-                    </Card>
-                  )}
                 </div>
                   <div className="flex items-center gap-2 flex-wrap w-full sm:w-1/2 sm:justify-end">
                     {canEditCharges && (

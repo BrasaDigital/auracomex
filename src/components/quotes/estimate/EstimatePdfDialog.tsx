@@ -167,7 +167,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
   const afrmmBrl = (estimate as any).afrmm_auto
     ? computeAfrmmAutoBrl(estimate, expenses, quote?.transport_mode)
     : Number((estimate as any).afrmm_brl || 0);
-  const armazenagemBrl = Number((quote as any)?.storage_fee_amount || 0);
+  const armazenagemBrl = 0; // campo automático de armazenagem removido: lançamento manual
   const taxaSiscomexUsd = taxaSiscomexBrl / rate;
   const afrmmUsd = afrmmBrl / rate;
   const armazenagemUsd = armazenagemBrl / rate;
