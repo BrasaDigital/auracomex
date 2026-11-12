@@ -35,7 +35,6 @@ import { extractCountryFromPort } from '@/lib/countryFlag';
 import { FlagIcon } from '@/components/shared/FlagIcon';
 import { BenchmarkCard } from '@/components/shared/BenchmarkCard';
 import { CollapsibleCard } from '@/components/shared/CollapsibleCard';
-import { AutoInsuranceCard } from '@/components/quotes/AutoInsuranceCard';
 import { format, parseISO } from 'date-fns';
 import { DateField } from '@/components/shared/DateField';
 import { registerChargeExpense, removeChargeExpense } from '@/lib/chargeExpense';
@@ -2749,20 +2748,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                         />
                       </CardHeader>
                     </Card>
-                  )}
-                  {profile?.company_id && (
-                    <div className="flex-1 min-w-[260px]">
-                      <AutoInsuranceCard
-                        quoteId={quoteId}
-                        companyId={profile.company_id}
-                        quote={quote as any}
-                        quotePartners={quotePartners}
-                        cargoItems={Number((quote as any)?.cargo_value_total) > 0
-                          ? [{ cargo_value: (quote as any).cargo_value_total, cargo_value_currency: (quote as any).cargo_value_currency || 'USD' }]
-                          : items}
-                        readOnly={!canEditCharges}
-                      />
-                    </div>
                   )}
                 </div>
                   <div className="flex items-center gap-2 flex-wrap w-full sm:w-1/2 sm:justify-end">
