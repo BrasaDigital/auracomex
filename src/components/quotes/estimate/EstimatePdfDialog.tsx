@@ -6,7 +6,7 @@ import { Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { EstimateRow, EstimateItemRow, EstimateExpenseRow, computeAfrmmAutoBrl } from '@/hooks/useCostEstimate';
-import { EstimateBreakdown, calcEstimativa, pct } from '@/lib/costEstimate';
+import { EstimateBreakdown, calcEstimativa, pct, expenseFiscalUsd } from '@/lib/costEstimate';
 
 interface Props {
   open: boolean;
@@ -179,17 +179,18 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
 
   // 6ª posição = is_prepaid, 7ª = isMerchandise (linha do VMCV — valor da
   // mercadoria, pago direto pelo cliente ao fornecedor, fora do Numerário).
-  const rows: Array<[string, number, boolean, boolean, boolean, boolean, boolean]> = (() => {
-    const list: Array<[string, number, boolean, boolean, boolean, boolean, boolean]> = [];
+  const rows: Array<[string, number, boolean, boolean, boolean, boolean, boolean, number?]> = (() => {
+    const list: Array<[string, number, boolean, boolean, boolean, boolean, boolean, number?]> = [];
     // VMCV: no Numerário já aparece no cabeçalho (VALOR FOB: R$), não precisa
     // repetir na descrição dos custos. Na Estimativa continua aparecendo.
     if (!isNumerario) {
       list.push(['Valor da mercadoria (VMCV)', breakdown.vmcv_usd, true, false, true, false, true]);
     }
 
+    // Origem e frete/seguro: US$ da própria taxa (base fiscal do VMLE/VMLD) e R$ gravado (câmbio da agência), sem dividir um pelo outro.
     // Origem
     expenses.filter(e => e.category === 'origin').forEach(e => {
-      list.push([e.descricao, (e.valor_brl || 0) / rate, false, false, true, !!(e as any).is_prepaid, false]);
+      list.push([e.descricao, expenseFiscalUsd(e, { usd_brl: rate, eur_brl: Number((estimate as any).eur_brl || 0) }), false, false, true, !!(e as any).is_prepaid, false, Number(e.valor_brl || 0)]);
     });
 
     list.push(['Valor no embarque (VMLE)', breakdown.vmle_usd, true, false, true, false, false]);
@@ -198,7 +199,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
     // (FRETE INTL.: USD), não precisa repetir na descrição dos custos.
     expenses.filter(e => e.category === 'freight').forEach(e => {
       if (isNumerario && (e as any).is_prepaid) return;
-      list.push([e.descricao, (e.valor_brl || 0) / rate, false, false, true, !!(e as any).is_prepaid, false]);
+      list.push([e.descricao, expenseFiscalUsd(e, { usd_brl: rate, eur_brl: Number((estimate as any).eur_brl || 0) }), false, false, true, !!(e as any).is_prepaid, false, Number(e.valor_brl || 0)]);
     });
 
     list.push(
@@ -390,7 +391,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
               </tr>
             </thead>
             <tbody>
-              {rows.map(([label, val, bold, notContracted, showPct, isPrepaid, isMerchandise], idx) => {
+              {rows.map(([label, val, bold, notContracted, showPct, isPrepaid, isMerchandise, brlGravado], idx) => {
                 const muted = isPrepaid || (isNumerario && isMerchandise);
                 return (
                 <tr key={`${label}-${idx}`} style={bold ? { background: '#f5f5f5', fontWeight: 700 } : {}}>
@@ -407,7 +408,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
                   ) : (
                     <>
                       <td style={{ ...tdRc, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>{fmtUSD(val)}</td>
-                      <td style={{ ...tdRc, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>{fmtBRL(val * rate)}</td>
+                      <td style={{ ...tdRc, ...(muted ? { color: '#000', fontStyle: 'italic' } : {}) }}>{fmtBRL(brlGravado ?? val * rate)}</td>
                       <td style={tdR}>{showPct && Math.abs(val) > 0 ? pct(val, totalUsd).toFixed(2) : '—'}</td>
                     </>
                   )}

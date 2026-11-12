@@ -1737,14 +1737,15 @@ export function CostEstimateTab({
               </TableHeader>
               <TableBody>
                 {(() => {
-                  const rows: Array<[string, number, boolean, boolean, boolean]> = [
+                  // 6ª posição (opcional) = R$ já gravado da despesa (câmbio da agência); sem ela, R$ = US$ × câmbio fiscal.
+                  const rows: Array<[string, number, boolean, boolean, boolean, number?]> = [
                     ['Valor da mercadoria (VMCV)', breakdown.vmcv_usd, true, false, true],
                   ];
 
                   // Adiciona despesas de origem mapeadas individualmente
                   // (base fiscal: US$ original da taxa; nunca o R$ gravado ÷ câmbio fiscal — ver expenseFiscalUsd)
                   expenses.filter(e => e.category === 'origin').forEach(e => {
-                    rows.push([e.descricao, expenseFiscalUsd(e, { usd_brl: estimate.usd_brl || 0, eur_brl: estimate.eur_brl || 0 }), false, false, true]);
+                    rows.push([e.descricao, expenseFiscalUsd(e, { usd_brl: estimate.usd_brl || 0, eur_brl: estimate.eur_brl || 0 }), false, false, true, Number(e.valor_brl || 0)]);
                   });
 
                   rows.push(['Valor no embarque (VMLE)', breakdown.vmle_usd, true, false, true]);
@@ -1752,7 +1753,7 @@ export function CostEstimateTab({
                   // Adiciona despesas de frete/seguro mapeadas individualmente
                   // Estas linhas formam o VMLD (câmbio fiscal): frete US$ 6.200 aparece como 6.200, igual às Taxas.
                   expenses.filter(e => e.category === 'freight').forEach(e => {
-                    rows.push([e.descricao, expenseFiscalUsd(e, { usd_brl: estimate.usd_brl || 0, eur_brl: estimate.eur_brl || 0 }), false, false, true]);
+                    rows.push([e.descricao, expenseFiscalUsd(e, { usd_brl: estimate.usd_brl || 0, eur_brl: estimate.eur_brl || 0 }), false, false, true, Number(e.valor_brl || 0)]);
                   });
 
                   rows.push(
@@ -1782,7 +1783,7 @@ export function CostEstimateTab({
                   rows.push(['TOTAL', breakdown.total_usd, true, false, true]);
 
                   return rows.map((row) => {
-                    const [label, val, bold, isNotContracted, showPct] = row;
+                    const [label, val, bold, isNotContracted, showPct, brlGravado] = row;
                     return (
                       <TableRow key={label} className={bold ? 'font-semibold bg-muted/30' : ''}>
                         <TableCell>{label}</TableCell>
@@ -1794,7 +1795,7 @@ export function CostEstimateTab({
                         ) : (
                           <>
                             <TableCell className="text-right font-mono">{fmtUSD(val)}</TableCell>
-                            <TableCell className="text-right font-mono">{fmtBRL(val * usdRate)}</TableCell>
+                            <TableCell className="text-right font-mono">{fmtBRL(brlGravado ?? val * usdRate)}</TableCell>
                             <TableCell className="text-right font-mono text-muted-foreground">
                               {showPct && Math.abs(val) > 0 ? pct(val, totalUsd).toFixed(2) : '—'}
                             </TableCell>
