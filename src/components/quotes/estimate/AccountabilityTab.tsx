@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { FileDown, Trash2, Info, Paperclip, X, Loader2, Plus } from 'lucide-react';
@@ -196,9 +196,8 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
   const totalEstimado = items.reduce((s, i) => s + Number(i.valor_orcado_brl || 0), 0);
   const totalCompra = items.reduce((s, i) => s + Number(i.valor_pago_brl ?? i.valor_orcado_brl ?? 0), 0);
   const totalVendaFinal = items.reduce((s, i) => s + Number(i.valor_venda_final_brl ?? i.valor_orcado_brl ?? 0), 0);
-  const saldoTotal = totalEstimado - totalCompra;
-  // Venda Final é o valor a RECEBER e só é comparada ao Estimado: positivo = adicional a cobrar; negativo = a devolver.
-  const diferencaVenda = totalVendaFinal - totalEstimado;
+  const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100 || 0;
+  const saldoTotal = r2(totalEstimado - totalCompra);
   const pendentes = items.filter(i => !i.confirmado).length;
 
   return (
@@ -342,6 +341,17 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                 );
               })}
             </TableBody>
+            {/* Linha TOTAL: soma de cada coluna (Venda Final = valor a receber). Saldo = Estimado − Compra. */}
+            <TableFooter>
+              <TableRow className="h-8 font-semibold">
+                <TableCell className="py-1 text-xs" colSpan={2}>TOTAL</TableCell>
+                <TableCell className="py-1 text-right font-mono text-xs">{fmtBRL(r2(totalEstimado))}</TableCell>
+                <TableCell className="py-1 text-right font-mono text-xs">{fmtBRL(r2(totalCompra))}</TableCell>
+                <TableCell className={`py-1 text-right font-mono text-xs ${saldoTotal < 0 ? 'text-red-600' : saldoTotal > 0 ? 'text-emerald-600' : ''}`}>{saldoTotal > 0 ? '+' : ''}{fmtBRL(saldoTotal)}</TableCell>
+                <TableCell className="py-1 text-right font-mono text-xs">{fmtBRL(r2(totalVendaFinal))}</TableCell>
+                <TableCell className="py-1" colSpan={isExport ? 3 : 2} />
+              </TableRow>
+            </TableFooter>
           </Table>
 
           {isExport && (
@@ -352,21 +362,6 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
             </div>
           )}
 
-          <div className="mt-4 flex justify-end">
-            <div className="w-full max-w-sm space-y-1 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Total Estimado</span><span className="font-mono">R$ {fmtBRL(totalEstimado)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Total Compra</span><span className="font-mono">R$ {fmtBRL(totalCompra)}</span></div>
-              <div className={`flex justify-between font-semibold pt-1 border-t ${saldoTotal < 0 ? 'text-red-600' : saldoTotal > 0 ? 'text-emerald-600' : ''}`}>
-                <span>{saldoTotal < 0 ? 'Saldo (compra acima do estimado)' : saldoTotal > 0 ? 'Saldo (compra abaixo do estimado)' : 'Saldo (sem diferença)'}</span>
-                <span className="font-mono">{saldoTotal > 0 ? '+' : saldoTotal < 0 ? '−' : ''}R$ {fmtBRL(Math.abs(saldoTotal))}</span>
-              </div>
-              <div className="flex justify-between font-semibold text-base pt-2 border-t"><span>Total Venda Final (a receber)</span><span className="font-mono">R$ {fmtBRL(totalVendaFinal)}</span></div>
-              <div className={`flex justify-between ${diferencaVenda > 0.004 ? 'text-red-600' : diferencaVenda < -0.004 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
-                <span>{diferencaVenda > 0.004 ? 'Venda Final acima do Estimado (adicional a cobrar)' : diferencaVenda < -0.004 ? 'Venda Final abaixo do Estimado (a devolver)' : 'Venda Final igual ao Estimado'}</span>
-                <span className="font-mono">{diferencaVenda > 0.004 ? '+' : diferencaVenda < -0.004 ? '−' : ''}R$ {fmtBRL(Math.abs(diferencaVenda))}</span>
-              </div>
-            </div>
-          </div>
         </CardContent>
       </Card>
 
