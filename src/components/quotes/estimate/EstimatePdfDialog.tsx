@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { EstimateRow, EstimateItemRow, EstimateExpenseRow, computeAfrmmAutoBrl } from '@/hooks/useCostEstimate';
 import { EstimateBreakdown, calcEstimativa, pct, expenseFiscalUsd } from '@/lib/costEstimate';
+import { elementToPdfBlob } from '@/lib/pdfCapture';
 
 interface Props {
   open: boolean;
@@ -110,17 +111,11 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
     if (!ref.current) return;
     setDownloading(true);
     try {
-      const html2pdf = (await import('html2pdf.js')).default;
       const filenamePrefix = isNumerario ? 'numerario' : 'estimativa';
       const filename = `${filenamePrefix}_${quote?.quote_number || estimate.id.slice(0, 8)}.pdf`;
-      const blob: Blob = await html2pdf().set({
-        margin: 0,
-        filename,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['css', 'legacy'], avoid: '.pdf-avoid-break' },
-      } as any).from(ref.current).outputPdf('blob');
+      // Captura de um clone com 210 mm fixos (independe do tamanho da janela/zoom); o Numerário é ajustado
+      // para caber inteiro em UMA folha A4, centralizado (ver lib/pdfCapture.ts).
+      const blob: Blob = await elementToPdfBlob(ref.current, { fitOnePage: isNumerario });
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
