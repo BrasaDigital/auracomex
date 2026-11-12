@@ -11,6 +11,7 @@ import { Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAccountability } from '@/hooks/useAccountability';
+import { useExchangeRate } from '@/hooks/useExchangeRate';
 import { DateField } from '@/components/shared/DateField';
 import { AccountabilityTab } from './AccountabilityTab';
 
@@ -22,8 +23,6 @@ interface Props {
   isFinalized?: boolean;
   /** Exportação: Prestação de Contas direta, sem Numerário. */
   isExport?: boolean;
-  /** Soma de TODAS as taxas de compra da aba Taxas, em R$ (calculada no QuoteDetail). */
-  custosProcessoBrl?: number;
 }
 
 function fmtBRL(n: number) {
@@ -33,7 +32,7 @@ function fmtBRL(n: number) {
 // Aba "Financeiro" do processo: o "caixa" do cliente. No topo, o saldo dos
 // depósitos; logo abaixo, os depósitos; e embaixo a Prestação de Contas, que
 // vai abatendo do saldo à medida que cada item é confirmado como pago.
-export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport, custosProcessoBrl = 0 }: Props) {
+export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport }: Props) {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const locked = !!isFinalized;
@@ -59,9 +58,50 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
     },
   });
   const totalDepositado = recebimentos.reduce((s, r) => s + Number(r.received_amount ?? r.amount ?? 0), 0);
-  // Custos do processo = soma de todas as taxas de compra da aba Taxas. Saldo = Depositado − Custos.
+  // Custos do processo = soma das despesas do processo em Financeiro → Despesa por Processo (contas a pagar
+  // ligadas à referência do processo — cotação e/ou embarque —, abertas e pagas; canceladas ficam de fora).
+  // Saldo = Depositado − Custos.
+  const shipmentId: string | null = quote?.shipment_id || null;
+  const { usdBrl, eurBrl } = useExchangeRate();
+  const { data: despesas = [] } = useQuery({
+    queryKey: ['accounts_payable', 'processo-custos', quoteId, shipmentId],
+    enabled: !!quoteId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('accounts_payable')
+        .select('id, amount, currency, exchange_rate, debit_note_id, status')
+        .or(shipmentId ? `quote_id.eq.${quoteId},shipment_id.eq.${shipmentId}` : `quote_id.eq.${quoteId}`)
+        .neq('status', 'cancelado');
+      if (error) throw error;
+      return (data || []) as Array<{ id: string; amount: number; currency: string | null; exchange_rate: number | null; debit_note_id: string | null; status: string }>;
+    },
+  });
+  const debitNoteIds = Array.from(new Set(despesas.map(d => d.debit_note_id).filter(Boolean))) as string[];
+  const { data: dnRates = [] } = useQuery({
+    queryKey: ['debit_notes', 'rates', debitNoteIds.join(',')],
+    enabled: debitNoteIds.length > 0,
+    queryFn: async () => {
+      const { data } = await (supabase as any).from('debit_notes').select('id, exchange_rate').in('id', debitNoteIds);
+      return (data || []) as Array<{ id: string; exchange_rate: number | null }>;
+    },
+  });
+  // Mesmo critério de câmbio do Contas a Pagar: o da própria despesa (pagamento) ou o digitado na DN; só na falta
+  // dos dois cai para a cotação do dia.
+  const dnRateMap = new Map(dnRates.map(d => [d.id, d.exchange_rate]));
+  const despesaBrl = (d: { amount: number; currency: string | null; exchange_rate: number | null; debit_note_id: string | null }) => {
+    const cur = (d.currency || 'BRL').toUpperCase();
+    let rate = 1;
+    if (cur !== 'BRL') {
+      const stored = d.debit_note_id ? dnRateMap.get(d.debit_note_id) : null;
+      if (d.exchange_rate != null && Number(d.exchange_rate) > 0) rate = Number(d.exchange_rate);
+      else if (stored != null && Number(stored) > 0) rate = Number(stored);
+      else if (cur === 'USD') rate = usdBrl || 0;
+      else if (cur === 'EUR') rate = eurBrl || 0;
+    }
+    return Number(d.amount || 0) * rate;
+  };
   const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100 || 0;
-  const custos = r2(custosProcessoBrl);
+  const custos = r2(despesas.reduce((s, d) => s + despesaBrl(d), 0));
   const saldo = r2(totalDepositado - custos);
 
   // "+" ao lado do saldo: lançamento adicional do cliente. Entra em Movimentações
@@ -126,7 +166,7 @@ export function FinanceiroTab({ quoteId, quote, companyId, isFinalized, isExport
             <div>
               <p className="text-xs text-muted-foreground">Custos do processo</p>
               <p className="text-lg font-semibold font-mono">R$ {fmtBRL(custos)}</p>
-              <p className="text-[11px] text-muted-foreground">Soma de todas as taxas de compra da aba Taxas</p>
+              <p className="text-[11px] text-muted-foreground">Despesas do processo (Financeiro → Despesa por Processo)</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Saldo (Depositado − Custos)</p>

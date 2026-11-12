@@ -862,15 +862,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     return { total, unsupported };
   };
   const buyBRL = sumToBRL(buyByCurrency);
-  // Custos do processo (aba Financeiro): TODAS as taxas de compra da aba Taxas (inclui prepaid e tributos automáticos,
-  // que ficam de fora só do Lucro), convertidas em R$ pelo câmbio do dia.
-  const custosPorMoeda = groupByCurrency(charges, (c: any) => c.currency || 'USD', (c: any) => {
-    const val = c.billing_unit === 'percent'
-      ? (Number(c.computed_buy_amount) || 0)
-      : chargeSideTotal(c, 'buy', getChargeMultiplier(c.billing_unit || 'fixed'));
-    return isDiscount(c) ? -val : val;
-  });
-  const custosProcessoBrl = sumToBRL(custosPorMoeda).total;
   const sellBRL = sumToBRL(sellByCurrency);
   const profitBRLValue = sellBRL.total - buyBRL.total;
   const marginBRLValue = sellBRL.total > 0 ? (profitBRLValue / sellBRL.total) * 100 : 0;
@@ -3143,7 +3134,6 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
               companyId={profile?.company_id}
               isFinalized={isFinalized}
               isExport={isExport}
-              custosProcessoBrl={custosProcessoBrl}
             />
           </TabsContent>
         )}
