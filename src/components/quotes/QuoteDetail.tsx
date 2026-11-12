@@ -7,6 +7,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useHasAddon } from '@/hooks/useSubscription';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Save, Copy, FileText, Building2, Bell, CheckCircle, Send, MapPin, Package, Info, Users, ShoppingCart, Undo2, Calculator, HelpCircle, ChevronRight, ChevronLeft, Sparkles, ListChecks, Building, Wallet, History, NotebookPen, Receipt, Truck } from 'lucide-react';
 import { CostEstimateTab } from './estimate/CostEstimateTab';
 import { AccountabilityTab } from './estimate/AccountabilityTab';
@@ -222,6 +223,12 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
 
   // Aba ativa controlada
   const [activeTab, setActiveTab] = useState<string>(isShipmentMode ? 'logistics' : 'general');
+  // Atalhos externos (ex.: Financeiro → Despesa/Receita por Processo) abrem o processo direto na aba Taxas: ?open=<id>&tab=charges.
+  const routerLocation = useLocation();
+  useEffect(() => {
+    if (new URLSearchParams(routerLocation.search).get('tab') === 'charges') setActiveTab('charges');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routerLocation.key, quoteId]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [backConfirmOpen, setBackConfirmOpen] = useState(false);
   const [pendingClientChange, setPendingClientChange] = useState<string | null>(null);
@@ -1705,6 +1712,38 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     }
   }
 
+  // Desconfirmar uma taxa de COMPRA conferida: remove a despesa que a conferência lançou em Despesa por Processo (se ainda
+  // não paga) e devolve a taxa para "a conferir" — só então ela volta a ficar editável.
+  async function handleUnconfirmBuyCharge(charge: any): Promise<{ ok: boolean }> {
+    if (isFinalized) { toast.error('Processo finalizado — não é possível editar.'); return { ok: false }; }
+    try {
+      const { data: aps, error: apErr } = await supabase.from('accounts_payable' as any).select('id, status').eq('quote_charge_id', charge.id);
+      if (apErr) throw apErr;
+      if (((aps ?? []) as any[]).some((a) => a.status === 'pago')) {
+        toast.error('Essa despesa já foi paga — desfaça o pagamento em Financeiro → Despesa por Processo antes de desconfirmar.');
+        return { ok: false };
+      }
+      const { error } = await supabase.from('quote_charges').update({
+        buy_actual_confirmed_at: null, buy_actual_confirmed_by: null, buy_amount_actual: null, buy_variance_reason: null,
+      } as any).eq('id', charge.id);
+      if (error) throw error;
+      await removeChargeExpense([charge.id]);
+      if (profile) {
+        await logAuditEvent({
+          quoteId, shipmentId: isShipmentMode ? shipmentId : null, companyId: profile.company_id, userId: profile.user_id,
+          field_name: 'charge', old_value: `${charge.description}: conferida`, new_value: `${charge.description}: desconfirmada`,
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['quote-charges', quoteId] });
+      queryClient.invalidateQueries({ queryKey: ['accounts_payable'] });
+      toast.success(`"${charge.description}" desconfirmada — a despesa foi removida de Despesa por Processo`);
+      return { ok: true };
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao desconfirmar a taxa');
+      return { ok: false };
+    }
+  }
+
   // Reabrir uma taxa já enviada numa DN (ainda não paga): exclui a DN inteira
   // (some do Financeiro) e libera de volta pra edição todas as taxas que
   // estavam presas nela, com aviso no histórico da referência.
@@ -3185,6 +3224,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                     readOnly={!canEditCharges}
                     showReconciliation={isShipmentMode && canSeeFinancials}
                     hideAutoTaxConferir={showEstimateTab}
+                    onUnconfirmCharge={handleUnconfirmBuyCharge}
                     currentUserId={profile?.user_id}
                     onPercentClick={(id) => setPercentDialogChargeId(id)}
                     onReopenCharge={handleReopenChargeWithDn}
@@ -3463,6 +3503,8 @@ interface ChargeColumnProps {
   /** Processo com Estimativa: os tributos automáticos (II, IPI, PIS, COFINS, ICMS, Siscomex, AFRMM) já viram despesa pelo
    *  Numerário; "Conferir" neles duplicaria a despesa no Financeiro, então não é oferecido (só dá para Desconfirmar). */
   hideAutoTaxConferir?: boolean;
+  /** Desconfirma uma taxa de compra conferida (a taxa conferida fica travada até isso). */
+  onUnconfirmCharge?: (charge: any) => Promise<{ ok: boolean }>;
   currentUserId?: string;
   onPercentClick?: (chargeId: string) => void;
   /** Botão "Conferir" no cabeçalho de cada empresa (lado Venda, processos sem estimativa de
@@ -3531,7 +3573,7 @@ function ChargeMinInput({ value, disabled, applied, onCommit }: { value: number 
   );
 }
 
-function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, legColors, legBorderLeftColors, onDelete, onClone, onUpdate, colorClass, borderClass, bgClass, cloneLabel, partners, defaultClonePartnerId, cargoMetrics, readOnly, showReconciliation, hideAutoTaxConferir, currentUserId, onPercentClick, onConferirSell, onReopenCharge, onReopenSellCharge }: ChargeColumnProps) {
+function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, legColors, legBorderLeftColors, onDelete, onClone, onUpdate, colorClass, borderClass, bgClass, cloneLabel, partners, defaultClonePartnerId, cargoMetrics, readOnly, showReconciliation, hideAutoTaxConferir, onUnconfirmCharge, currentUserId, onPercentClick, onConferirSell, onReopenCharge, onReopenSellCharge }: ChargeColumnProps) {
   const { t } = useLanguage();
   const [cloningId, setCloningId] = useState<string | null>(null);
   const [cloneAmount, setCloneAmount] = useState('');
@@ -3687,7 +3729,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                               <div className="flex items-center gap-1.5">
                               {showReconciliation && amountKey === 'buy_amount' && showPartnerActions && (
                                 <SupplierReconcileButton group={group as any} getMult={getBillingMultiplier} onUpdate={onUpdate}
-                                  currentUserId={currentUserId} onReopenCharge={onReopenCharge} hideAutoTaxConferir={hideAutoTaxConferir} />
+                                  currentUserId={currentUserId} onReopenCharge={onReopenCharge} hideAutoTaxConferir={hideAutoTaxConferir} onUnconfirmCharge={onUnconfirmCharge} />
                               )}
                               </div>
                               {onConferirSell && amountKey === 'sell_amount' && showPartnerActions && !readOnly && (
@@ -3701,12 +3743,14 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                           // tem uma etapa de "conferência" separada como o lado compra. Só dá pra
                           // editar de novo reabrindo (o que exclui a ND vinculada).
                           const lockedForEdit = amountKey === 'sell_amount' && (!!c.sent_in_debit_note_id || !!c.sell_confirmed_at || !!c.is_auto_tax);
+                          // Compra: taxa conferida fica travada (valor, trecho, flags e exclusão) até ser desconfirmada.
+                          const lockedBuy = amountKey === 'buy_amount' && !!c.buy_actual_confirmed_at;
                           return (
                           <React.Fragment key={c.id}>
                             <TableRow
-                              className={`${readOnly || lockedForEdit ? '' : 'cursor-pointer'} hover:bg-muted/40 transition-colors`}
+                              className={`${readOnly || lockedForEdit || lockedBuy ? '' : 'cursor-pointer'} hover:bg-muted/40 transition-colors`}
                               onClick={() => {
-                                if (readOnly || lockedForEdit) return;
+                                if (readOnly || lockedForEdit || lockedBuy) return;
                                 if (c.billing_unit === 'percent' && onPercentClick) {
                                   onPercentClick(c.id);
                                   return;
@@ -3740,6 +3784,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   {c.leg === 'destination' && !readOnly && (
                                     <button
                                       type="button"
+                                      disabled={lockedBuy}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         const next = c.aduaneira === true ? false : c.aduaneira === false ? null : true;
@@ -3764,6 +3809,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   {!readOnly && (
                                     <button
                                       type="button"
+                                      disabled={lockedBuy}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         const next = c.payment_term === 'prepaid' ? 'collect' : 'prepaid';
@@ -3895,6 +3941,11 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     )}
                                   </>
                                 )}
+                                {lockedBuy && (
+                                  <Badge variant="outline" className="ml-1.5 text-[9px] h-4 px-1 bg-emerald-500/15 text-emerald-600 border-emerald-500/40" title="Taxa conferida — desconfirme para editar">
+                                    Conferida
+                                  </Badge>
+                                )}
                                 {lockedForEdit && (
                                   c.sent_in_debit_note_id ? (
                                     <Badge variant="outline" className="ml-1.5 text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/30">
@@ -3925,6 +3976,8 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   </Button>
                                   {lockedForEdit && onReopenSellCharge ? (
                                     <ReopenNdButton charge={c} partnerName={group.partnerName} onReopenSellCharge={onReopenSellCharge} />
+                                  ) : lockedBuy && onUnconfirmCharge ? (
+                                    <UnconfirmBuyButton charge={c} onUnconfirm={onUnconfirmCharge} />
                                   ) : (
                                     <Button
                                       variant="ghost"
@@ -4263,6 +4316,40 @@ function SellConferirButton({ group, onConferir }: { group: any; onConferir: (ch
   );
 }
 
+/* ── Botão "Desconfirmar" de uma taxa de compra conferida (a taxa conferida só edita depois disso) ── */
+function UnconfirmBuyButton({ charge, onUnconfirm }: { charge: any; onUnconfirm: (charge: any) => Promise<{ ok: boolean }> }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const handleConfirm = async () => {
+    if (loading) return;
+    setLoading(true);
+    const res = await onUnconfirm(charge);
+    setLoading(false);
+    if (res.ok) setOpen(false);
+  };
+  return (
+    <>
+      <Button variant="ghost" size="icon" className="h-7 w-7" title="Desconfirmar (libera a taxa para edição)" onClick={() => setOpen(true)}>
+        <Undo2 className="w-3.5 h-3.5 text-primary" />
+      </Button>
+      <AlertDialog open={open} onOpenChange={(o) => !loading && setOpen(o)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desconfirmar "{charge.description}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove a despesa desta taxa de Financeiro → Despesa por Processo (se ainda não foi paga) e libera a taxa para edição. Depois é preciso conferir de novo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleConfirm(); }} disabled={loading}>{loading ? 'Desconfirmando…' : 'Sim, desconfirmar'}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 /* ── Botão "Reabrir" de uma taxa de venda já enviada numa ND ao cliente ── */
 function ReopenNdButton({ charge, partnerName, onReopenSellCharge }: {
   charge: any;
@@ -4321,9 +4408,10 @@ const VARIANCE_LABELS: Record<string, string> = {
 };
 
 /** Conferência por fornecedor: botão na linha do fornecedor + popup para escolher quais taxas conferir. */
-function SupplierReconcileButton({ group, getMult, onUpdate, currentUserId, onReopenCharge, hideAutoTaxConferir }: {
+function SupplierReconcileButton({ group, getMult, onUpdate, currentUserId, onReopenCharge, hideAutoTaxConferir, onUnconfirmCharge }: {
   group: { partnerId: string; partnerName: string; charges: any[] };
   hideAutoTaxConferir?: boolean;
+  onUnconfirmCharge?: (charge: any) => Promise<{ ok: boolean }>;
   getMult: (unit: string) => number;
   onUpdate: (id: string, updates: Record<string, any>) => Promise<void>;
   currentUserId?: string;
@@ -4401,6 +4489,8 @@ function SupplierReconcileButton({ group, getMult, onUpdate, currentUserId, onRe
         buy_actual_confirmed_by: currentUserId || null,
         buy_doc_valid_until: validStr,
       };
+      // A taxa passa a valer o valor conferido (o cotado original fica no histórico). Taxa em % não: o valor dela é o percentual.
+      if (!isPct(c)) updates.buy_amount = unit;
       if ('docPath' in res && res.docPath) updates.buy_doc_path = res.docPath;
       await onUpdate(c.id, updates);
       okCount++;
@@ -4414,37 +4504,12 @@ function SupplierReconcileButton({ group, getMult, onUpdate, currentUserId, onRe
     }
   };
 
-  // Desconfirmar: remove a despesa lançada por esta conferência (Despesa por Processo) e volta a taxa para "a conferir".
-  // Não deixa se a despesa já foi paga (o pagamento precisa ser desfeito antes em Despesa por Processo).
   const handleUnconfirm = async () => {
-    if (!unconfirmTarget || unconfirming) return;
+    if (!unconfirmTarget || unconfirming || !onUnconfirmCharge) return;
     setUnconfirming(true);
-    try {
-      const { data: aps, error: apErr } = await supabase.from('accounts_payable' as any).select('id, status').eq('quote_charge_id', unconfirmTarget.id);
-      if (apErr) throw apErr;
-      if (((aps ?? []) as any[]).some((a) => a.status === 'pago')) {
-        toast.error('Essa despesa já foi paga — desfaça o pagamento em Financeiro → Despesa por Processo antes de desconfirmar.');
-        return;
-      }
-      await onUpdate(unconfirmTarget.id, {
-        buy_actual_confirmed_at: null, buy_actual_confirmed_by: null, buy_amount_actual: null, buy_variance_reason: null,
-      });
-      // onUpdate não propaga erro (ex.: processo finalizado): confere se a taxa realmente voltou a "a conferir" antes de
-      // remover a despesa, para nunca deixar a despesa apagada com a taxa ainda marcada como conferida.
-      const { data: depois } = await supabase.from('quote_charges').select('buy_actual_confirmed_at').eq('id', unconfirmTarget.id).maybeSingle();
-      if ((depois as any)?.buy_actual_confirmed_at) {
-        toast.error('Não foi possível desconfirmar esta taxa (processo finalizado?).');
-        return;
-      }
-      await removeChargeExpense([unconfirmTarget.id]);
-      queryClient.invalidateQueries({ queryKey: ['accounts_payable'] });
-      toast.success(`"${unconfirmTarget.description}" desconfirmada — a despesa foi removida de Despesa por Processo`);
-      setUnconfirmTarget(null);
-    } catch (e: any) {
-      toast.error(e?.message || 'Erro ao desconfirmar a taxa');
-    } finally {
-      setUnconfirming(false);
-    }
+    const res = await onUnconfirmCharge(unconfirmTarget);
+    setUnconfirming(false);
+    if (res.ok) setUnconfirmTarget(null);
   };
 
   const handleReopen = async () => {
@@ -4493,7 +4558,7 @@ function SupplierReconcileButton({ group, getMult, onUpdate, currentUserId, onRe
                         <CheckCircle className="w-3 h-3" /> Conferida
                       </Badge>
                     )}
-                    {confirmed && (
+                    {confirmed && onUnconfirmCharge && (
                       <Button type="button" size="sm" variant="outline" className="h-6 text-[10px] px-2 gap-1" onClick={() => setUnconfirmTarget(c)}>
                         <Undo2 className="w-3 h-3" /> Desconfirmar
                       </Button>

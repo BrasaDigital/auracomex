@@ -469,7 +469,7 @@ export default function AccountsReceivableTab() {
                     <TableCell>{r.client_id ? clientMap.get(r.client_id) ?? '—' : '—'}</TableCell>
                     <TableCell>
                       {r.quote_id && quoteMap.get(r.quote_id) ? (
-                        <Link to={`/quotes?open=${r.quote_id}`} className="text-primary hover:underline font-mono text-xs">
+                        <Link to={`/quotes?open=${r.quote_id}&tab=charges`} className="text-primary hover:underline font-mono text-xs">
                           {quoteMap.get(r.quote_id)}
                         </Link>
                       ) : (

@@ -407,11 +407,11 @@ export default function AccountsPayableTab() {
                     <TableCell>{r.partner_id ? partnerMap.get(r.partner_id) ?? '—' : '—'}</TableCell>
                     <TableCell>
                       {r.shipment_id && shipmentMap.get(r.shipment_id) ? (
-                        <Link to={`/shipments?open=${r.shipment_id}`} className="text-primary hover:underline font-mono text-xs">
+                        <Link to={`/shipments?open=${r.shipment_id}&tab=charges`} className="text-primary hover:underline font-mono text-xs">
                           {shipmentMap.get(r.shipment_id)}
                         </Link>
                       ) : r.quote_id && quoteMap.get(r.quote_id) ? (
-                        <Link to={`/quotes?open=${r.quote_id}`} className="text-primary hover:underline font-mono text-xs">
+                        <Link to={`/quotes?open=${r.quote_id}&tab=charges`} className="text-primary hover:underline font-mono text-xs">
                           {quoteMap.get(r.quote_id)}
                         </Link>
                       ) : (
