@@ -9,6 +9,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { SupportSheet } from '@/components/support/SupportButton';
 import { useReleases } from '@/hooks/useReleases';
+import { useFinancialAlerts, DIAS_A_VENCER } from '@/hooks/useFinancialAlerts';
 import { allNavItems } from './AppSidebar';
 
 /**
@@ -61,20 +62,8 @@ export function AppSidebarPorto() {
     enabled: !!profile,
   });
 
-  const { data: overdueCount = 0 } = useQuery({
-    queryKey: ['sidebar-overdue-payables', profile?.company_id],
-    queryFn: async () => {
-      const today = new Date().toISOString().slice(0, 10);
-      const { count } = await supabase
-        .from('accounts_payable' as any)
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'aberto')
-        .lt('due_date', today);
-      return count ?? 0;
-    },
-    enabled: !!profile?.company_id,
-    refetchInterval: 60_000,
-  });
+  // Alertas de contas a pagar: vencidas (vermelho) e a vencer nos próximos 3 dias (âmbar)
+  const { overdueCount, dueSoonCount } = useFinancialAlerts(profile?.company_id);
 
   const logoUrl = ((company as any)?.logo_dark_url || (company as any)?.logo_url) as string | undefined; // sidebar é escura
   const companyName = company?.name || 'Aura Comex';
@@ -194,6 +183,19 @@ export function AppSidebarPorto() {
                             {overdueCount}
                           </span>
                         )}
+                        {dueSoonCount > 0 && (!collapsed || overdueCount === 0) && (
+                          <span
+                            className={cn(
+                              'text-[10px] font-bold bg-amber-500 text-white tabular-nums',
+                              collapsed
+                                ? 'absolute top-1.5 right-2 min-w-4 h-4 px-1 flex items-center justify-center rounded-sm'
+                                : 'px-1.5 py-0.5 min-w-[20px] text-center rounded-sm',
+                            )}
+                            title={`${dueSoonCount} conta(s) vence(m) nos próximos ${DIAS_A_VENCER} dias`}
+                          >
+                            {dueSoonCount}
+                          </span>
+                        )}
                       </button>
                       {!collapsed && financialOpen && (
                         <div className="ml-[26px] border-l border-sidebar-border">
@@ -217,6 +219,14 @@ export function AppSidebarPorto() {
                                     title={`${overdueCount} conta(s) vencida(s)`}
                                   >
                                     {overdueCount}
+                                  </span>
+                                )}
+                                {child.path === '/financial/processo' && dueSoonCount > 0 && (
+                                  <span
+                                    className="text-[10px] font-bold bg-amber-500 text-white px-1.5 py-0.5 min-w-[20px] text-center rounded-sm tabular-nums"
+                                    title={`${dueSoonCount} conta(s) vence(m) nos próximos ${DIAS_A_VENCER} dias`}
+                                  >
+                                    {dueSoonCount}
                                   </span>
                                 )}
                               </Link>
