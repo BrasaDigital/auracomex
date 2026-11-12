@@ -15,7 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { logAuditEvent } from '@/lib/auditLog';
 import { useCostEstimate, computeBreakdown, computeAfrmmAutoBrl, EstimateItemRow, EstimateExpenseRow, EstimateRow, syncEstimateFromCharges, syncEstimateItemsFromQuote } from '@/hooks/useCostEstimate';
 import { useAccountability } from '@/hooks/useAccountability';
-import { pct, toBRL, calcSiscomexFee, countSiscomexAdditions } from '@/lib/costEstimate';
+import { pct, toBRL, calcSiscomexFee, countSiscomexAdditions, expenseFiscalUsd } from '@/lib/costEstimate';
 import { countryCodeToName } from '@/lib/countries';
 import { toast } from 'sonner';
 import { EstimatePdfDialog } from './EstimatePdfDialog';
@@ -1534,7 +1534,13 @@ export function CostEstimateTab({
               <Badge variant="outline" className="text-[10px] uppercase h-fit">Frete & Seguro</Badge>
               <div className="text-right">
                 <span className="text-[9px] uppercase text-muted-foreground block leading-none">Subtotal em Reais</span>
-                <span className="font-mono font-bold text-primary text-sm">R$ {fmtBRL(((estimate?.frete_intl_usd || 0) + (estimate?.seguro_intl_usd || 0)) * (estimate?.usd_brl || 0))}</span>
+                <span className="font-mono font-bold text-primary text-sm">R$ {fmtBRL((() => {
+                  // Soma das linhas em R$ listadas abaixo (mesmo critério dos cards de Origem e Destino); sem linhas, cai na base fiscal.
+                  const linhas = expenses.filter(e => e.category === 'freight');
+                  return linhas.length > 0
+                    ? linhas.reduce((acc, e) => acc + (e.valor_brl || 0), 0)
+                    : ((estimate?.frete_intl_usd || 0) + (estimate?.seguro_intl_usd || 0)) * (estimate?.usd_brl || 0);
+                })())}</span>
               </div>
             </div>
           </CardHeader>
@@ -1736,15 +1742,17 @@ export function CostEstimateTab({
                   ];
 
                   // Adiciona despesas de origem mapeadas individualmente
+                  // (base fiscal: US$ original da taxa; nunca o R$ gravado ÷ câmbio fiscal — ver expenseFiscalUsd)
                   expenses.filter(e => e.category === 'origin').forEach(e => {
-                    rows.push([e.descricao, (e.valor_brl || 0) / (estimate.usd_brl || 1), false, false, true]);
+                    rows.push([e.descricao, expenseFiscalUsd(e, { usd_brl: estimate.usd_brl || 0, eur_brl: estimate.eur_brl || 0 }), false, false, true]);
                   });
 
                   rows.push(['Valor no embarque (VMLE)', breakdown.vmle_usd, true, false, true]);
 
                   // Adiciona despesas de frete/seguro mapeadas individualmente
+                  // Estas linhas formam o VMLD (câmbio fiscal): frete US$ 6.200 aparece como 6.200, igual às Taxas.
                   expenses.filter(e => e.category === 'freight').forEach(e => {
-                    rows.push([e.descricao, (e.valor_brl || 0) / (estimate.usd_brl || 1), false, false, true]);
+                    rows.push([e.descricao, expenseFiscalUsd(e, { usd_brl: estimate.usd_brl || 0, eur_brl: estimate.eur_brl || 0 }), false, false, true]);
                   });
 
                   rows.push(

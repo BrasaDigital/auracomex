@@ -399,3 +399,22 @@ export function calcSeguroInternacional(input: SeguroInternacionalInput): Seguro
 
   return { custo, frete, despesas, lucroEsperado, impostos, somaVerbas, taxaPct, valorSeguro };
 }
+/**
+ * US$ de uma despesa de ORIGEM ou FRETE/SEGURO na base fiscal — a mesma que forma o VMLE e o VMLD.
+ * Despesa em USD vale o próprio valor original (ex.: frete US$ 6.200 aparece como 6.200), em EUR converte
+ * pelo câmbio fiscal e só despesa em BRL (ou sem valor original) é dividida pelo câmbio fiscal. Nunca divide o
+ * valor em R$ já gravado de uma despesa em moeda estrangeira: esse R$ pode ter sido convertido pelo câmbio da
+ * agência (ou por câmbio próprio da taxa) e, dividido pelo fiscal, inflava o US$ do Cálculo Consolidado.
+ */
+export function expenseFiscalUsd(
+  e: { valor_brl?: number | null; valor_original?: number | null; moeda_original?: string | null },
+  fx: { usd_brl: number; eur_brl?: number | null },
+): number {
+  const original = Number(e.valor_original || 0);
+  const moeda = String(e.moeda_original || '').toUpperCase();
+  const usdBrl = Number(fx.usd_brl || 0);
+  const eurBrl = Number(fx.eur_brl || 0);
+  if (original > 0 && moeda === 'USD') return original;
+  if (original > 0 && moeda === 'EUR' && usdBrl > 0 && eurBrl > 0) return (original * eurBrl) / usdBrl;
+  return usdBrl > 0 ? Number(e.valor_brl || 0) / usdBrl : 0;
+}

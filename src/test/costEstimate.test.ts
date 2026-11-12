@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcEstimativa, EstimateInput } from '@/lib/costEstimate';
+import { calcEstimativa, EstimateInput, expenseFiscalUsd } from '@/lib/costEstimate';
 
 const baseInput = (overrides: Partial<EstimateInput> = {}): EstimateInput => ({
   acrescimos_usd: 0,
@@ -148,5 +148,22 @@ describe('calcEstimativa', () => {
     // mas o override manual (false) tem que vencer.
     expect(out.despesas_aduaneiras_brl).toBe(0);
     expect(out.despesas_nac_brl).toBe(200);
+  });
+});
+describe('expenseFiscalUsd (Cálculo Consolidado: frete/origem na base fiscal)', () => {
+  const fx = { usd_brl: 5.5606, eur_brl: 6.1483 };
+  it('despesa em USD vale o valor original, mesmo com R$ gravado pelo câmbio da agência', () => {
+    // frete US$ 6.200 gravado em R$ a 6,0325 (agência); o consolidado não pode virar 6.726,16
+    expect(expenseFiscalUsd({ valor_brl: 37401.5, valor_original: 6200, moeda_original: 'USD' }, fx)).toBe(6200);
+  });
+  it('despesa em EUR converte pelo câmbio fiscal', () => {
+    expect(expenseFiscalUsd({ valor_brl: 999, valor_original: 100, moeda_original: 'EUR' }, fx)).toBeCloseTo((100 * 6.1483) / 5.5606, 6);
+  });
+  it('despesa em BRL (ou sem original) é dividida pelo câmbio fiscal', () => {
+    expect(expenseFiscalUsd({ valor_brl: 5560.6, valor_original: 5560.6, moeda_original: 'BRL' }, fx)).toBeCloseTo(1000, 6);
+    expect(expenseFiscalUsd({ valor_brl: 5560.6 }, fx)).toBeCloseTo(1000, 6);
+  });
+  it('câmbio fiscal zerado não quebra', () => {
+    expect(expenseFiscalUsd({ valor_brl: 100 }, { usd_brl: 0 })).toBe(0);
   });
 });
