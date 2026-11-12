@@ -197,6 +197,8 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
   const totalCompra = items.reduce((s, i) => s + Number(i.valor_pago_brl ?? i.valor_orcado_brl ?? 0), 0);
   const totalVendaFinal = items.reduce((s, i) => s + Number(i.valor_venda_final_brl ?? i.valor_orcado_brl ?? 0), 0);
   const saldoTotal = totalEstimado - totalCompra;
+  // Venda Final é o valor a RECEBER e só é comparada ao Estimado: positivo = adicional a cobrar; negativo = a devolver.
+  const diferencaVenda = totalVendaFinal - totalEstimado;
   const pendentes = items.filter(i => !i.confirmado).length;
 
   return (
@@ -358,7 +360,11 @@ export function AccountabilityTab({ quoteId, quote, companyId, isFinalized, isEx
                 <span>{saldoTotal < 0 ? 'Saldo (compra acima do estimado)' : saldoTotal > 0 ? 'Saldo (compra abaixo do estimado)' : 'Saldo (sem diferença)'}</span>
                 <span className="font-mono">{saldoTotal > 0 ? '+' : saldoTotal < 0 ? '−' : ''}R$ {fmtBRL(Math.abs(saldoTotal))}</span>
               </div>
-              <div className="flex justify-between font-semibold text-base pt-2 border-t"><span>Total Venda Final</span><span className="font-mono">R$ {fmtBRL(totalVendaFinal)}</span></div>
+              <div className="flex justify-between font-semibold text-base pt-2 border-t"><span>Total Venda Final (a receber)</span><span className="font-mono">R$ {fmtBRL(totalVendaFinal)}</span></div>
+              <div className={`flex justify-between ${diferencaVenda > 0.004 ? 'text-red-600' : diferencaVenda < -0.004 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                <span>{diferencaVenda > 0.004 ? 'Venda Final acima do Estimado (adicional a cobrar)' : diferencaVenda < -0.004 ? 'Venda Final abaixo do Estimado (a devolver)' : 'Venda Final igual ao Estimado'}</span>
+                <span className="font-mono">{diferencaVenda > 0.004 ? '+' : diferencaVenda < -0.004 ? '−' : ''}R$ {fmtBRL(Math.abs(diferencaVenda))}</span>
+              </div>
             </div>
           </div>
         </CardContent>

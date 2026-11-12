@@ -341,8 +341,23 @@ export function useAccountability(quoteId: string, companyId: string | undefined
   const updateItem = async (itemId: string, patch: { valor_pago_brl?: number | null; valor_venda_final_brl?: number | null; confirmado?: boolean; observacao?: string | null }) => {
     const { data: row, error } = await (supabase as any)
       .from('accountability_items').update(patch).eq('id', itemId)
-      .select('valor_orcado_brl, valor_pago_brl').single();
+      .select('accountability_id, valor_orcado_brl, valor_pago_brl').single();
     if (error) throw error;
+    // Venda Final = valor a receber: a Receita por Processo do Numerário (ainda em aberto) acompanha a soma da Venda Final
+    // dos itens. Receita já recebida não muda (a diferença vira "adicional a cobrar/a devolver" na Prestação de Contas).
+    if ('valor_venda_final_brl' in patch && row?.accountability_id) {
+      const { data: todos, error: e3 } = await (supabase as any)
+        .from('accountability_items').select('valor_orcado_brl, valor_venda_final_brl').eq('accountability_id', row.accountability_id);
+      if (e3) throw e3;
+      const total = (todos || []).reduce((s: number, i: any) => s + Number(i.valor_venda_final_brl ?? i.valor_orcado_brl ?? 0), 0);
+      if (total > 0) {
+        const { error: e4 } = await (supabase as any)
+          .from('accounts_receivable').update({ amount: Number(total.toFixed(2)) })
+          .eq('accountability_id', row.accountability_id).eq('source', 'numerario').eq('status', 'aberto');
+        if (e4) throw e4;
+        qc.invalidateQueries({ queryKey: ['accounts_receivable'] });
+      }
+    }
     // Valor real digitado na conferência substitui o estimado lançado em Custos por Processo
     // (Movimentações). Só contas geradas pelo Numerário (vínculo accountability_item_id);
     // itens manuais não têm conta. Pago apagado (null) volta ao orçado. Vale também p/ contas já pagas.
