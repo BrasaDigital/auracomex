@@ -47,9 +47,6 @@ export interface EstimateInput {
   frete_intl_usd: number;
   seguro_intl_usd: number;
   usd_brl: number;
-  /** Câmbio da agência (BRL por US$). Frete e seguro internacionais entram no valor aduaneiro por ESTE câmbio;
-   *  mercadoria (VMCV/acréscimos/deduções) segue no câmbio fiscal. Vazio/0 = tudo no fiscal. */
-  usd_brl_agencia?: number | null;
   rateio_metodo: 'valor' | 'peso' | 'quantidade';
   items: EstimateItemInput[];
   expenses: EstimateExpenseInput[];
@@ -170,11 +167,6 @@ function calcImpostos(
 
 export function calcEstimativa(input: EstimateInput): EstimateBreakdown {
   const { items, expenses, frete_intl_usd, seguro_intl_usd, acrescimos_usd, deducoes_usd, usd_brl, rateio_metodo } = input;
-  // Valor aduaneiro em R$ = mercadoria × câmbio fiscal + (frete + seguro) × câmbio da agência. O motor trabalha em US$
-  // "fiscais": frete e seguro entram multiplicados por (agência ÷ fiscal), de modo que todo valor em US$ × usd_brl
-  // (VMLD, tributos) já sai no R$ certo. Sem câmbio da agência, o fator é 1 e nada muda.
-  const agencia = Number(input.usd_brl_agencia || 0);
-  const fatorFreteSeguro = agencia > 0 && usd_brl > 0 ? agencia / usd_brl : 1;
   const taxa_siscomex_brl = Number(input.taxa_siscomex_brl || 0);
   const afrmm_brl = Number(input.afrmm_brl || 0);
   const armazenagem_destino_brl = Number(input.armazenagem_destino_brl || 0);
@@ -227,8 +219,8 @@ export function calcEstimativa(input: EstimateInput): EstimateBreakdown {
 
     const acrescItem = acrescimos_usd * share;
     const deducItem = deducoes_usd * share;
-    const freteItem = frete_intl_usd * share * fatorFreteSeguro;
-    const seguroItem = seguro_intl_usd * share * fatorFreteSeguro;
+    const freteItem = frete_intl_usd * share;
+    const seguroItem = seguro_intl_usd * share;
     const despAduItem = despesas_aduaneiras_usd * share;
     const despNacItem = despesas_nac_usd * share;
 

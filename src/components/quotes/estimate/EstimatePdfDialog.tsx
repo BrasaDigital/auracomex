@@ -420,7 +420,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
 
           {!isNumerario && (
             <div style={{ fontSize: 8, fontStyle: 'italic', color: '#000', marginTop: -14, marginBottom: 14 }}>
-              Valor aduaneiro (VMLD): mercadoria no câmbio fiscal; frete e seguro no câmbio da agência.
+              Valor aduaneiro e tributos calculados pelo câmbio fiscal; despesas em moeda estrangeira (inclusive frete e seguro) em R$ pelo câmbio da agência.
             </div>
           )}
 

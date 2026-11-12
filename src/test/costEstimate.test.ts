@@ -167,28 +167,3 @@ describe('expenseFiscalUsd (Cálculo Consolidado: frete/origem na base fiscal)',
     expect(expenseFiscalUsd({ valor_brl: 100 }, { usd_brl: 0 })).toBe(0);
   });
 });
-
-describe('valor aduaneiro: mercadoria no câmbio fiscal, frete e seguro no câmbio da agência', () => {
-  const item = { id: 'i1', nome: 'X', peso: 1, quantidade: 1, vmcv_unit_usd: 812, aliq_ii: 18, aliq_ipi: 0, aliq_pis: 0, aliq_cofins: 0, aliq_icms: 0 } as any;
-  const base = (over: Partial<EstimateInput> = {}): EstimateInput => ({
-    acrescimos_usd: 0, deducoes_usd: 0, frete_intl_usd: 627.83, seguro_intl_usd: 3.93,
-    usd_brl: 5.56, rateio_metodo: 'valor', items: [item], expenses: [], ...over,
-  });
-
-  it('MD26/0114: VMLD em R$ = 812 × 5,56 + (627,83 + 3,93) × 5,67', () => {
-    const out = calcEstimativa(base({ usd_brl_agencia: 5.67 }));
-    const esperadoBrl = 812 * 5.56 + (627.83 + 3.93) * 5.67;
-    expect(out.vmld_usd * 5.56).toBeCloseTo(esperadoBrl, 1);
-    // tributos acompanham a base em R$: II = 18% do valor aduaneiro
-    expect(out.ii_usd * 5.56).toBeCloseTo(esperadoBrl * 0.18, 1);
-  });
-  it('sem câmbio da agência tudo fica no fiscal (comportamento anterior)', () => {
-    const sem = calcEstimativa(base());
-    const zero = calcEstimativa(base({ usd_brl_agencia: 0 }));
-    expect(sem.vmld_usd).toBeCloseTo(812 + 627.83 + 3.93, 2);
-    expect(zero.vmld_usd).toBe(sem.vmld_usd);
-  });
-  it('a mercadoria nunca muda com o câmbio da agência', () => {
-    expect(calcEstimativa(base({ usd_brl_agencia: 6.5 })).vmle_usd).toBe(calcEstimativa(base()).vmle_usd);
-  });
-});
