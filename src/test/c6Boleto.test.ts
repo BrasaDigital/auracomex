@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBankSlipPayload, mapC6Response, newExternalReferenceId, pem, todayBR, validateBoletoInput } from '../../api/c6';
+import { buildBankSlipPayload, mapC6Response, newExternalReferenceId, describePem, pem, todayBR, validateBoletoInput } from '../../api/c6';
 
 const payer = {
   name: 'EMPRESA TESTE LTDA',
@@ -110,5 +110,18 @@ describe('pem (leitura do certificado/chave vindos da Vercel)', () => {
     expect(pem(undefined)).toBeNull();
     expect(pem('   ')).toBeNull();
     expect(pem('meu-certificado.crt')).toBeNull();
+  });
+});
+
+describe('describePem (diagnóstico sem vazar conteúdo)', () => {
+  it('descreve vazio e ausente', () => {
+    expect(describePem(undefined)).toContain('não existe');
+    expect(describePem('  ')).toBe('vazia');
+  });
+  it('descreve o formato sem mostrar o texto', () => {
+    const d = describePem('"QUJDREVGR0g="');
+    expect(d).toContain('sem BEGIN');
+    expect(d).toContain('começa com aspas');
+    expect(d).not.toContain('QUJD');
   });
 });

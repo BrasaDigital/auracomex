@@ -204,6 +204,21 @@ export function pem(value: string | undefined): string | null {
   }
 }
 
+/** Descreve só o FORMATO do que veio na variável (tamanho, linhas, marcadores), nunca um trecho do conteúdo. */
+export function describePem(value: string | undefined): string {
+  if (value === undefined) return 'não existe neste ambiente';
+  const v = value.trim();
+  if (!v) return 'vazia';
+  const lines = v.split(/\r?\n/).length;
+  const begin = /-----BEGIN [A-Z0-9 ]+-----/.test(v);
+  const end = /-----END [A-Z0-9 ]+-----/.test(v);
+  const onlyB64 = /^[A-Za-z0-9+/=\s]+$/.test(v);
+  const parts = [`${v.length} caracteres`, `${lines} linha(s)`, begin ? 'tem BEGIN' : 'sem BEGIN', end ? 'tem END' : 'sem END'];
+  if (!begin && onlyB64) parts.push('só base64, sem cabeçalho');
+  if (/^["']/.test(v)) parts.push('começa com aspas');
+  return parts.join(', ');
+}
+
 interface C6Config {
   env: C6Env;
   host: string;
@@ -223,7 +238,8 @@ function loadConfig(): { cfg: C6Config } | { error: string } {
   const key = pem(process.env.C6_KEY_PEM);
   const pixKey = process.env.C6_PIX_KEY;
   const missing = [
-    !clientId && 'C6_CLIENT_ID', !clientSecret && 'C6_CLIENT_SECRET', !cert && 'C6_CERT_PEM', !key && 'C6_KEY_PEM', !pixKey && 'C6_PIX_KEY',
+    !clientId && 'C6_CLIENT_ID', !clientSecret && 'C6_CLIENT_SECRET', !cert && `C6_CERT_PEM [${describePem(process.env.C6_CERT_PEM)}]`,
+    !key && `C6_KEY_PEM [${describePem(process.env.C6_KEY_PEM)}]`, !pixKey && 'C6_PIX_KEY',
   ].filter(Boolean);
   if (missing.length) return { error: `Integração com o C6 não configurada (faltam variáveis: ${missing.join(', ')}).` };
   return { cfg: { env, host: HOSTS[env], clientId: clientId!, clientSecret: clientSecret!, cert: cert!, key: key!, pixKey: pixKey! } };
