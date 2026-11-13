@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBankSlipPayload, mapC6Response, newExternalReferenceId, todayBR, validateBoletoInput } from '../../api/c6';
+import { buildBankSlipPayload, mapC6Response, newExternalReferenceId, pem, todayBR, validateBoletoInput } from '../../api/c6';
 
 const payer = {
   name: 'EMPRESA TESTE LTDA',
@@ -88,5 +88,27 @@ describe('C6 boleto — validação e payload', () => {
   it('todayBR devolve data AAAA-MM-DD no fuso de Brasília', () => {
     expect(todayBR(new Date('2026-11-13T02:00:00Z'))).toBe('2026-11-12');
     expect(todayBR(new Date('2026-11-13T12:00:00Z'))).toBe('2026-11-13');
+  });
+});
+
+describe('pem (leitura do certificado/chave vindos da Vercel)', () => {
+  const body = 'QUJD'.repeat(40); // 160 caracteres base64 (conteúdo fictício)
+  const lines = body.match(/.{1,64}/g)!.join('\n');
+  const limpo = `-----BEGIN CERTIFICATE-----\n${lines}\n-----END CERTIFICATE-----\n`;
+
+  it('devolve o PEM normal', () => expect(pem(limpo)).toBe(limpo));
+  it('tira aspas e texto antes/depois', () => expect(pem(`"Bag Attributes\n${limpo.trim()}\n"`)).toBe(limpo));
+  it('aceita CRLF', () => expect(pem(limpo.replace(/\n/g, '\r\n'))).toBe(limpo));
+  it('aceita \n literal', () => expect(pem(limpo.trim().replace(/\n/g, '\n'))).toBe(limpo));
+  it('aceita linhas coladas por espaço', () => expect(pem(limpo.trim().replace(/\n/g, ' '))).toBe(limpo));
+  it('aceita o PEM inteiro em base64', () => expect(pem(Buffer.from(limpo).toString('base64'))).toBe(limpo));
+  it('aceita chave privada', () => {
+    const k = `-----BEGIN PRIVATE KEY-----\n${lines}\n-----END PRIVATE KEY-----\n`;
+    expect(pem(k.trim())).toBe(k);
+  });
+  it('rejeita vazio e texto qualquer', () => {
+    expect(pem(undefined)).toBeNull();
+    expect(pem('   ')).toBeNull();
+    expect(pem('meu-certificado.crt')).toBeNull();
   });
 });

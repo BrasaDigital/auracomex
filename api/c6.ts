@@ -180,13 +180,25 @@ export function mapC6Response(r: any): Record<string, unknown> {
   return out;
 }
 
-function pem(value: string | undefined): string | null {
+/**
+ * Aceita o PEM colado do jeito que costuma chegar na Vercel: com aspas, com texto antes/depois, com "\n" literal,
+ * com quebras CRLF ou com as linhas coladas em uma só (espaço no lugar da quebra). Também aceita o PEM em base64.
+ * Devolve sempre um bloco PEM válido (corpo em linhas de 64 caracteres) ou null.
+ */
+export function pem(value: string | undefined): string | null {
   if (!value) return null;
+  const extract = (text: string): string | null => {
+    const m = text.match(/-----BEGIN ([A-Z0-9 ]+)-----([\s\S]+?)-----END \1-----/);
+    if (!m) return null;
+    const body = m[2].replace(/\s+/g, '');
+    if (!body) return null;
+    return `-----BEGIN ${m[1]}-----\n${body.match(/.{1,64}/g)!.join('\n')}\n-----END ${m[1]}-----\n`;
+  };
   const v = value.trim().replace(/\\n/g, '\n');
-  if (v.startsWith('-----BEGIN')) return v;
+  const direct = extract(v);
+  if (direct) return direct;
   try {
-    const decoded = Buffer.from(v, 'base64').toString('utf8');
-    return decoded.includes('-----BEGIN') ? decoded : null;
+    return extract(Buffer.from(v.replace(/\s+/g, ''), 'base64').toString('utf8'));
   } catch {
     return null;
   }
