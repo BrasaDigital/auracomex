@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import crypto from 'node:crypto';
 import { buildBankSlipPayload, mapC6Response, newExternalReferenceId, describePem, pem, todayBR, validateBoletoInput } from '../../api/c6';
 
 const payer = {
@@ -123,5 +124,33 @@ describe('describePem (diagnóstico sem vazar conteúdo)', () => {
     expect(d).toContain('sem BEGIN');
     expect(d).toContain('começa com aspas');
     expect(d).not.toContain('QUJD');
+  });
+});
+
+describe('pem sem cabeçalho BEGIN/END (só o corpo em base64)', () => {
+  const quebra = (b64: string) => b64.match(/.{1,64}/g)!.join('\n');
+  const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+  it('chave PKCS8 sem cabeçalho ganha PRIVATE KEY e é válida', () => {
+    const b64 = quebra((privateKey.export({ type: 'pkcs8', format: 'der' }) as Buffer).toString('base64'));
+    const out = pem(b64, 'key')!;
+    expect(out.startsWith('-----BEGIN PRIVATE KEY-----')).toBe(true);
+    expect(() => crypto.createPrivateKey(out)).not.toThrow();
+  });
+  it('chave PKCS1 sem cabeçalho ganha RSA PRIVATE KEY e é válida', () => {
+    const b64 = quebra((privateKey.export({ type: 'pkcs1', format: 'der' }) as Buffer).toString('base64'));
+    const out = pem(b64, 'key')!;
+    expect(out.startsWith('-----BEGIN RSA PRIVATE KEY-----')).toBe(true);
+    expect(() => crypto.createPrivateKey(out)).not.toThrow();
+  });
+  it('certificado sem cabeçalho ganha CERTIFICATE', () => {
+    const der = Buffer.concat([Buffer.from([0x30, 0x82, 0x04, 0x00]), Buffer.alloc(200, 7)]); // só a forma DER, conteúdo fictício
+    const out = pem(quebra(der.toString('base64')) + '\r\n', 'cert')!;
+    expect(out.startsWith('-----BEGIN CERTIFICATE-----\n')).toBe(true);
+    expect(out.trim().endsWith('-----END CERTIFICATE-----')).toBe(true);
+  });
+  it('sem dizer o tipo não adivinha; e base64 que não é DER é rejeitado', () => {
+    expect(pem(quebra(Buffer.alloc(200, 7).toString('base64')))).toBeNull();
+    expect(pem(quebra(Buffer.alloc(200, 7).toString('base64')), 'cert')).toBeNull();
   });
 });

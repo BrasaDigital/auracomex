@@ -185,8 +185,22 @@ export function mapC6Response(r: any): Record<string, unknown> {
  * com quebras CRLF ou com as linhas coladas em uma só (espaço no lugar da quebra). Também aceita o PEM em base64.
  * Devolve sempre um bloco PEM válido (corpo em linhas de 64 caracteres) ou null.
  */
-export function pem(value: string | undefined): string | null {
+export function pem(value: string | undefined, kind?: 'cert' | 'key'): string | null {
   if (!value) return null;
+  // Corpo em base64 SEM as linhas BEGIN/END (acontece quando o arquivo é colado sem o cabeçalho): põe o cabeçalho.
+  const headerless = (text: string): string | null => {
+    const body = text.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
+    if (!kind || !body || !/^[A-Za-z0-9+/]+=*$/.test(body)) return null;
+    const der = Buffer.from(body, 'base64');
+    if (der.length < 64 || der[0] !== 0x30) return null; // DER sempre começa com SEQUENCE
+    const wrap = (label: string) => `-----BEGIN ${label}-----\n${body.match(/.{1,64}/g)!.join('\n')}\n-----END ${label}-----\n`;
+    if (kind === 'cert') return wrap('CERTIFICATE');
+    for (const label of ['PRIVATE KEY', 'RSA PRIVATE KEY', 'EC PRIVATE KEY']) {
+      const candidate = wrap(label);
+      try { crypto.createPrivateKey(candidate); return candidate; } catch { /* tenta o próximo formato */ }
+    }
+    return null;
+  };
   const extract = (text: string): string | null => {
     const m = text.match(/-----BEGIN ([A-Z0-9 ]+)-----([\s\S]+?)-----END \1-----/);
     if (!m) return null;
@@ -197,6 +211,8 @@ export function pem(value: string | undefined): string | null {
   const v = value.trim().replace(/\\n/g, '\n');
   const direct = extract(v);
   if (direct) return direct;
+  const semCabecalho = headerless(v);
+  if (semCabecalho) return semCabecalho;
   try {
     return extract(Buffer.from(v.replace(/\s+/g, ''), 'base64').toString('utf8'));
   } catch {
@@ -234,8 +250,8 @@ function loadConfig(): { cfg: C6Config } | { error: string } {
   if (env !== 'sandbox' && env !== 'production') return { error: 'C6_ENV deve ser "sandbox" ou "production".' };
   const clientId = process.env.C6_CLIENT_ID;
   const clientSecret = process.env.C6_CLIENT_SECRET;
-  const cert = pem(process.env.C6_CERT_PEM);
-  const key = pem(process.env.C6_KEY_PEM);
+  const cert = pem(process.env.C6_CERT_PEM, 'cert');
+  const key = pem(process.env.C6_KEY_PEM, 'key');
   const pixKey = process.env.C6_PIX_KEY;
   const missing = [
     !clientId && 'C6_CLIENT_ID', !clientSecret && 'C6_CLIENT_SECRET', !cert && `C6_CERT_PEM [${describePem(process.env.C6_CERT_PEM)}]`,
