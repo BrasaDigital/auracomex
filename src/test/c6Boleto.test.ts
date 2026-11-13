@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'node:crypto';
-import { buildBankSlipPayload, mapC6Response, newExternalReferenceId, describePem, pem, todayBR, validateBoletoInput } from '../../api/c6';
+import { buildBankSlipPayload, mapC6Response, errText, newExternalReferenceId, describePem, pem, todayBR, validateBoletoInput } from '../../api/c6';
 
 const payer = {
   name: 'EMPRESA TESTE LTDA',
@@ -152,5 +152,18 @@ describe('pem sem cabeçalho BEGIN/END (só o corpo em base64)', () => {
   it('sem dizer o tipo não adivinha; e base64 que não é DER é rejeitado', () => {
     expect(pem(quebra(Buffer.alloc(200, 7).toString('base64')))).toBeNull();
     expect(pem(quebra(Buffer.alloc(200, 7).toString('base64')), 'cert')).toBeNull();
+  });
+});
+
+describe('errText (mensagem de erro do C6)', () => {
+  it('inclui o correlation_id para o suporte', () => {
+    const t = errText({ title: 'unprocessable_entity', detail: 'Título com pendência(s)', correlation_id: 'abc-123' });
+    expect(t).toContain('Título com pendência(s)');
+    expect(t).toContain('correlation_id: abc-123');
+  });
+  it('funciona sem correlation_id e com texto puro', () => {
+    expect(errText({ message: 'x' })).toBe('x');
+    expect(errText('falhou')).toBe('falhou');
+    expect(errText(null)).toBe('');
   });
 });

@@ -304,10 +304,12 @@ async function getToken(cfg: C6Config): Promise<string> {
   return token;
 }
 
-const errText = (body: any) => {
+export const errText = (body: any) => {
   if (!body) return '';
   if (typeof body === 'string') return body.slice(0, 300);
-  return String(body.message || body.detail || body.error || JSON.stringify(body)).slice(0, 300);
+  const msg = String(body.message || body.detail || body.title || body.error || JSON.stringify(body)).slice(0, 300);
+  // correlation_id é o número que o suporte do C6 pede para investigar uma chamada.
+  return body.correlation_id ? `${msg} (correlation_id: ${String(body.correlation_id).slice(0, 80)})` : msg;
 };
 
 async function authorizeAdmin(supabase: any, req: any): Promise<{ ok: true; userId: string } | { ok: false; status: number; error: string }> {
