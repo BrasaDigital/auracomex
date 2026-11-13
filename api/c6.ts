@@ -12,7 +12,7 @@ import { createClient } from '@supabase/supabase-js';
  *
  * Duas portas de entrada, ambas POST em /api/c6:
  *  - Ações administrativas (Authorization: Bearer <login do Supabase>), corpo { action, ... }:
- *      create | issue | sync | cancel | register_webhook
+ *      test_auth | create | issue | sync | cancel | register_webhook
  *    Só quem é superadmin E está na lista C6_ALLOWED_EMAILS. (O papel superadmin sozinho não basta: a tabela user_roles
  *    de produção ainda não está endurecida, e emitir cobrança em nome da Kenaro é ação financeira.)
  *  - Notificação do C6 (/api/c6?webhook=<C6_WEBHOOK_TOKEN>): as notificações não têm assinatura, então o token na URL
@@ -473,7 +473,11 @@ export default async function handler(req: any, res: any) {
     } else if (action === 'issue' && boleto_id) out = await issue(supabase, cfg, String(boleto_id));
     else if (action === 'sync' && boleto_id) out = await sync(supabase, cfg, String(boleto_id));
     else if (action === 'cancel' && boleto_id) out = await cancel(supabase, cfg, String(boleto_id));
-    else if (action === 'register_webhook') {
+    else if (action === 'test_auth') {
+      // Só confirma que credenciais + certificado são aceitos pelo C6; nunca devolve o token.
+      await getToken(cfg);
+      out = { status: 200, body: { success: true, env: cfg.env } };
+    } else if (action === 'register_webhook') {
       const token = process.env.C6_WEBHOOK_TOKEN;
       const base = String(req.body?.base_url || '').replace(/\/+$/, '');
       if (!token || !/^https:\/\//.test(base)) out = { status: 422, body: { success: false, error: 'Defina C6_WEBHOOK_TOKEN e informe base_url (https).' } };

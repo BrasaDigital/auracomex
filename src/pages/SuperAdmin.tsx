@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Building2, LogOut, LayoutDashboard, LifeBuoy, Megaphone, Palette, PiggyBank, MessageCircle } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, LifeBuoy, Megaphone, Palette, PiggyBank, MessageCircle, Landmark } from 'lucide-react';
 import { PlatformLogo } from '@/components/shared/PlatformLogo';
 import { toast } from 'sonner';
 
@@ -18,8 +18,9 @@ import { SupportTicketsPanel } from '@/components/superadmin/SupportTicketsPanel
 import { PlatformMetrics } from '@/components/superadmin/PlatformMetrics';
 import { CompanyPlansTable } from '@/components/superadmin/CompanyPlansTable';
 import { AuraFinanceTab } from '@/components/superadmin/AuraFinanceTab';
+import { C6BillingPanel } from '@/components/superadmin/C6BillingPanel';
 
-const ADMIN_TABS = ['visao-geral', 'empresas', 'financeiro', 'suporte', 'releases', 'marca'] as const;
+const ADMIN_TABS = ['visao-geral', 'empresas', 'financeiro', 'cobrancas', 'suporte', 'releases', 'marca'] as const;
 type AdminTab = typeof ADMIN_TABS[number];
 
 export default function SuperAdmin() {
@@ -130,6 +131,7 @@ export default function SuperAdmin() {
             <TabsTrigger value="visao-geral" className="gap-1.5"><LayoutDashboard className="w-4 h-4" />Visão Geral</TabsTrigger>
             <TabsTrigger value="empresas" className="gap-1.5"><Building2 className="w-4 h-4" />Empresas</TabsTrigger>
             <TabsTrigger value="financeiro" className="gap-1.5"><PiggyBank className="w-4 h-4" />Financeiro</TabsTrigger>
+            <TabsTrigger value="cobrancas" className="gap-1.5"><Landmark className="w-4 h-4" />Cobranças C6</TabsTrigger>
             <TabsTrigger value="suporte" className="gap-1.5"><LifeBuoy className="w-4 h-4" />Suporte</TabsTrigger>
             <TabsTrigger value="releases" className="gap-1.5"><Megaphone className="w-4 h-4" />Releases</TabsTrigger>
             <TabsTrigger value="marca" className="gap-1.5"><Palette className="w-4 h-4" />Marca</TabsTrigger>
@@ -170,6 +172,10 @@ export default function SuperAdmin() {
           </TabsContent>
 
           {/* Suporte */}
+          <TabsContent value="cobrancas" className="space-y-6 mt-4">
+            <C6BillingPanel />
+          </TabsContent>
+
           <TabsContent value="suporte" className="space-y-6 mt-4">
             <SupportTicketsPanel />
           </TabsContent>
