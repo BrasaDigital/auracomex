@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const action = body.action as "list_status" | "toggle_active" | "set_temp_password";
+    const action = body.action as "list_status" | "toggle_active" | "set_temp_password" | "list_roles" | "set_role";
 
     // Ensure target users belong to caller's company (for admins)
     async function assertSameCompany(userIds: string[]) {
@@ -46,7 +46,9 @@ Deno.serve(async (req) => {
       if (!callerProfile) return false;
       const { data: targets } = await adminClient
         .from("profiles").select("user_id, company_id").in("user_id", userIds);
-      return (targets || []).every((t) => t.company_id === callerProfile.company_id);
+      // Todos os alvos precisam ter perfil E ser da mesma empresa (antes, um id sem perfil passava na checagem).
+      return (targets || []).length === new Set(userIds).size &&
+        (targets || []).every((t) => t.company_id === callerProfile.company_id);
     }
 
     if (action === "list_status") {
@@ -158,6 +160,68 @@ Deno.serve(async (req) => {
       }
 
       return new Response(JSON.stringify({ ok: true, temp_password: tempPassword }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Papéis dos usuários da empresa. O banco só deixa quem não é superadmin ler a PRÓPRIA linha de user_roles,
+    // então a tela de Usuários precisa desta ação para listar o papel dos demais.
+    if (action === "list_roles") {
+      const userIds: string[] = body.user_ids || [];
+      if (userIds.length === 0) {
+        return new Response(JSON.stringify({ roles: {} }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!(await assertSameCompany(userIds))) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: rows, error } = await adminClient
+        .from("user_roles").select("user_id, role").in("user_id", userIds);
+      if (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const roles: Record<string, string> = {};
+      (rows || []).forEach((r: any) => { roles[r.user_id] = r.role; });
+      return new Response(JSON.stringify({ roles }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Troca o papel de um usuário. Mesmas regras do convite/criação: admin de empresa só mexe em usuários da PRÓPRIA
+    // empresa, não atribui nem altera "admin"/"superadmin" (só superadmin faz isso) e respeita o plano Básico.
+    if (action === "set_role") {
+      const userId: string = body.user_id;
+      const role: string = body.role;
+      const deny = (msg: string, status = 403) => new Response(JSON.stringify({ error: msg }), {
+        status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+      if (!userId || !role) return deny("user_id e role são obrigatórios", 400);
+      if (userId === caller.id) return deny("Você não pode alterar o seu próprio cargo", 400);
+      if (role === "superadmin") return deny("Não é permitido atribuir este cargo");
+      if (!(await assertSameCompany([userId]))) return deny("Forbidden");
+      const { data: targetRole } = await adminClient
+        .from("user_roles").select("role").eq("user_id", userId).maybeSingle();
+      if (targetRole?.role === "superadmin") return deny("Não é permitido alterar superadmin");
+      if (!isSuperadmin) {
+        if (role === "admin" || targetRole?.role === "admin") return deny("Não é permitido atribuir ou alterar este cargo");
+        const BASIC_PLAN_ROLES = ["admin", "operator", "financeiro", "viewer"];
+        const { data: callerProfile } = await adminClient
+          .from("profiles").select("company_id").eq("user_id", caller.id).single();
+        const { data: companySub } = await adminClient
+          .from("company_subscriptions").select("plan").eq("company_id", callerProfile?.company_id).maybeSingle();
+        if (companySub?.plan === "starter" && !BASIC_PLAN_ROLES.includes(role)) {
+          return deny("Este cargo requer o plano Professional ou superior.");
+        }
+      }
+      const { error } = await adminClient
+        .from("user_roles").upsert({ user_id: userId, role }, { onConflict: "user_id" });
+      if (error) return deny(error.message, 400);
+      return new Response(JSON.stringify({ ok: true, role }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

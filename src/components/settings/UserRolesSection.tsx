@@ -47,15 +47,24 @@ export function UserRolesSection() {
         .order('full_name');
       if (error) throw error;
 
-      // Fetch roles for all users
+      // Papéis: lidos pela função manage-user, porque o banco só deixa quem não é superadmin ler a PRÓPRIA linha de
+      // user_roles (a leitura direta mostrava "operator" para todos os outros). Se a função falhar, cai na leitura
+      // direta (comportamento antigo).
       const userIds = (profiles || []).map((p) => p.user_id);
-      const { data: roles } = await supabase
-        .from('user_roles')
-        .select('user_id, role')
-        .in('user_id', userIds);
-
       const roleMap: Record<string, string> = {};
-      (roles || []).forEach((r) => { roleMap[r.user_id] = r.role; });
+      try {
+        const { data: rolesData, error: rolesError } = await supabase.functions.invoke('manage-user', {
+          body: { action: 'list_roles', user_ids: userIds },
+        });
+        if (rolesError || !rolesData?.roles) throw rolesError || new Error('sem papéis');
+        Object.assign(roleMap, rolesData.roles);
+      } catch {
+        const { data: roles } = await supabase
+          .from('user_roles')
+          .select('user_id, role')
+          .in('user_id', userIds);
+        (roles || []).forEach((r) => { roleMap[r.user_id] = r.role; });
+      }
 
       const filtered = (profiles || [])
         .filter((p) => roleMap[p.user_id] !== 'superadmin')
@@ -78,12 +87,22 @@ export function UserRolesSection() {
   });
 
   async function handleRoleChange(userId: string, newRole: AppRole) {
-    const { error } = await supabase
-      .from('user_roles')
-      .upsert({ user_id: userId, role: newRole } as any, { onConflict: 'user_id' } as any);
-
-    if (error) {
-      toast.error(error.message);
+    // A troca passa pela função manage-user (o banco só deixa o superadmin escrever em user_roles).
+    try {
+      const { data, error } = await supabase.functions.invoke('manage-user', {
+        body: { action: 'set_role', user_id: userId, role: newRole },
+      });
+      if (error) {
+        let msg = error.message;
+        try {
+          const body = await (error as any).context?.json?.();
+          if (body?.error) msg = body.error;
+        } catch { /* mantém a mensagem genérica */ }
+        throw new Error(msg);
+      }
+      if (data?.error) throw new Error(data.error);
+    } catch (err: any) {
+      toast.error(err.message);
       return;
     }
 
