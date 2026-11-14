@@ -3621,7 +3621,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 setEditLeg(c.leg || 'freight');
                               }}
                             >
-                              <TableCell className="font-medium text-sm pl-8 py-0.5">
+                              <TableCell className="font-medium font-mono text-xs pl-8 py-0.5">
 <div className="flex flex-wrap items-center gap-x-2 gap-y-0">
 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                                   {c.description}
