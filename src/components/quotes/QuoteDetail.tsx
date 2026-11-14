@@ -3558,14 +3558,14 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                   <React.Fragment key={group.partnerId}>
                         {/* Partner sub-header — uma linha só por empresa, mesmo que tenha
                             taxas em mais de um trecho (cada taxa mostra seu trecho embaixo). */}
-                        <TableRow className={`border-t-2 border-l-4 ${isBuy
-                          ? 'bg-red-500/25 hover:bg-red-500/25 dark:bg-red-500/35 border-t-red-500/50 border-l-red-600'
-                          : 'bg-emerald-500/25 hover:bg-emerald-500/25 dark:bg-emerald-500/35 border-t-emerald-500/50 border-l-emerald-600'}`}>
-                          <TableCell colSpan={colCount} className="py-1.5 px-4">
+                        <TableRow className={`border-t border-l-4 ${isBuy
+                          ? 'bg-red-500/10 hover:bg-red-500/10 dark:bg-red-500/15 border-t-red-500/25 border-l-red-500/60'
+                          : 'bg-emerald-500/10 hover:bg-emerald-500/10 dark:bg-emerald-500/15 border-t-emerald-500/25 border-l-emerald-500/60'}`}>
+                          <TableCell colSpan={colCount} className="py-0.5 px-3">
                             <div className="flex items-center justify-between gap-2.5 flex-wrap">
                               <div className="flex items-center gap-2.5">
                                 <div className="flex items-center gap-1.5">
-                                  <Building2 className={`w-4 h-4 ${isBuy ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'}`} />
+                                  <Building2 className={`w-4 h-4 ${isBuy ? 'text-red-600 dark:text-red-300' : 'text-emerald-600 dark:text-emerald-300'}`} />
                                   {icmsCharge ? (
                                     <TaxOrgPicker
                                       value={isIcmsPick ? null : group.partnerId}
@@ -3573,7 +3573,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                       onChange={(partnerId) => onUpdate(icmsCharge.id, { partner_id: partnerId })}
                                     />
                                   ) : (
-                                    <span className={`text-sm font-bold ${isBuy ? 'text-red-950 dark:text-red-50' : 'text-emerald-950 dark:text-emerald-50'}`}>
+                                    <span className={`text-sm font-bold ${isBuy ? 'text-foreground' : 'text-foreground'}`}>
                                       {group.partnerName}
                                     </span>
                                   )}
@@ -3621,8 +3621,8 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 setEditLeg(c.leg || 'freight');
                               }}
                             >
-                              <TableCell className="font-medium text-sm pl-8 py-1">
-<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <TableCell className="font-medium text-sm pl-8 py-0.5">
+<div className="flex flex-wrap items-center gap-x-2 gap-y-0">
 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                                   {c.description}
                                   {c.is_auto_tax && (
@@ -3712,7 +3712,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
 </>)}
 </div>
 </TableCell>
-<TableCell className="py-1">
+<TableCell className="py-0.5">
                                 {editingId === c.id ? (
                                   <div className="flex gap-1">
                                     {(['origin', 'freight', 'destination'] as const).map((leg) => (
@@ -3743,10 +3743,10 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
     : chargeLineTotal(unitVal, mult, unit, c[chargeMinKey(amountKey)]);
   return (
     <>
-      <TableCell className="py-1 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+      <TableCell className="py-0.5 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
         {isPct ? '% s/ base' : isFixed ? '—' : (getBillingRef(unit) || '—')}
       </TableCell>
-      <TableCell className="py-1 text-right font-mono text-sm">
+      <TableCell className="py-0.5 text-right font-mono text-sm">
         {editingId === c.id ? (
           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
             <span className="text-xs text-muted-foreground">{cur}</span>
@@ -3784,7 +3784,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
           </div>
         )}
       </TableCell>
-      <TableCell className="py-1 text-right font-mono text-sm whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+      <TableCell className="py-0.5 text-right font-mono text-sm whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
         {formatMoney(total, isPct ? 'USD' : cur)}
         {lockedBuy && (
           <span className="ml-1.5 inline-flex align-middle" title="Taxa conferida — desconfirme para editar">
@@ -3796,7 +3796,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
   );
 })()}
                               {amountKey === 'sell_amount' && (
-                                <TableCell className="py-1 text-right" onClick={(e) => e.stopPropagation()}>
+                                <TableCell className="py-0.5 text-right" onClick={(e) => e.stopPropagation()}>
                                   {c.billing_unit !== 'percent' && (c.currency || 'USD') !== 'BRL' ? (
                                     <Input
                                       key={`rate-${c.id}-${c.exchange_rate ?? ''}`}
@@ -3825,7 +3825,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 </TableCell>
                               )}
                               {!isBuy && (
-<TableCell className="text-right font-mono text-sm py-1" onClick={(e) => e.stopPropagation()}>
+<TableCell className="text-right font-mono text-sm py-0.5" onClick={(e) => e.stopPropagation()}>
                                 {editingId === c.id ? (
                                   <div className="flex items-center justify-end gap-1">
                                     <span className="text-xs text-muted-foreground">{c.currency || 'USD'}</span>
@@ -3891,12 +3891,12 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                               </TableCell>
                               )}
                               {!readOnly && (
-                              <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
+                              <TableCell className="py-0.5" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex items-center gap-1">
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-7 w-7"
+                                    className="h-6 w-6"
                                     title={cloneLabel}
                                     onClick={() => {
                                       setCloningId(cloningId === c.id ? null : c.id);
@@ -3914,7 +3914,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-7 w-7"
+                                      className="h-6 w-6"
                                       disabled={!!c.sent_in_debit_note_id}
                                       title={c.sent_in_debit_note_id ? 'Taxa já enviada em uma DN — não pode ser excluída' : undefined}
                                       onClick={() => onDelete(c.id)}
@@ -4238,7 +4238,7 @@ function SellConferirButton({ group, onConferir }: { group: any; onConferir: (ch
   return (
     <Button
       type="button" size="sm" variant="outline"
-      className={`h-7 gap-1.5 text-xs ${allDone ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/40' : ''}`}
+      className={`h-6 gap-1 px-2 text-[11px] ${allDone ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/40' : ''}`}
       disabled={busy || todo.length === 0}
       title={allDone ? 'Taxas conferidas — a ND é gerada em Financeiro → Receita por Processo' : 'Conferir as taxas de venda e lançar em Receita por Processo'}
       onClick={async (e) => { e.stopPropagation(); setBusy(true); try { await onConferir(todo); } finally { setBusy(false); } }}
@@ -4461,7 +4461,7 @@ function SupplierReconcileButton({ group, getMult, onUpdate, currentUserId, onRe
     <>
       <Button
         type="button" size="sm" variant="outline"
-        className={`h-7 gap-1.5 text-xs ${allDone ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/40 hover:bg-emerald-500/25 hover:text-emerald-700' : ''}`}
+        className={`h-6 gap-1 px-2 text-[11px] ${allDone ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/40 hover:bg-emerald-500/25 hover:text-emerald-700' : ''}`}
         title={allDone ? 'Todas as taxas deste fornecedor estão conferidas — clique para revisar' : `${pendingConfirm.length} taxa(s) ainda para conferir`}
         onClick={(e) => { e.stopPropagation(); openDialog(); }}
       >
