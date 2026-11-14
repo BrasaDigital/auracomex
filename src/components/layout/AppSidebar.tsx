@@ -344,7 +344,7 @@ export function AppSidebar() {
       {!collapsed && (
         <div className="px-4 py-3 border-t border-sidebar-border">
           <p className="text-[10px] text-center text-sidebar-foreground/40 font-medium uppercase tracking-wider">
-            Aura Comex by Brasa Digital
+            Aura Comex by Kenaro Soluções
           </p>
         </div>
       )}

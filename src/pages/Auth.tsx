@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { getPostLoginPath } from '@/lib/oauthResume';
+import { KENARO_CNPJ } from '@/lib/legal';
 
 function ForgotPasswordLink() {
   const { t } = useLanguage();
@@ -174,7 +175,7 @@ export default function Auth() {
 
         {/* Footer */}
         <div className="mt-8 text-center">
-          <p className="text-xs text-muted-foreground opacity-70">CNPJ: 51.845.506/0001-32</p>
+          <p className="text-xs text-muted-foreground opacity-70">CNPJ: {KENARO_CNPJ}</p>
         </div>
       </div>
     </div>

@@ -1,13 +1,14 @@
 import { LegalLayout } from "./LegalLayout";
+import { KENARO_CNPJ, KENARO_CIDADE_UF } from "@/lib/legal";
 
 export default function TermsOfUse() {
   return (
-    <LegalLayout title="Termos de Uso" updatedAt="12 de julho de 2026">
+    <LegalLayout title="Termos de Uso" updatedAt="12 de novembro de 2026">
       <p>
         Estes Termos de Uso ("Termos") regem o acesso e a utilização da plataforma
         <strong> Aura Comex</strong> ("Plataforma", "Serviço"), disponibilizada por{" "}
-        <strong>51.845.506 Marcos Fernandes Martini</strong>, CNPJ 51.845.506/0001-XX, com sede
-        na Rua Padre Carlos Porrini, 111, Santo André/SP, CEP 09120-600 ("Aura Comex", "nós").
+        <strong>KENARO SOLUCOES LTDA</strong> ("Kenaro Soluções"), inscrita no CNPJ sob o nº{" "}
+        {KENARO_CNPJ}, com sede em {KENARO_CIDADE_UF} ("Aura Comex", "nós").
       </p>
       <p>
         Ao criar uma conta, contratar um plano ou utilizar qualquer funcionalidade do Serviço,
@@ -87,8 +88,9 @@ export default function TermsOfUse() {
         <li>
           Após o cancelamento, disponibilizamos por <strong>30 (trinta) dias</strong> o download
           completo de todos os dados e documentos armazenados. Após esse período, os dados são
-          eliminados definitivamente de nossos sistemas ativos e backups, ressalvadas hipóteses de
-          guarda obrigatória por lei.
+          eliminados de nossos sistemas ativos, e as cópias de segurança são descartadas conforme o
+          ciclo de rotação do provedor de infraestrutura, ressalvadas hipóteses de guarda
+          obrigatória por lei.
         </li>
         <li>
           A Aura Comex pode suspender ou encerrar contas em caso de violação destes Termos, mediante notificação.
@@ -105,13 +107,13 @@ export default function TermsOfUse() {
       <h2>10. Lei Aplicável e Foro</h2>
       <p>
         Estes Termos são regidos pela legislação brasileira. Fica eleito o foro da Comarca de
-        Santo André/SP para dirimir quaisquer controvérsias, com renúncia a qualquer outro por mais privilegiado que seja.
+        São Caetano do Sul/SP para dirimir quaisquer controvérsias, com renúncia a qualquer outro por mais privilegiado que seja.
       </p>
 
       <h2>11. Contato</h2>
       <p>
-        51.845.506 Marcos Fernandes Martini<br />
-        Rua Padre Carlos Porrini, 111 — Santo André/SP — CEP 09120-600<br />
+        KENARO SOLUCOES LTDA — CNPJ {KENARO_CNPJ}<br />
+        {KENARO_CIDADE_UF}<br />
         E-mail: <a href="mailto:contato@auracomex.app">contato@auracomex.app</a>
       </p>
     </LegalLayout>

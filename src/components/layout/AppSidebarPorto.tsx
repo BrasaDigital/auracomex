@@ -280,7 +280,7 @@ export function AppSidebarPorto() {
           {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
         {!collapsed && (
-          <p className="px-4 pb-3 pt-1 text-[11px] text-sidebar-foreground/40">Aura Comex by Brasa Digital</p>
+          <p className="px-4 pb-3 pt-1 text-[11px] text-sidebar-foreground/40">Aura Comex by Kenaro Soluções</p>
         )}
       </div>
       <SupportSheet open={supportOpen} onOpenChange={setSupportOpen} />

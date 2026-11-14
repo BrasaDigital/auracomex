@@ -6,6 +6,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// Versões vigentes dos Termos e da Política (data da última atualização). Manter iguais a TERMS_VERSION e
+// PRIVACY_VERSION em src/lib/legal.ts. O que vale como prova é SEMPRE a constante do servidor; a versão que o
+// navegador diz ter exibido é gravada à parte (client_reported_version), só para conferência.
+const TERMS_VERSION = "2026-11-12";
+const PRIVACY_VERSION = "2026-11-12";
+const VERSION_RE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
+
 function digits(s: string) {
   return (s || "").replace(/\D/g, "");
 }
@@ -20,9 +27,10 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // cf-connecting-ip é definido pela borda e não pode ser forjado pelo cliente; x-forwarded-for é só reserva.
   const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("cf-connecting-ip") ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     "unknown";
 
   try {
@@ -33,6 +41,13 @@ Deno.serve(async (req) => {
     const adminEmail = String(body.adminEmail || "").trim().toLowerCase();
     const password = String(body.password || "");
     const acceptedTerms = !!body.acceptedTerms;
+    const clientTermsVersion = String(body.termsVersion || "").trim();
+    const clientPrivacyVersion = String(body.privacyVersion || "").trim();
+    // Só para conferência (ex.: navegador com página antiga em cache); nunca substitui a versão do servidor.
+    const clientReportedVersion =
+      VERSION_RE.test(clientTermsVersion) && VERSION_RE.test(clientPrivacyVersion)
+        ? `termos:${clientTermsVersion};privacidade:${clientPrivacyVersion}`
+        : null;
 
     if (!companyName || companyName.length < 2) {
       return json({ error: "Nome da empresa inválido" }, 400);
@@ -131,6 +146,21 @@ Deno.serve(async (req) => {
       await admin.from("companies").delete().eq("id", company.id);
       return json({ error: "Falha ao concluir o cadastro. Tente novamente." }, 500);
     }
+
+    // Registra o aceite dos Termos e da Política (data/hora, versões, IP e navegador). Não derruba o cadastro se falhar:
+    // apenas registra o erro no log da função.
+    const { error: acceptErr } = await admin.from("terms_acceptances").insert({
+      company_id: company.id,
+      user_id: created.user.id,
+      email: adminEmail,
+      terms_version: TERMS_VERSION,
+      privacy_version: PRIVACY_VERSION,
+      client_reported_version: clientReportedVersion,
+      ip,
+      user_agent: (req.headers.get("user-agent") || "").slice(0, 300),
+      source: "public_signup",
+    });
+    if (acceptErr) console.error("terms_acceptances insert failed:", acceptErr.message);
 
     await admin
       .from("signup_attempts")

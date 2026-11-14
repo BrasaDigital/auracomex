@@ -398,7 +398,7 @@ const translations: Record<string, Record<Language, string>> = {
   // Tasks
   'tasks.request_booking': { pt: 'Solicitar Booking', en: 'Request Booking' },
   'tasks.send_followup': { pt: 'Enviar Follow-up ao Cliente', en: 'Send Follow-up to Client' },
-  'common.support_contact': { pt: 'Dúvidas? contato@brasadigital.com.br', en: 'Questions? contato@brasadigital.com.br' },
+  'common.support_contact': { pt: 'Dúvidas? contato@auracomex.app', en: 'Questions? contato@auracomex.app' },
 };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);

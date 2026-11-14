@@ -5,6 +5,7 @@ import { Check, Menu, MessageCircle, Minus, X } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import ShipmentPanel from "@/components/landing/ShipmentPanel";
 import { AURA_WHATSAPP_NUMBER as WHATSAPP_NUMBER } from "@/lib/whatsapp";
+import { KENARO_CNPJ } from "@/lib/legal";
 import "@/styles/landing.css";
 
 const TITULO = "Aura Comex | Gestão de embarques e cotações para agentes de carga";
@@ -174,7 +175,7 @@ function Landing() {
                   <span className="al-marca-nome">
                     <b>Aura</b> Comex
                   </span>
-                  <span className="al-marca-sub">by Brasa Digital</span>
+                  <span className="al-marca-sub">by Kenaro Soluções</span>
                 </>
               )}
             </Link>
@@ -562,18 +563,18 @@ function Landing() {
             <p className="al-marca-nome" style={{ color: "var(--al-nevoa)" }}>
               <b style={{ color: "var(--al-ambar)" }}>Aura</b> Comex
             </p>
-            <p>by Brasa Digital</p>
+            <p>by Kenaro Soluções</p>
           </div>
           <div>
             <div className="al-rodape-links">
               <Link to="/precos">Preços</Link>
               <Link to="/termos">Termos de uso</Link>
               <Link to="/privacidade">Privacidade</Link>
-              <a href="mailto:contato@brasadigital.com.br">Contato</a>
+              <a href="mailto:contato@auracomex.app">Contato</a>
             </div>
             <p>© {new Date().getFullYear()} Aura Comex. Todos os direitos reservados.</p>
-            <p>contato@brasadigital.com.br</p>
-            <p>CNPJ: 51.845.506/0001-32</p>
+            <p>contato@auracomex.app</p>
+            <p>CNPJ: {KENARO_CNPJ}</p>
           </div>
         </div>
       </footer>

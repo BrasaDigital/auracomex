@@ -20,7 +20,7 @@ export function LegalLayout({ title, updatedAt, children }: LegalLayoutProps) {
             <span className="text-lg font-bold tracking-tight">
               <span className="text-[hsl(213,100%,50%)]">Aura</span> Comex
             </span>
-            <span className="text-[10px] text-muted-foreground -mt-1">by Brasa Digital</span>
+            <span className="text-[10px] text-muted-foreground -mt-1">by Kenaro Soluções</span>
           </div>
         </div>
       </nav>

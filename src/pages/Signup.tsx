@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { TERMS_VERSION, PRIVACY_VERSION } from "@/lib/legal";
 
 function formatCnpj(v: string) {
   const d = v.replace(/\D/g, "").slice(0, 14);
@@ -53,7 +54,7 @@ export default function Signup() {
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("public-signup", {
-        body: { companyName, cnpj, adminName, adminEmail, password, acceptedTerms },
+        body: { companyName, cnpj, adminName, adminEmail, password, acceptedTerms, termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION },
       });
       if (error) throw new Error(error.message);
       if ((data as any)?.error) throw new Error((data as any).error);
