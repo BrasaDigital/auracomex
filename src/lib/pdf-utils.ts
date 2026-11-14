@@ -1,48 +1,19 @@
 import type { CSSProperties } from 'react';
+import { renderElementToPdf, downloadBlob, type PdfEngineOptions } from './pdfEngine';
 
 /**
- * Utility to generate a PDF from a DOM element in a way that is
- * "html2pdf.js-safe": avoids flex/grid centering bugs, page-break
- * issues and font baseline offsets by rendering at a fixed A4 width.
- *
- * Returns a Blob and triggers a direct download in one click.
+ * Gera o PDF (A4, margens padrão, quebras de página seguras, rodapé com numeração) a partir de um elemento do DOM
+ * e, por padrão, baixa o arquivo. Toda a lógica vive em `pdfEngine.ts`; este wrapper existe pelos chamadores antigos.
+ * `windowWidth` é ignorado: o motor usa sempre a largura útil da folha (190 mm).
  */
 export async function generatePdfFromElement(
   element: HTMLElement,
   filename: string,
-  opts: { download?: boolean; windowWidth?: number } = { download: true }
+  opts: { download?: boolean; windowWidth?: number } & PdfEngineOptions = { download: true }
 ): Promise<Blob> {
-  const html2pdf = (await import('html2pdf.js')).default;
-  const worker = html2pdf()
-    .set({
-      margin: [8, 10, 10, 10],
-      filename,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: {
-        scale: 2.5,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        letterRendering: true,
-        windowWidth: opts.windowWidth ?? 800,
-      },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
-      pagebreak: { mode: ['css', 'legacy'], avoid: ['.pdf-avoid-break', 'tr', 'thead'] },
-    } as any)
-    .from(element);
-
-  const blob: Blob = await worker.outputPdf('blob');
-
-  if (opts.download !== false) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
+  const { download, windowWidth: _ignorado, ...engine } = opts;
+  const blob = await renderElementToPdf(element, engine);
+  if (download !== false) downloadBlob(blob, filename);
   return blob;
 }
 

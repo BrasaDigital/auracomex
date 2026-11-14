@@ -276,9 +276,14 @@ Commits com crase/caractere especial na mensagem: usar `git commit -F /tmp/msg.t
 - **Auto-sync Taxas→Estimativa** (`CostEstimateTab.tsx`, efeito com `lastSyncedRef`): roda a cada
   mount da aba. Bug nessa cadeia REVERTE silenciosamente correções manuais no banco — se um valor
   de `cost_estimates` "volta sozinho" pro errado, a causa é código, não cache.
-- **PDF da estimativa (`EstimatePdfDialog.tsx`)**: `minHeight` das folhas é `294mm` (não 297mm) —
-  margem contra arredondamento subpixel do html2canvas/jsPDF que gerava página em branco extra.
-  Não usar `maxHeight`/`overflow:hidden` (risco de cortar conteúdo).
+- **PDFs emitidos (motor único `src/lib/pdfEngine.ts`)**: Cotação, Estimativa, Numerário, Prestação de contas, ND ao
+  cliente e Ordem de Coleta passam por `renderElementToPdf` (via `generatePdfFromElement` / `elementToPdfBlob`, que são só
+  wrappers). Folha A4, margens 10/10/15/10 mm, largura útil 190 mm (o motor clona o elemento e ZERA width/padding/minHeight
+  do elemento raiz e de `[data-pdf-sheet]` — não depender disso no JSX). Corte de página nunca no meio de `tr`,
+  `.pdf-avoid-break`/`[data-pdf-atomic]` ou linha de texto; `[data-pdf-keep-next]` (ou `breakAfter:avoid`) mantém título junto do
+  bloco seguinte; `<thead>` repete quando a tabela continua; `pageBreakAfter:'always'` força nova página; rodapé
+  "Página X de Y" automático. Tabela com cabeçalho dentro do `<tbody>` (só `th`) NÃO repete: usar `<thead>`. Texto do rodapé
+  (`footerLabel`) só Latin-1, sem travessão. Impressão da Cotação (`QuotePrintView`) usa CSS `@page` com as mesmas margens.
 - Auto-save do app é no `onBlur` (não debounce durante digitação).
 - **Portal Único / DUIMP — webhook sem backfill (investigado 18/ago/2026)**: preencher
   `duimp_number` num embarque só atualiza `customs_channel`/situação sozinho se houver uma

@@ -115,7 +115,10 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
       const filename = `${filenamePrefix}_${quote?.quote_number || estimate.id.slice(0, 8)}.pdf`;
       // Captura de um clone com 210 mm fixos (independe do tamanho da janela/zoom); o Numerário é ajustado
       // para caber inteiro em UMA folha A4, centralizado (ver lib/pdfCapture.ts).
-      const blob: Blob = await elementToPdfBlob(ref.current, { fitOnePage: isNumerario });
+      const blob: Blob = await elementToPdfBlob(ref.current, {
+        fitOnePage: isNumerario,
+        footerLabel: `${isNumerario ? 'Numerario' : 'Estimativa'} ${quote?.quote_number || ''}`.trim(),
+      });
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -278,7 +281,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
 
         <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: '#000', background: '#fff' }}>
         {/* ============= FOLHA 1: Resumo ============= */}
-        <section className={isNumerario ? undefined : "pdf-avoid-break"} style={isNumerario ? sheetNumerario : (items.length === 0 ? sheetLast : sheet)}>
+        <section data-pdf-sheet className={isNumerario ? undefined : "pdf-avoid-break"} style={isNumerario ? sheetNumerario : (items.length === 0 ? sheetLast : sheet)}>
           {/* Header Empresa */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: isNumerario ? 6 : 10, marginBottom: isNumerario ? 10 : 15 }}>
             {company?.logo_url ? (
@@ -501,7 +504,7 @@ export function EstimatePdfDialog({ open, onClose, quote, estimate, items, expen
             const custoUnitUsd = Number(item.quantidade) ? b.total_usd / Number(item.quantidade) : 0;
             const isLast = idx === items.length - 1;
             return (
-              <section key={item.id} className="pdf-avoid-break" style={isLast ? sheetLast : sheet}>
+              <section key={item.id} data-pdf-sheet className="pdf-avoid-break" style={isLast ? sheetLast : sheet}>
                 {/* Mini-header por item */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee', paddingBottom: 6, marginBottom: 10 }}>
                   {company?.logo_url ? (

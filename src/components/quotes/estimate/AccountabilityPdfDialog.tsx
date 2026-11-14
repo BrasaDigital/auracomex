@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { AccountabilityRow, AccountabilityItemRow, AccountabilityCategoria } from '@/hooks/useAccountability';
 import { PDFDocument } from 'pdf-lib';
+import { renderElementToPdf } from '@/lib/pdfEngine';
 
 interface Props {
   open: boolean;
@@ -163,16 +164,10 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
     if (!ref.current) return;
     setDownloading(true);
     try {
-      const html2pdf = (await import('html2pdf.js')).default;
       const filename = `prestacao_contas_${quote?.quote_number || accountability.id.slice(0, 8)}.pdf`;
-      const mainBlob: Blob = await html2pdf().set({
-        margin: 0,
-        filename,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['css', 'legacy'] },
-      } as any).from(ref.current).outputPdf('blob');
+      const mainBlob: Blob = await renderElementToPdf(ref.current, {
+        footerLabel: `Prestacao de contas ${quote?.quote_number || ''}`.trim(),
+      });
 
       const merged = await PDFDocument.load(await mainBlob.arrayBuffer());
       await appendComprovantes(merged);
@@ -224,7 +219,7 @@ export function AccountabilityPdfDialog({ open, onClose, quote, accountability, 
         </DialogHeader>
 
         <div ref={ref} style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: '#000', background: '#fff' }}>
-          <section style={sheet}>
+          <section data-pdf-sheet style={sheet}>
             {/* Header Empresa */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd', paddingBottom: 10, marginBottom: 15 }}>
               {company?.logo_url ? (

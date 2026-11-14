@@ -124,7 +124,10 @@ export function QuotePdfPreviewDialog({ quoteId, open, onClose }: Props) {
     try {
       const filename = `${data.quote.quote_number || 'proposta'}.pdf`;
       // Gera PDF e força download direto (1 clique)
-      const pdfBlob = await generatePdfFromElement(contentRef.current, filename);
+      const pdfBlob = await generatePdfFromElement(contentRef.current, filename, {
+        footerLabel: `Proposta ${data.quote.quote_number || ''}`.trim(),
+        runningHeader: `Proposta ${data.quote.quote_number || ''}`.trim(),
+      });
       toast.success('PDF gerado com sucesso');
 
       // Salva cópia silenciosa no storage + registra em documents (não bloqueia)

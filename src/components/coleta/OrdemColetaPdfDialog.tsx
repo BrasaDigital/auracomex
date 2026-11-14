@@ -101,7 +101,7 @@ export function OrdemColetaPdfDialog({
 
       // Baixa direto no navegador do usuário (mesmo comportamento dos
       // outros PDFs do app) e devolve o blob pra também salvar no storage.
-      const pdfBlob = await generatePdfFromElement(ref.current, filename);
+      const pdfBlob = await generatePdfFromElement(ref.current, filename, { footerLabel: `Ordem de Coleta ${numeroDocumento ?? ''}`.trim() });
 
       await salvarDocumentoOrdemColeta({
         pdfBlob,
@@ -162,8 +162,8 @@ export function OrdemColetaPdfDialog({
               </tbody>
             </table>
 
-            <div style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Dados do Motorista</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', marginBottom: 8 }}>
+            <div data-pdf-keep-next style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Dados do Motorista</div>
+            <table className="pdf-avoid-break" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', marginBottom: 8 }}>
               <tbody>
                 <tr>
                   <th style={th}>Motorista</th>
@@ -180,8 +180,8 @@ export function OrdemColetaPdfDialog({
               </tbody>
             </table>
 
-            <div style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Dados do Veículo</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
+            <div data-pdf-keep-next style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Dados do Veículo</div>
+            <table className="pdf-avoid-break" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
               <tbody>
                 <tr>
                   <th style={th}>Placa Cavalo</th>
@@ -198,8 +198,8 @@ export function OrdemColetaPdfDialog({
               </tbody>
             </table>
 
-            <div style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Dados do Embarque</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
+            <div data-pdf-keep-next style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Dados do Embarque</div>
+            <table className="pdf-avoid-break" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
               <tbody>
                 <tr>
                   <th style={th}>Referência</th>
@@ -220,8 +220,8 @@ export function OrdemColetaPdfDialog({
               </tbody>
             </table>
 
-            <div style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Agendamento</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
+            <div data-pdf-keep-next style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Agendamento</div>
+            <table className="pdf-avoid-break" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
               <tbody>
                 <tr>
                   <th style={th}>Terminal</th>
@@ -238,9 +238,9 @@ export function OrdemColetaPdfDialog({
 
             {notasFiscais.length > 0 && (
               <>
-                <div style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Notas Fiscais</div>
+                <div data-pdf-keep-next style={{ fontWeight: 'bold', margin: '10px 0 4px' }}>Notas Fiscais</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
-                  <tbody>
+                  <thead>
                     <tr>
                       <th style={th}>Contêiner</th>
                       <th style={th}>Nota Fiscal</th>
@@ -248,6 +248,8 @@ export function OrdemColetaPdfDialog({
                       <th style={th}>Emissão</th>
                       <th style={th}>Lote</th>
                     </tr>
+                  </thead>
+                  <tbody>
                     {notasFiscais.map((nf, i) => (
                       <tr key={i}>
                         <td style={td}>{ordem.container_number ?? shipment.container_number ?? '-'}</td>
@@ -262,6 +264,7 @@ export function OrdemColetaPdfDialog({
               </>
             )}
 
+            <div className="pdf-avoid-break">
             <div style={{ marginTop: 24, textAlign: 'justify' }}>
               Sem mais para o presente momento, subscrevemo-nos.
             </div>
@@ -273,6 +276,7 @@ export function OrdemColetaPdfDialog({
               <div>CPF: 317.599.998-06</div>
               <div style={{ marginTop: 8 }}>End.: R. Tiradentes, 1837 – SBC/SP – 09780-900</div>
               <div>Site: www.atlas.log.br</div>
+            </div>
             </div>
           </div>
         </div>

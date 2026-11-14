@@ -88,7 +88,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
         if (existing?.length || !ref.current) return;
         await Promise.all(Array.from(ref.current.querySelectorAll('img')).map((img) =>
           img.complete ? Promise.resolve() : new Promise((res) => { img.onload = img.onerror = () => res(null); })));
-        const blob = await generatePdfFromElement(ref.current, filename, { download: false, windowWidth: 1200 });
+        const blob = await generatePdfFromElement(ref.current, filename, { download: false, footerLabel: `Nota de Debito ${data.dn.dn_number}`, runningHeader: `Nota de Debito ${data.dn.dn_number}` });
         await saveToDocuments(blob, filename);
         toast.success('ND salva em Documentos.');
       } catch (e: any) {
@@ -103,7 +103,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
     setDownloading(true);
     try {
       const filename = docFilename();
-      const blob = await generatePdfFromElement(ref.current, filename, { windowWidth: 1200 });
+      const blob = await generatePdfFromElement(ref.current, filename, { footerLabel: `Nota de Debito ${data.dn.dn_number}`, runningHeader: `Nota de Debito ${data.dn.dn_number}` });
       try {
         await saveToDocuments(blob, filename);
         toast.success('PDF gerado e salvo em Documentos.');
@@ -155,7 +155,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                 </table>
 
                 {/* Emitente / Sacado */}
-                <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+                <table className="pdf-avoid-break" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
                   <tbody>
                     <tr>
                       <td style={{ width: '50%', verticalAlign: 'top', padding: 10, border: '1px solid #ddd' }}>
@@ -179,7 +179,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                 </table>
 
                 {/* Referência */}
-                <div style={{ background: '#f5f7fa', padding: 8, marginBottom: 12, fontSize: 10 }}>
+                <div className="pdf-avoid-break" style={{ background: '#f5f7fa', padding: 8, marginBottom: 12, fontSize: 10 }}>
                   <strong>REFERÊNCIA:</strong> {data.quote?.quote_number}
                   {data.quote?.origin && data.quote?.destination && <> — {data.quote.origin} → {data.quote.destination}</>}
                   {data.quote?.transport_mode && <> · {transportModeLabel(data.quote.transport_mode).toUpperCase()}</>}
@@ -221,7 +221,7 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
 
                 {/* Banco */}
                 {data.bank && (
-                  <div style={{ border: `2px solid ${brand}`, padding: 12, marginBottom: 12 }}>
+                  <div className="pdf-avoid-break" style={{ border: `2px solid ${brand}`, padding: 12, marginBottom: 12 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: '#000', marginBottom: 6 }}>DADOS BANCÁRIOS PARA PAGAMENTO</div>
                     <table style={{ width: '100%', fontSize: 10 }}>
                       <tbody>
@@ -240,12 +240,12 @@ export function ClientDebitNotePdfDialog({ open, onClose, debitNoteId, companyId
                 )}
 
                 {data.dn.notes && (
-                  <div style={{ borderTop: '1px solid #ddd', paddingTop: 8, fontSize: 10, color: '#333' }}>
+                  <div className="pdf-avoid-break" style={{ borderTop: '1px solid #ddd', paddingTop: 8, fontSize: 10, color: '#333' }}>
                     <strong>Observações:</strong> {data.dn.notes}
                   </div>
                 )}
 
-                <div style={{ marginTop: 24, textAlign: 'center', fontSize: 9, color: '#888', borderTop: `1px solid ${brand2}`, paddingTop: 8 }}>
+                <div className="pdf-avoid-break" style={{ marginTop: 24, textAlign: 'center', fontSize: 9, color: '#888', borderTop: `1px solid ${brand2}`, paddingTop: 8 }}>
                   {data.company?.name} · {data.company?.email || ''} · {data.company?.phone || ''}
                 </div>
               </div>
