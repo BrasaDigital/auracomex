@@ -259,11 +259,7 @@ function Landing() {
                 </a>
               </div>
               <p className="al-hero-nota">
-                14 dias grátis, sem cartão de crédito. Prefere ver antes?{" "}
-                <Link to="/demo" className="al-link">
-                  Abra o sistema com dados de exemplo
-                </Link>
-                .
+                14 dias grátis, sem cartão de crédito.
               </p>
             </div>
 
@@ -545,13 +541,6 @@ function Landing() {
                 Falar no WhatsApp
               </a>
             </div>
-            <p className="al-texto al-suave">
-              Quer olhar primeiro?{" "}
-              <Link to="/demo" className="al-link">
-                Abra a demonstração
-              </Link>
-              .
-            </p>
           </div>
         </section>
       </main>
