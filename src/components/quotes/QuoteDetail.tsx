@@ -3558,12 +3558,14 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                   <React.Fragment key={group.partnerId}>
                         {/* Partner sub-header — uma linha só por empresa, mesmo que tenha
                             taxas em mais de um trecho (cada taxa mostra seu trecho embaixo). */}
-                        <TableRow className="bg-muted/30 border-t border-l-4 border-l-muted-foreground/20">
+                        <TableRow className={`border-t-2 border-l-4 ${isBuy
+                          ? 'bg-red-500/25 hover:bg-red-500/25 dark:bg-red-500/35 border-t-red-500/50 border-l-red-600'
+                          : 'bg-emerald-500/25 hover:bg-emerald-500/25 dark:bg-emerald-500/35 border-t-emerald-500/50 border-l-emerald-600'}`}>
                           <TableCell colSpan={colCount} className="py-1.5 px-4">
                             <div className="flex items-center justify-between gap-2.5 flex-wrap">
                               <div className="flex items-center gap-2.5">
                                 <div className="flex items-center gap-1.5">
-                                  <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+                                  <Building2 className={`w-4 h-4 ${isBuy ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'}`} />
                                   {icmsCharge ? (
                                     <TaxOrgPicker
                                       value={isIcmsPick ? null : group.partnerId}
@@ -3571,7 +3573,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                       onChange={(partnerId) => onUpdate(icmsCharge.id, { partner_id: partnerId })}
                                     />
                                   ) : (
-                                    <span className="text-sm font-bold text-foreground">
+                                    <span className={`text-sm font-bold ${isBuy ? 'text-red-950 dark:text-red-50' : 'text-emerald-950 dark:text-emerald-50'}`}>
                                       {group.partnerName}
                                     </span>
                                   )}
