@@ -118,6 +118,23 @@ Deno.serve(async (req) => {
       });
     }
 
+    const profileErr = await createProfileAndRole(adminClient, {
+      userId: newUser.user.id,
+      email,
+      fullName: full_name,
+      companyId: targetCompanyId,
+      role,
+      department: department || null,
+      mustChangePassword: true,
+    });
+    if (profileErr) {
+      await adminClient.auth.admin.deleteUser(newUser.user.id);
+      return new Response(JSON.stringify({ error: "Falha ao criar o perfil do usuário: " + profileErr }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     return new Response(JSON.stringify({ user: newUser.user }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -128,3 +145,31 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+// Cria o perfil e o papel do usuário recém-criado. Antes isso era feito por um gatilho em auth.users (handle_new_user)
+// que NÃO existe no banco de produção (não foi recriado na migração do Lovable), então o login nascia sem perfil/papel.
+// Os valores vêm DO CÓDIGO (já validados pela função), nunca dos metadados do cadastro, e a chave de servidor ignora RLS.
+// Devolve a mensagem de erro, ou null se deu certo. Idempotente (não duplica se o gatilho um dia voltar).
+async function createProfileAndRole(
+  admin: any,
+  p: { userId: string; email: string; fullName: string; companyId: string; role: string; department?: string | null; mustChangePassword: boolean },
+): Promise<string | null> {
+  const { error: profErr } = await admin.from("profiles").upsert(
+    {
+      user_id: p.userId,
+      company_id: p.companyId,
+      full_name: p.fullName || p.email,
+      email: p.email,
+      department: p.department ?? null,
+      must_change_password: p.mustChangePassword,
+    },
+    { onConflict: "user_id", ignoreDuplicates: true },
+  );
+  if (profErr) return profErr.message;
+  const { error: roleErr } = await admin.from("user_roles").upsert(
+    { user_id: p.userId, role: p.role },
+    { onConflict: "user_id", ignoreDuplicates: true },
+  );
+  if (roleErr) return roleErr.message;
+  return null;
+}

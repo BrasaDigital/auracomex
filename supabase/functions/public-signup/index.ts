@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
       return json({ error: "Já existe uma empresa cadastrada com este CNPJ" }, 409);
     }
 
-    // Cria a company (o trigger cria a subscription trial 14d)
+    // Cria a company
     const { data: company, error: companyErr } = await admin
       .from("companies")
       .insert({ name: companyName, cnpj, email: adminEmail })
@@ -101,6 +101,37 @@ Deno.serve(async (req) => {
       return json({ error: userErr?.message || "Falha ao criar usuário" }, 400);
     }
 
+    // Perfil e papel de admin (antes criados pelo gatilho handle_new_user, ausente em produção).
+    const profileErr = await createProfileAndRole(admin, {
+      userId: created.user.id,
+      email: adminEmail,
+      fullName: adminName,
+      companyId: company.id,
+      role: "admin",
+      mustChangePassword: false,
+    });
+    // Assinatura de teste (14 dias, plano Básico, 30 embarques/mês): antes criada pelo gatilho
+    // trg_company_new_subscription, também ausente em produção. Idempotente.
+    const { error: subErr } = profileErr
+      ? { error: null }
+      : await admin.from("company_subscriptions").upsert(
+          {
+            company_id: company.id,
+            plan: "starter",
+            status: "trial",
+            trial_ends_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+            seats_limit: null,
+            shipments_limit: 30,
+          },
+          { onConflict: "company_id", ignoreDuplicates: true },
+        );
+    if (profileErr || subErr) {
+      // rollback completo: remove o usuário e a empresa recém-criados
+      await admin.auth.admin.deleteUser(created.user.id);
+      await admin.from("companies").delete().eq("id", company.id);
+      return json({ error: "Falha ao concluir o cadastro. Tente novamente." }, 500);
+    }
+
     await admin
       .from("signup_attempts")
       .update({ success: true })
@@ -119,4 +150,32 @@ function json(payload: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+// Cria o perfil e o papel do usuário recém-criado. Antes isso era feito por um gatilho em auth.users (handle_new_user)
+// que NÃO existe no banco de produção (não foi recriado na migração do Lovable), então o login nascia sem perfil/papel.
+// Os valores vêm DO CÓDIGO (já validados pela função), nunca dos metadados do cadastro, e a chave de servidor ignora RLS.
+// Devolve a mensagem de erro, ou null se deu certo. Idempotente (não duplica se o gatilho um dia voltar).
+async function createProfileAndRole(
+  admin: any,
+  p: { userId: string; email: string; fullName: string; companyId: string; role: string; department?: string | null; mustChangePassword: boolean },
+): Promise<string | null> {
+  const { error: profErr } = await admin.from("profiles").upsert(
+    {
+      user_id: p.userId,
+      company_id: p.companyId,
+      full_name: p.fullName || p.email,
+      email: p.email,
+      department: p.department ?? null,
+      must_change_password: p.mustChangePassword,
+    },
+    { onConflict: "user_id", ignoreDuplicates: true },
+  );
+  if (profErr) return profErr.message;
+  const { error: roleErr } = await admin.from("user_roles").upsert(
+    { user_id: p.userId, role: p.role },
+    { onConflict: "user_id", ignoreDuplicates: true },
+  );
+  if (roleErr) return roleErr.message;
+  return null;
 }
