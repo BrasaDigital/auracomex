@@ -3431,6 +3431,9 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState('');
   const [editLeg, setEditLeg] = useState('');
+  // Compra: Descrição | Trecho | Quantidade | Valor Un | Total | Ações (6 colunas). Venda mantém o layout de 5.
+  const isBuy = (amountKey as string) === 'buy_amount';
+  const colCount = isBuy ? 6 : 5;
 
   function getBillingRef(unit: string): string {
     if (!cargoMetrics) return '';
@@ -3527,17 +3530,23 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
             <TableRow>
               <TableHead className="h-8 py-1.5 text-xs">{t('financial.description')}</TableHead>
               <TableHead className="h-8 py-1.5 text-xs">{t('quotes.leg')}</TableHead>
+              {isBuy && (
+                <>
+                  <TableHead className="h-8 py-1.5 text-xs text-right">Quantidade</TableHead>
+                  <TableHead className="h-8 py-1.5 text-xs text-right">Valor Un</TableHead>
+                </>
+              )}
               {amountKey === 'sell_amount' && (
                 <TableHead className="h-8 py-1.5 text-xs w-24 text-right">Câmbio</TableHead>
               )}
-              <TableHead className="h-8 py-1.5 text-xs text-right">{t('financial.amount')}</TableHead>
+              <TableHead className="h-8 py-1.5 text-xs text-right">{isBuy ? 'Total' : t('financial.amount')}</TableHead>
               <TableHead className="h-8 py-1.5 text-xs w-20"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {charges.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={amountKey === 'sell_amount' ? 5 : 4} className="text-center py-6 text-muted-foreground text-sm">{t('common.no_data')}</TableCell>
+                <TableCell colSpan={colCount} className="text-center py-6 text-muted-foreground text-sm">{t('common.no_data')}</TableCell>
               </TableRow>
             ) : (
               groupedByPartner.map((group) => {
@@ -3550,7 +3559,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                         {/* Partner sub-header — uma linha só por empresa, mesmo que tenha
                             taxas em mais de um trecho (cada taxa mostra seu trecho embaixo). */}
                         <TableRow className="bg-muted/30 border-t border-l-4 border-l-muted-foreground/20">
-                          <TableCell colSpan={amountKey === 'sell_amount' ? 5 : 4} className="py-1.5 px-4">
+                          <TableCell colSpan={colCount} className="py-1.5 px-4">
                             <div className="flex items-center justify-between gap-2.5 flex-wrap">
                               <div className="flex items-center gap-2.5">
                                 <div className="flex items-center gap-1.5">
@@ -3619,7 +3628,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                       Auto (Estimativa)
                                     </span>
                                   )}
-                                  {(!c.billing_unit || c.billing_unit === 'fixed' || c.billing_unit === 'percent') && (
+                                  {!isBuy && (!c.billing_unit || c.billing_unit === 'fixed' || c.billing_unit === 'percent') && (
 <span className={`text-[10px] border rounded px-1 py-0.5 ${c.billing_unit === 'percent' ? 'text-primary border-primary/40 bg-primary/10' : 'text-muted-foreground'}`}>
                                     {t(`quotes.billing_${c.billing_unit || 'fixed'}`)}
                                   </span>
@@ -3678,7 +3687,8 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     </button>
                                   )}
                                 </div>
-                                {c.billing_unit === 'percent' ? (
+                                {!isBuy && (<>
+{c.billing_unit === 'percent' ? (
                                   <p className="text-[10px] text-muted-foreground font-mono">
                                     {(Number(c[amountKey]) || 0).toFixed(2)}% × base = USD {(Number(amountKey === 'buy_amount' ? c.computed_buy_amount : c.computed_sell_amount) || 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                   </p>
@@ -3697,6 +3707,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     </p>
                                   );
                                 })()}
+</>)}
 </div>
 </TableCell>
 <TableCell className="py-1">
@@ -3718,6 +3729,70 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   </span>
                                 )}
                               </TableCell>
+                              {isBuy && (() => {
+  const unit = c.billing_unit || 'fixed';
+  const isPct = unit === 'percent';
+  const isFixed = unit === 'fixed';
+  const cur = c.currency || 'USD';
+  const mult = isFixed || isPct ? 1 : getBillingMultiplier(unit);
+  const unitVal = editingId === c.id ? (parseFloat(editAmount) || 0) : (Number(c[amountKey]) || 0);
+  const total = isPct
+    ? (Number(c.computed_buy_amount) || 0)
+    : chargeLineTotal(unitVal, mult, unit, c[chargeMinKey(amountKey)]);
+  return (
+    <>
+      <TableCell className="py-1 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+        {isPct ? '% s/ base' : isFixed ? '—' : (getBillingRef(unit) || '—')}
+      </TableCell>
+      <TableCell className="py-1 text-right font-mono text-sm">
+        {editingId === c.id ? (
+          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+            <span className="text-xs text-muted-foreground">{cur}</span>
+            <Input
+              type="number"
+              value={editAmount}
+              onChange={(e) => setEditAmount(e.target.value)}
+              className="h-7 w-24 text-right font-mono text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = parseFloat(editAmount) || 0;
+                  onUpdate(c.id, { [amountKey]: val, leg: editLeg });
+                  setEditingId(null);
+                }
+                if (e.key === 'Escape') setEditingId(null);
+              }}
+              onBlur={() => {
+                const val = parseFloat(editAmount) || 0;
+                if (val !== (c[amountKey] || 0) || editLeg !== c.leg) {
+                  onUpdate(c.id, { [amountKey]: val, leg: editLeg });
+                }
+                setEditingId(null);
+              }}
+            />
+          </div>
+        ) : (
+          <span className="whitespace-nowrap">{isPct ? `${unitVal.toFixed(2)}%` : formatMoney(unitVal, cur)}</span>
+        )}
+        {!isPct && supportsChargeMin(unit) && (
+          <div className="text-[10px] text-muted-foreground font-sans">
+            <ChargeMinInput value={c[chargeMinKey(amountKey)]} disabled={readOnly || lockedForEdit}
+              applied={total > unitVal * mult}
+              onCommit={(v) => onUpdate(c.id, { [chargeMinKey(amountKey)]: v })} />
+          </div>
+        )}
+      </TableCell>
+      <TableCell className="py-1 text-right font-mono text-sm whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+        {formatMoney(total, isPct ? 'USD' : cur)}
+        {lockedBuy && (
+          <span className="ml-1.5 inline-flex align-middle" title="Taxa conferida — desconfirme para editar">
+            <CheckCircle className="w-4 h-4 text-emerald-600" aria-label="Conferida" />
+          </span>
+        )}
+      </TableCell>
+    </>
+  );
+})()}
                               {amountKey === 'sell_amount' && (
                                 <TableCell className="py-1 text-right" onClick={(e) => e.stopPropagation()}>
                                   {c.billing_unit !== 'percent' && (c.currency || 'USD') !== 'BRL' ? (
@@ -3747,7 +3822,8 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   )}
                                 </TableCell>
                               )}
-                              <TableCell className="text-right font-mono text-sm py-1" onClick={(e) => e.stopPropagation()}>
+                              {!isBuy && (
+<TableCell className="text-right font-mono text-sm py-1" onClick={(e) => e.stopPropagation()}>
                                 {editingId === c.id ? (
                                   <div className="flex items-center justify-end gap-1">
                                     <span className="text-xs text-muted-foreground">{c.currency || 'USD'}</span>
@@ -3811,6 +3887,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   )
                                 )}
                               </TableCell>
+                              )}
                               {!readOnly && (
                               <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex items-center gap-1">
@@ -3849,7 +3926,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                             </TableRow>
                             {cloningId === c.id && (
                               <TableRow className="bg-muted/20">
-                                <TableCell colSpan={amountKey === 'sell_amount' ? 5 : 4}>
+                                <TableCell colSpan={colCount}>
                                   <div className="flex items-center gap-2 py-1 flex-wrap">
                                     <span className="text-xs text-muted-foreground whitespace-nowrap">{cloneLabel}:</span>
                                     <Select value={clonePartnerId} onValueChange={setClonePartnerId}>
@@ -3910,7 +3987,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                   if (entries.length === 0) return null;
                   return (
                     <TableRow key={`subtotal-${leg}`} className={`bg-muted/10 border-l-4 ${legBorderLeftColors[leg] || ''}`}>
-                      <TableCell colSpan={2} className="text-xs font-medium pl-4">
+                      <TableCell colSpan={isBuy ? 4 : 2} className="text-xs font-medium pl-4">
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${legColors[leg] || ''}`}>
                           {legLabels[leg] || leg}
                         </span>
@@ -3926,7 +4003,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                   );
                 })}
               <TableRow className="bg-muted/30 font-semibold">
-                <TableCell colSpan={2}>{t('financial.total')}</TableCell>
+                <TableCell colSpan={isBuy ? 4 : 2}>{t('financial.total')}</TableCell>
                 <TableCell className={`text-right font-mono ${colorClass}`}>
                   {Object.entries(totalByCurrency).map(([cur, val]) => (
                     <span key={cur} className="block">{formatMoney(val, cur)}</span>
