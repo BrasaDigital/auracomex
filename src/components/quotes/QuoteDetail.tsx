@@ -1,4 +1,5 @@
 import { formatMoney, formatAmount } from '@/lib/money';
+import { FitText } from '@/components/ui/fit-text';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -3422,6 +3423,9 @@ function ChargeMinInput({ value, disabled, applied, onCommit }: { value: number 
   );
 }
 
+// Trecho em uma letra só nas linhas das taxas (O = Origem, F = Frete, D = Destino); o nome completo fica na dica.
+const LEG_LETTER: Record<string, string> = { origin: 'O', freight: 'F', destination: 'D' };
+
 function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, legColors, legBorderLeftColors, onDelete, onClone, onUpdate, colorClass, borderClass, bgClass, cloneLabel, partners, defaultClonePartnerId, cargoMetrics, readOnly, showReconciliation, hideAutoTaxConferir, onUnconfirmCharge, currentUserId, onPercentClick, onConferirSell, onReopenCharge, onReopenSellCharge }: ChargeColumnProps) {
   const { t } = useLanguage();
   const [cloningId, setCloningId] = useState<string | null>(null);
@@ -3623,8 +3627,8 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                             >
                               <TableCell className="font-medium font-mono text-xs pl-8 py-0.5">
 <div className="flex flex-wrap items-center gap-x-2 gap-y-0">
-<div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                                  {c.description}
+<div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 max-w-full">
+                                  <FitText title={c.description} max={12} min={9}>{c.description}</FitText>
                                   {c.is_auto_tax && (
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30" title="Gerada pela Estimativa; o valor acompanha o cálculo dos tributos">
                                       Auto (Estimativa)
@@ -3720,14 +3724,15 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                         key={leg}
                                         className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${editLeg === leg ? legColors[leg] : 'text-muted-foreground'}`}
                                         onMouseDown={(e) => { e.preventDefault(); setEditLeg(leg); }}
+                                        title={legLabels[leg]}
                                       >
-                                        {legLabels[leg]}
+                                        {LEG_LETTER[leg]}
                                       </button>
                                     ))}
                                   </div>
                                 ) : (
-                                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${legColors[c.leg] || ''}`}>
-                                    {legLabels[c.leg] || c.leg}
+                                  <span title={legLabels[c.leg] || c.leg} className={`inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${legColors[c.leg] || ''}`}>
+                                    {LEG_LETTER[c.leg] || (legLabels[c.leg] || c.leg || '').charAt(0).toUpperCase()}
                                   </span>
                                 )}
                               </TableCell>
