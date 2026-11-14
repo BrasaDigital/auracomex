@@ -1,4 +1,4 @@
-import { formatMoney } from '@/lib/money';
+import { formatMoney, formatAmount } from '@/lib/money';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -3609,19 +3609,22 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 setEditLeg(c.leg || 'freight');
                               }}
                             >
-                              <TableCell className="font-medium text-sm pl-8 py-2">
-                                <div>
+                              <TableCell className="font-medium text-sm pl-8 py-1">
+<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+<div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                                   {c.description}
                                   {c.is_auto_tax && (
-                                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30" title="Gerada pela Estimativa; o valor acompanha o cálculo dos tributos">
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30" title="Gerada pela Estimativa; o valor acompanha o cálculo dos tributos">
                                       Auto (Estimativa)
                                     </span>
                                   )}
-                                  <span className={`ml-1.5 text-[10px] border rounded px-1 py-0.5 ${c.billing_unit === 'percent' ? 'text-primary border-primary/40 bg-primary/10' : 'text-muted-foreground'}`}>
+                                  {(!c.billing_unit || c.billing_unit === 'fixed' || c.billing_unit === 'percent') && (
+<span className={`text-[10px] border rounded px-1 py-0.5 ${c.billing_unit === 'percent' ? 'text-primary border-primary/40 bg-primary/10' : 'text-muted-foreground'}`}>
                                     {t(`quotes.billing_${c.billing_unit || 'fixed'}`)}
                                   </span>
+)}
                                   {c.billing_unit === 'percent' && (!c.percent_base_charge_ids || c.percent_base_charge_ids.length === 0) && (
-                                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30">
                                       Selecionar taxas base
                                     </span>
                                   )}
@@ -3639,7 +3642,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                         onUpdate(c.id, { aduaneira: next });
                                       }}
                                       title="Define se esta taxa entra na base de cálculo do ICMS (Estimativa de Custo). Clique para alternar: Automático → Sim → Não."
-                                      className={`ml-1.5 text-[10px] border rounded px-1 py-0.5 ${
+                                      className={`text-[10px] border rounded px-1 py-0.5 ${
                                         c.aduaneira === true
                                           ? 'text-blue-600 border-blue-400/50 bg-blue-500/10'
                                           : c.aduaneira === false
@@ -3663,19 +3666,19 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                         const next = c.payment_term === 'prepaid' ? 'collect' : 'prepaid';
                                         onUpdate(c.id, { payment_term: next });
                                       }}
-                                      title="Prepaid = já pago na origem, não entra no total do Numerário (mas continua aparecendo na Estimativa/Numerário). Collect = cobrado do cliente no destino. Clique para alternar."
-                                      className={`ml-1.5 text-[10px] border rounded px-1 py-0.5 ${
+                                      title="PP (Prepaid) = já pago na origem, não entra no total do Numerário (mas continua aparecendo na Estimativa/Numerário). CC (Collect) = cobrado do cliente no destino. Clique para alternar."
+                                      className={`text-[10px] border rounded px-1 py-0.5 ${
                                         c.payment_term === 'prepaid'
                                           ? 'text-amber-600 border-amber-400/50 bg-amber-500/10'
                                           : 'text-muted-foreground border-border'
                                       }`}
                                     >
-                                      {c.payment_term === 'prepaid' ? 'Prepaid' : 'Collect'}
+                                      {c.payment_term === 'prepaid' ? 'PP' : 'CC'}
                                     </button>
                                   )}
                                 </div>
                                 {c.billing_unit === 'percent' ? (
-                                  <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">
+                                  <p className="text-[10px] text-muted-foreground font-mono">
                                     {(Number(c[amountKey]) || 0).toFixed(2)}% × base = USD {(Number(amountKey === 'buy_amount' ? c.computed_buy_amount : c.computed_sell_amount) || 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                   </p>
                                 ) : c.billing_unit && c.billing_unit !== 'fixed' && getBillingRef(c.billing_unit) && (() => {
@@ -3683,7 +3686,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   const mult = getBillingMultiplier(c.billing_unit);
                                   const total = chargeLineTotal(unitPrice, mult, c.billing_unit, c[chargeMinKey(amountKey)]);
                                   return (
-                                    <p className="text-[10px] text-muted-foreground mt-0.5 font-mono flex items-center gap-1.5 flex-wrap">
+                                    <p className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 flex-wrap">
                                       <span>{getBillingRef(c.billing_unit)} × {formatMoney(unitPrice, c.currency || 'USD')} = {formatMoney(total, c.currency || 'USD')}</span>
                                       {supportsChargeMin(c.billing_unit) && (
                                         <ChargeMinInput value={c[chargeMinKey(amountKey)]} disabled={readOnly || lockedForEdit}
@@ -3693,8 +3696,9 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     </p>
                                   );
                                 })()}
-                              </TableCell>
-                              <TableCell className="py-2">
+</div>
+</TableCell>
+<TableCell className="py-1">
                                 {editingId === c.id ? (
                                   <div className="flex gap-1">
                                     {(['origin', 'freight', 'destination'] as const).map((leg) => (
@@ -3714,7 +3718,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 )}
                               </TableCell>
                               {amountKey === 'sell_amount' && (
-                                <TableCell className="py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                                <TableCell className="py-1 text-right" onClick={(e) => e.stopPropagation()}>
                                   {c.billing_unit !== 'percent' && (c.currency || 'USD') !== 'BRL' ? (
                                     <Input
                                       key={`rate-${c.id}-${c.exchange_rate ?? ''}`}
@@ -3742,7 +3746,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   )}
                                 </TableCell>
                               )}
-                              <TableCell className="text-right font-mono text-sm py-2" onClick={(e) => e.stopPropagation()}>
+                              <TableCell className="text-right font-mono text-sm py-1" onClick={(e) => e.stopPropagation()}>
                                 {editingId === c.id ? (
                                   <div className="flex items-center justify-end gap-1">
                                     <span className="text-xs text-muted-foreground">{c.currency || 'USD'}</span>
@@ -3774,40 +3778,40 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     {c.billing_unit === 'percent' ? (
                                       <>
                                         <span className="text-xs text-muted-foreground mr-1">USD</span>
-                                        {(Number(amountKey === 'buy_amount' ? c.computed_buy_amount : c.computed_sell_amount) || 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {formatAmount(Number(amountKey === 'buy_amount' ? c.computed_buy_amount : c.computed_sell_amount) || 0, 'USD')}
                                       </>
                                     ) : c.billing_unit && c.billing_unit !== 'fixed' ? (
                                       <>
                                         <span className="text-xs text-muted-foreground mr-1">{c.currency || 'USD'}</span>
-                                        {chargeLineTotal(c[amountKey] || 0, getBillingMultiplier(c.billing_unit), c.billing_unit, c[chargeMinKey(amountKey)]).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {formatAmount(chargeLineTotal(c[amountKey] || 0, getBillingMultiplier(c.billing_unit), c.billing_unit, c[chargeMinKey(amountKey)]), c.currency || 'USD')}
                                       </>
                                     ) : (
                                       <>
                                         <span className="text-xs text-muted-foreground mr-1">{c.currency || 'USD'}</span>
-                                        {(c[amountKey] || 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {formatAmount(c[amountKey] || 0, c.currency || 'USD')}
                                       </>
                                     )}
                                   </>
                                 )}
                                 {lockedBuy && (
-                                  <Badge variant="outline" className="ml-1.5 text-[9px] h-4 px-1 bg-emerald-500/15 text-emerald-600 border-emerald-500/40" title="Taxa conferida — desconfirme para editar">
-                                    Conferida
-                                  </Badge>
+                                  <span className="ml-1.5 inline-flex align-middle" title="Taxa conferida — desconfirme para editar">
+                                    <CheckCircle className="w-4 h-4 text-emerald-600" aria-label="Conferida" />
+                                  </span>
                                 )}
                                 {lockedForEdit && (
                                   c.sent_in_debit_note_id ? (
-                                    <Badge variant="outline" className="ml-1.5 text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/30">
+                                    <Badge variant="outline" className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-primary/30">
                                       ND
                                     </Badge>
                                   ) : (
-                                    <Badge variant="outline" className="ml-1.5 text-[9px] h-4 px-1 bg-amber-500/15 text-amber-600 border-amber-500/40" title="Conferida e lançada em Receita por Processo — falta gerar a ND">
-                                      Conferida · sem ND
-                                    </Badge>
+                                    <span className="ml-1.5 inline-flex align-middle" title="Conferida e lançada em Receita por Processo — falta gerar a ND">
+                                      <CheckCircle className="w-4 h-4 text-amber-500" aria-label="Conferida, sem ND" />
+                                    </span>
                                   )
                                 )}
                               </TableCell>
                               {!readOnly && (
-                              <TableCell className="py-2" onClick={(e) => e.stopPropagation()}>
+                              <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex items-center gap-1">
                                   <Button
                                     variant="ghost"
@@ -4402,9 +4406,7 @@ function SupplierReconcileButton({ group, getMult, onUpdate, currentUserId, onRe
                     <Checkbox checked={selected.has(c.id)} onCheckedChange={() => toggle(c.id)} />
                     <span className="text-sm font-medium flex-1 min-w-[140px]">{c.description}</span>
                     {confirmed && (
-                      <Badge variant="outline" className="text-[10px] h-5 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-1">
-                        <CheckCircle className="w-3 h-3" /> Conferida
-                      </Badge>
+                      <span className="inline-flex" title="Conferida"><CheckCircle className="w-4 h-4 text-emerald-600" aria-label="Conferida" /></span>
                     )}
                     {confirmed && onUnconfirmCharge && (
                       <Button type="button" size="sm" variant="outline" className="h-6 text-[10px] px-2 gap-1" onClick={() => setUnconfirmTarget(c)}>
