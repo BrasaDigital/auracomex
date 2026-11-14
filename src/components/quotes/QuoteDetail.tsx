@@ -3435,9 +3435,10 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState('');
   const [editLeg, setEditLeg] = useState('');
-  // Compra: Descrição | Trecho | Quantidade | Valor Un | Total | Ações (6 colunas). Venda mantém o layout de 5.
+  // Compra: Descrição | Quantidade | Valor Un | Total | Ações (5 colunas). Venda: Descrição | Câmbio | Valor | Ações (4).
+  // O trecho não é mais uma coluna: as taxas ficam em FASES (Origem, depois Frete, depois Destino).
   const isBuy = (amountKey as string) === 'buy_amount';
-  const colCount = isBuy ? 6 : 5;
+  const colCount = isBuy ? 5 : 4;
 
   function getBillingRef(unit: string): string {
     if (!cargoMetrics) return '';
@@ -3506,6 +3507,24 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
     return Array.from(partnerMap.values());
   }, [charges, t]);
 
+  // FASES: Origem → Frete → Destino. Dentro de cada fase, as taxas continuam agrupadas por empresa. Os botões
+  // Conferir/Gerar ND continuam valendo para TODAS as taxas da empresa (todas as fases), por isso só aparecem na
+  // primeira fase em que a empresa tem taxa e recebem o grupo completo (`full`).
+  const phases = useMemo(() => {
+    const seen = new Set<string>();
+    return LEGS.map((leg) => {
+      const groups = groupedByPartner
+        .map((g) => ({ ...g, charges: g.charges.filter((c: any) => c.leg === leg), full: g }))
+        .filter((g) => g.charges.length > 0)
+        .map((g) => {
+          const first = !seen.has(g.partnerId);
+          seen.add(g.partnerId);
+          return { ...g, showActionsHere: first };
+        });
+      return { leg, groups };
+    }).filter((ph) => ph.groups.length > 0);
+  }, [groupedByPartner]);
+
   const totalsByLeg = useMemo(() => {
     const result: Record<string, Record<string, number>> = { origin: {}, freight: {}, destination: {} };
     for (const c of charges) {
@@ -3533,7 +3552,6 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
           <TableHeader>
             <TableRow>
               <TableHead className="h-8 py-1.5 text-xs">{t('financial.description')}</TableHead>
-              <TableHead className="h-8 py-1.5 text-xs">{t('quotes.leg')}</TableHead>
               {isBuy && (
                 <>
                   <TableHead className="h-8 py-1.5 text-xs text-right">Quantidade</TableHead>
@@ -3553,13 +3571,22 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                 <TableCell colSpan={colCount} className="text-center py-6 text-muted-foreground text-sm">{t('common.no_data')}</TableCell>
               </TableRow>
             ) : (
-              groupedByPartner.map((group) => {
+              phases.map((phase) => (
+                <React.Fragment key={phase.leg}>
+                  <TableRow className="border-t-2 bg-muted/40 hover:bg-muted/40">
+                    <TableCell colSpan={colCount} className="py-0.5 px-3">
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${legColors[phase.leg] || ''}`}>
+                        {legLabels[phase.leg] || phase.leg}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+              {phase.groups.map((group) => {
                 // ICMS gerado pela Estimativa: a empresa (SEFAZ da UF) é escolhida no cabeçalho do grupo.
                 const icmsCharge = group.charges.find((c: any) => c.is_auto_tax && c.description === 'ICMS');
                 const isIcmsPick = group.partnerId === '__icms__';
-                const showPartnerActions = !!group.partnerId && !isIcmsPick;
+                const showPartnerActions = !!group.partnerId && !isIcmsPick && group.showActionsHere;
                 return (
-                  <React.Fragment key={group.partnerId}>
+                  <React.Fragment key={`${phase.leg}-${group.partnerId}`}>
                         {/* Partner sub-header — uma linha só por empresa, mesmo que tenha
                             taxas em mais de um trecho (cada taxa mostra seu trecho embaixo). */}
                         <TableRow className={`border-t border-l-4 ${isBuy
@@ -3592,12 +3619,12 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                               </div>
                               <div className="flex items-center gap-1.5">
                               {showReconciliation && amountKey === 'buy_amount' && showPartnerActions && (
-                                <SupplierReconcileButton group={group as any} getMult={getBillingMultiplier} onUpdate={onUpdate}
+                                <SupplierReconcileButton group={group.full as any} getMult={getBillingMultiplier} onUpdate={onUpdate}
                                   currentUserId={currentUserId} onReopenCharge={onReopenCharge} hideAutoTaxConferir={hideAutoTaxConferir} onUnconfirmCharge={onUnconfirmCharge} />
                               )}
                               </div>
                               {onConferirSell && amountKey === 'sell_amount' && showPartnerActions && !readOnly && (
-                                <SellConferirButton group={group} onConferir={onConferirSell} />
+                                <SellConferirButton group={group.full} onConferir={onConferirSell} />
                               )}
                             </div>
                           </TableCell>
@@ -3629,6 +3656,21 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
 <div className="flex flex-wrap items-center gap-x-2 gap-y-0">
 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 max-w-full">
                                   <FitText title={c.description} max={12} min={9}>{c.description}</FitText>
+                                  {editingId === c.id && (
+                                    <span className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
+                                      {(['origin', 'freight', 'destination'] as const).map((leg) => (
+                                        <button
+                                          key={leg}
+                                          type="button"
+                                          className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${editLeg === leg ? legColors[leg] : 'text-muted-foreground'}`}
+                                          onMouseDown={(e) => { e.preventDefault(); setEditLeg(leg); }}
+                                          title={legLabels[leg]}
+                                        >
+                                          {LEG_LETTER[leg]}
+                                        </button>
+                                      ))}
+                                    </span>
+                                  )}
                                   {c.is_auto_tax && (
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30" title="Gerada pela Estimativa; o valor acompanha o cálculo dos tributos">
                                       Auto (Estimativa)
@@ -3716,27 +3758,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
 </>)}
 </div>
 </TableCell>
-<TableCell className="py-0.5">
-                                {editingId === c.id ? (
-                                  <div className="flex gap-1">
-                                    {(['origin', 'freight', 'destination'] as const).map((leg) => (
-                                      <button
-                                        key={leg}
-                                        className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${editLeg === leg ? legColors[leg] : 'text-muted-foreground'}`}
-                                        onMouseDown={(e) => { e.preventDefault(); setEditLeg(leg); }}
-                                        title={legLabels[leg]}
-                                      >
-                                        {LEG_LETTER[leg]}
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <span title={legLabels[c.leg] || c.leg} className={`inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${legColors[c.leg] || ''}`}>
-                                    {LEG_LETTER[c.leg] || (legLabels[c.leg] || c.leg || '').charAt(0).toUpperCase()}
-                                  </span>
-                                )}
-                              </TableCell>
-                              {isBuy && (() => {
+{isBuy && (() => {
   const unit = c.billing_unit || 'fixed';
   const isPct = unit === 'percent';
   const isFixed = unit === 'fixed';
@@ -3985,7 +4007,9 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                         })}
                   </React.Fragment>
                 );
-              })
+              })}
+                </React.Fragment>
+              ))
             )}
             {charges.length > 0 && (
               <>
@@ -3994,7 +4018,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                   if (entries.length === 0) return null;
                   return (
                     <TableRow key={`subtotal-${leg}`} className={`bg-muted/10 border-l-4 ${legBorderLeftColors[leg] || ''}`}>
-                      <TableCell colSpan={isBuy ? 4 : 2} className="text-xs font-medium pl-4">
+                      <TableCell colSpan={isBuy ? 3 : 1} className="text-xs font-medium pl-4">
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${legColors[leg] || ''}`}>
                           {legLabels[leg] || leg}
                         </span>
@@ -4010,7 +4034,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                   );
                 })}
               <TableRow className="bg-muted/30 font-semibold">
-                <TableCell colSpan={isBuy ? 4 : 2}>{t('financial.total')}</TableCell>
+                <TableCell colSpan={isBuy ? 3 : 1}>{t('financial.total')}</TableCell>
                 <TableCell className={`text-right font-mono ${colorClass}`}>
                   {Object.entries(totalByCurrency).map(([cur, val]) => (
                     <span key={cur} className="block">{formatMoney(val, cur)}</span>
