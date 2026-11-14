@@ -136,20 +136,9 @@ export function CostEstimateTab({
   // 'converted' = já virou embarque; quote.shipment_id cobre processos criados direto como embarque.
   const numerarioLiberado = !!(quote && (['approved', 'converted'].includes(String((quote as any).status)) || (quote as any).shipment_id));
 
-  const { data: siscomexConfig } = useQuery({
-    queryKey: ['siscomex-config', companyId],
-    queryFn: async () => {
-      if (!companyId) return null;
-      const { data, error } = await supabase
-        .from('company_siscomex_configs')
-        .select('is_active')
-        .eq('company_id', companyId)
-        .maybeSingle();
-      if (error) return null;
-      return data || { is_active: true }; // Fallback para true para permitir busca na base local mesmo sem config
-    },
-    enabled: !!companyId,
-  });
+  // A busca de alíquotas por NCM usa uma API pública e não depende de credenciais da empresa: fica sempre disponível.
+  // (A antiga integração Siscomex/Serpro por empresa foi retirada das Configurações.)
+  const siscomexConfig = { is_active: true };
 
   // Cliente da cotação — usado pro spread cambial (Taxa Câmbio Agência = Câmbio
   // fiscal + spread% do cadastro do cliente).

@@ -15,7 +15,6 @@ import { DataManagementSection } from '@/components/settings/DataManagementSecti
 import { UserRolesSection } from '@/components/settings/UserRolesSection';
 import { InviteUserSection } from '@/components/settings/InviteUserSection';
 import { ReopenShipmentsSection } from '@/components/settings/ReopenShipmentsSection';
-import { SiscomexConfigWizard } from '@/components/settings/SiscomexConfigWizard';
 import { PortalUnicoConfigWizard } from '@/components/settings/PortalUnicoConfigWizard';
 import { BankAccountsSection } from '@/components/settings/BankAccountsSection';
 import { BackupSection } from '@/components/settings/BackupSection';
@@ -573,30 +572,10 @@ export default function SettingsPage() {
             <CardHeader className="bg-primary/5 pb-6">
               <div className="flex items-center gap-2 mb-1">
                 <Sparkles className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg">Integração Siscomex (Aura Sync)</CardTitle>
-              </div>
-              <CardDescription>
-                Configure seu certificado digital e credenciais do Serpro para automatizar o cálculo de impostos por NCM.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-6">
-              {profile?.company_id && (
-                <SiscomexConfigWizard
-                  companyId={profile.company_id}
-                  onComplete={() => queryClient.invalidateQueries({ queryKey: ['company', profile.company_id] })}
-                />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="glass overflow-hidden border-primary/20">
-            <CardHeader className="bg-primary/5 pb-6">
-              <div className="flex items-center gap-2 mb-1">
-                <Sparkles className="h-5 w-5 text-primary" />
                 <CardTitle className="text-lg">Integração Portal Único Siscomex (Desembaraço)</CardTitle>
               </div>
               <CardDescription>
-                Consulte canal de parametrização e status de DI/DUIMP direto do Portal Único, usando a Chave de Acesso da sua própria empresa (gerada com seu certificado digital). Diferente da integração Serpro acima.
+                Consulte canal de parametrização e status de DI/DUIMP direto do Portal Único, usando a Chave de Acesso da sua própria empresa (gerada com seu certificado digital).
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
