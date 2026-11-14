@@ -2073,9 +2073,10 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
           })()}
         </TabsList>
 
-        {/* Resumo financeiro do processo — abaixo do menu de abas (que assim nunca
-            muda de altura/posição), só faz sentido na aba Taxas. */}
-        {canSeeFinancials && activeTab === 'charges' && (
+        {/* Resumo financeiro do processo (Compra, Venda, Lucro e Margem) — abaixo do menu de abas (que assim nunca
+            muda de altura/posição), só faz sentido na aba Taxas. Quando o processo tem Estimativa de custo, o
+            fechamento é feito em Financeiro do processo (Numerário/Prestação de Contas), então o resumo some aqui. */}
+        {canSeeFinancials && activeTab === 'charges' && !showEstimateTab && (
         <div className="space-y-2">
           {(!ratesLoading && !ratesAvailable) || (unsupportedCurrencies.length > 0 && ratesAvailable) ? (
             <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
