@@ -3652,9 +3652,9 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 setEditLeg(c.leg || 'freight');
                               }}
                             >
-                              <TableCell className="font-medium font-mono text-xs pl-8 py-0.5">
-<div className="flex flex-wrap items-center gap-x-2 gap-y-0">
-<div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 max-w-full">
+                              <TableCell className="font-medium font-mono text-xs pl-8 py-0.5 whitespace-nowrap">
+<div className="flex flex-nowrap items-center gap-x-2 min-w-0">
+<div className="flex flex-nowrap items-center gap-x-1.5 min-w-0 max-w-full [&>*:not(:first-child)]:shrink-0 [&>*]:whitespace-nowrap">
                                   <FitText title={c.description} max={12} min={9}>{c.description}</FitText>
                                   {editingId === c.id && (
                                     <span className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
@@ -3745,7 +3745,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   const mult = getBillingMultiplier(c.billing_unit);
                                   const total = chargeLineTotal(unitPrice, mult, c.billing_unit, c[chargeMinKey(amountKey)]);
                                   return (
-                                    <p className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 flex-wrap">
+                                    <p className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 flex-nowrap whitespace-nowrap shrink-0">
                                       <span>{getBillingRef(c.billing_unit)} × {formatMoney(unitPrice, c.currency || 'USD')} = {formatMoney(total, c.currency || 'USD')}</span>
                                       {supportsChargeMin(c.billing_unit) && (
                                         <ChargeMinInput value={c[chargeMinKey(amountKey)]} disabled={readOnly || lockedForEdit}
@@ -3771,9 +3771,9 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
   return (
     <>
       <TableCell className="py-0.5 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
-        {isPct ? '% s/ base' : isFixed ? '—' : (getBillingRef(unit) || '—')}
+        <FitText max={12} min={8}>{isPct ? '% s/ base' : isFixed ? '—' : (getBillingRef(unit) || '—')}</FitText>
       </TableCell>
-      <TableCell className="py-0.5 text-right font-mono text-sm">
+      <TableCell className="py-0.5 text-right font-mono text-sm whitespace-nowrap">
         {editingId === c.id ? (
           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
             <span className="text-xs text-muted-foreground">{cur}</span>
@@ -3801,18 +3801,18 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
             />
           </div>
         ) : (
-          <span className="whitespace-nowrap">{isPct ? `${unitVal.toFixed(2)}%` : formatMoney(unitVal, cur)}</span>
+          <FitText max={14} min={9} className={!isPct && supportsChargeMin(unit) ? 'max-w-[65%]' : undefined}>{isPct ? `${unitVal.toFixed(2)}%` : formatMoney(unitVal, cur)}</FitText>
         )}
         {!isPct && supportsChargeMin(unit) && (
-          <div className="text-[10px] text-muted-foreground font-sans">
+          <span className="ml-1 inline-block align-middle text-[10px] text-muted-foreground font-sans">
             <ChargeMinInput value={c[chargeMinKey(amountKey)]} disabled={readOnly || lockedForEdit}
               applied={total > unitVal * mult}
               onCommit={(v) => onUpdate(c.id, { [chargeMinKey(amountKey)]: v })} />
-          </div>
+          </span>
         )}
       </TableCell>
       <TableCell className="py-0.5 text-right font-mono text-sm whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-        {formatMoney(total, isPct ? 'USD' : cur)}
+        <FitText max={14} min={9} className="max-w-[calc(100%-1.75rem)]">{formatMoney(total, isPct ? 'USD' : cur)}</FitText>
         {lockedBuy && (
           <span className="ml-1.5 inline-flex align-middle" title="Taxa conferida — desconfirme para editar">
             <CheckCircle className="w-4 h-4 text-emerald-600" aria-label="Conferida" />
@@ -3852,7 +3852,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                 </TableCell>
                               )}
                               {!isBuy && (
-<TableCell className="text-right font-mono text-sm py-0.5" onClick={(e) => e.stopPropagation()}>
+<TableCell className="text-right font-mono text-sm py-0.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                 {editingId === c.id ? (
                                   <div className="flex items-center justify-end gap-1">
                                     <span className="text-xs text-muted-foreground">{c.currency || 'USD'}</span>
@@ -3880,7 +3880,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                     />
                                   </div>
                                 ) : (
-                                  <>
+                                  <FitText max={14} min={9} className="max-w-[calc(100%-1.75rem)]">
                                     {c.billing_unit === 'percent' ? (
                                       <>
                                         <span className="text-xs text-muted-foreground mr-1">USD</span>
@@ -3897,7 +3897,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                         {formatAmount(c[amountKey] || 0, c.currency || 'USD')}
                                       </>
                                     )}
-                                  </>
+                                  </FitText>
                                 )}
                                 {lockedBuy && (
                                   <span className="ml-1.5 inline-flex align-middle" title="Taxa conferida — desconfirme para editar">
