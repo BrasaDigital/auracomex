@@ -38,6 +38,8 @@ const MIN_ESCALA_UMA_FOLHA = 0.75;
 /** Fatia mínima (px de layout) para aceitar um ponto de corte; abaixo disso corta no limite da página. */
 const MIN_FATIA_PX = 40;
 const MAX_CANVAS_PX = 30000;
+/** Espaço no fim do documento e de cada folha, para a última linha de texto não ser cortada. */
+const FOLGA_FIM_PX = 8;
 
 export interface PdfEngineOptions {
   /** Documento desenhado para UMA folha: se passar por pouco, reduz proporcionalmente para caber inteiro. */
@@ -105,11 +107,14 @@ function normalizar(clone: HTMLElement) {
   clone.style.boxSizing = 'border-box';
   clone.style.boxShadow = 'none';
   clone.style.minHeight = '0';
+  // Folga no fim: o html2canvas desenha o texto ~2px abaixo do DOM; sem isso a última linha sai cortada.
+  clone.style.paddingBottom = `${FOLGA_FIM_PX}px`;
   clone.querySelectorAll<HTMLElement>('[data-pdf-sheet]').forEach(el => {
     el.style.width = 'auto';
     el.style.maxWidth = 'none';
     el.style.minHeight = '0';
     el.style.padding = '0';
+    el.style.paddingBottom = `${FOLGA_FIM_PX}px`;
     el.style.margin = '0';
     el.style.boxShadow = 'none';
   });
