@@ -149,12 +149,19 @@ export function PortalUnicoConfigWizard({ companyId }: Props) {
     }
   }
 
+  // As funções /api/portalunico/* exigem o login do usuário (token da sessão do Supabase).
+  async function authHeaders(): Promise<Record<string, string>> {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  }
+
   async function handleTest() {
     setTesting(true);
     try {
       const response = await fetch('/api/portalunico/test-connection', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await authHeaders(),
         body: JSON.stringify({ company_id: companyId }),
       });
       const data = await response.json().catch(() => ({}));
@@ -176,7 +183,7 @@ export function PortalUnicoConfigWizard({ companyId }: Props) {
     try {
       const response = await fetch('/api/portalunico/subscribe-webhook', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await authHeaders(),
         body: JSON.stringify({ company_id: companyId }),
       });
       const data = await response.json().catch(() => ({}));

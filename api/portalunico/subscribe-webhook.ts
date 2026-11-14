@@ -159,6 +159,33 @@ function authenticatedRequest(
   });
 }
 
+// Confere quem está chamando: exige o login do usuário (Bearer token do Supabase) e que a empresa pedida seja a
+// dele (ou que ele seja superadmin). Sem isto, qualquer pessoa na internet poderia disparar o uso das credenciais
+// de qualquer empresa só informando o company_id. Duplicada em test-connection.ts e subscribe-webhook.ts de
+// propósito (ver nota acima sobre não extrair módulo compartilhado). Depende de profiles.company_id não ser
+// alterável pelo próprio usuário (migration 20261112120000_hardening_acesso.sql).
+async function authorizeCaller(
+  supabase: any,
+  req: any,
+  companyId: string,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const header = String(req.headers?.authorization || '');
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (!token) return { ok: false, status: 401, error: 'Não autenticado.' };
+  const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+  const userId = userData?.user?.id;
+  if (userErr || !userId) return { ok: false, status: 401, error: 'Sessão inválida.' };
+  const [{ data: profile }, { data: roles }] = await Promise.all([
+    supabase.from('profiles').select('company_id').eq('user_id', userId).maybeSingle(),
+    supabase.from('user_roles').select('role').eq('user_id', userId),
+  ]);
+  const isSuperadmin = (roles || []).some((r: any) => r.role === 'superadmin');
+  if (!isSuperadmin && profile?.company_id !== companyId) {
+    return { ok: false, status: 403, error: 'Sem permissão para esta empresa.' };
+  }
+  return { ok: true };
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).json({ success: false, error: 'Método não permitido' });
@@ -178,6 +205,12 @@ export default async function handler(req: any, res: any) {
     return;
   }
   const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+  const caller = await authorizeCaller(supabase, req, String(company_id));
+  if (!caller.ok) {
+    res.status(caller.status).json({ success: false, error: caller.error });
+    return;
+  }
 
   try {
     const { data: config, error: configError } = await supabase

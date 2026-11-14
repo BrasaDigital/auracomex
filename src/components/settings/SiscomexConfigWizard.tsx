@@ -67,16 +67,26 @@ export function SiscomexConfigWizard({ companyId, onComplete }: SiscomexConfigWi
       }
 
       // 2. Save configurations to database
-      const { error: dbError } = await supabase
+      // Sem upsert de propósito: o upsert (INSERT ... ON CONFLICT DO UPDATE) exige permissão de LEITURA nas colunas de
+      // segredo, que o navegador deixa de ter (migration 20261112135000_ocultar_segredos_siscomex.sql). Lê só colunas
+      // liberadas (id) para saber se já existe e então faz update ou insert.
+      const payload = {
+        serpro_consumer_key: form.consumerKey,
+        serpro_consumer_secret: form.consumerSecret,
+        certificate_path: certificatePath || undefined,
+        certificate_password: form.certificatePassword,
+        is_active: true,
+      };
+      const { data: existing, error: existingError } = await supabase
         .from('company_siscomex_configs')
-        .upsert({
-          company_id: companyId,
-          serpro_consumer_key: form.consumerKey,
-          serpro_consumer_secret: form.consumerSecret,
-          certificate_path: certificatePath || undefined,
-          certificate_password: form.certificatePassword,
-          is_active: true
-        }, { onConflict: 'company_id' });
+        .select('id')
+        .eq('company_id', companyId)
+        .maybeSingle();
+      if (existingError) throw existingError;
+
+      const { error: dbError } = existing
+        ? await supabase.from('company_siscomex_configs').update(payload).eq('company_id', companyId)
+        : await supabase.from('company_siscomex_configs').insert({ company_id: companyId, ...payload });
 
       if (dbError) throw dbError;
 
