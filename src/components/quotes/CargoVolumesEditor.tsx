@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -124,7 +125,7 @@ export function CargoVolumesEditor({ volumes, onChange, readOnly, valueTotal }: 
       <p className="text-xs text-right pr-1">
         Total da carga física: <strong>{totalVolumeQty(volumes)} vol.</strong> · <strong>{fmtW(tot.w)} kg</strong> · <strong>{tot.c.toFixed(4)} m³</strong>
         {valueTotal && valueTotal.amount > 0 && (
-          <> · Valor: <strong>{valueTotal.currency} {valueTotal.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>{valueTotal.approx && <span className="text-amber-600" title="Itens em outra moeda não estão somados">*</span>}</>
+          <> · Valor: <strong>{formatMoney(valueTotal.amount, valueTotal.currency)}</strong>{valueTotal.approx && <span className="text-amber-600" title="Itens em outra moeda não estão somados">*</span>}</>
         )}
       </p>
     </div>

@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { removeChargeExpense } from '@/lib/chargeExpense';
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -215,7 +216,7 @@ export function DebitNotesTab({ quoteId, companyId, partners, pendingFile, onPen
                       <TableCell>{n.issue_date ? format(parseISO(n.issue_date), 'dd/MM/yyyy') : '—'}</TableCell>
                       <TableCell>{n.due_date ? format(parseISO(n.due_date), 'dd/MM/yyyy') : '—'}</TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {n.currency} {Number(n.total_amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatMoney(Number(n.total_amount), n.currency)}
                       </TableCell>
                       <TableCell>
                         <Badge className={STATUS_COLOR[n.status] ?? ''} variant="secondary">
@@ -719,7 +720,7 @@ function DnDetailDialog({
                           <SelectContent>
                             {buyCharges.map((c) => (
                               <SelectItem key={c.id} value={c.id}>
-                                {c.description} ({c.currency} {c.amount.toFixed(2)})
+                                {c.description} ({formatMoney(c.amount, c.currency)})
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -796,10 +797,10 @@ function DnDetailDialog({
             )}
           </div>
           <div className="tabular-nums text-right">
-            <div className="text-xs text-muted-foreground">Cotado: {dn.currency} {totalQuoted.toFixed(2)}</div>
-            <div className="text-xs text-muted-foreground">Cobrado: {dn.currency} {totalCharged.toFixed(2)}</div>
+            <div className="text-xs text-muted-foreground">Cotado: {formatMoney(totalQuoted, dn.currency)}</div>
+            <div className="text-xs text-muted-foreground">Cobrado: {formatMoney(totalCharged, dn.currency)}</div>
             <div className={`font-semibold ${Math.abs(totalVariance) > 0.01 ? (totalVariance > 0 ? 'text-red-400' : 'text-emerald-400') : ''}`}>
-              Δ {dn.currency} {totalVariance.toFixed(2)}
+              Δ {formatMoney(totalVariance, dn.currency)}
             </div>
           </div>
         </div>
@@ -1005,7 +1006,7 @@ export function SendSupplierDnDialog({
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            Valor: {suggestedCurrency} {suggestedAmount.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (soma das taxas conferidas)
+            Valor: {formatMoney(suggestedAmount, suggestedCurrency)} (soma das taxas conferidas)
             {suggestedCurrency.toUpperCase() !== 'BRL' && (Number(exchangeRate) > 0) && (
               <> · ≈ R$ {(suggestedAmount * Number(exchangeRate)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
             )}

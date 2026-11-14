@@ -489,7 +489,7 @@ export default function Registrations() {
                     ) : (
                       filtered.map((c: any) => (
                         <TableRow key={c.id} className="hover:bg-secondary/50 whitespace-nowrap">
-                          <TableCell className="py-2 px-3 font-medium max-w-[180px] truncate">
+                          <TableCell className="py-2 px-3 font-medium">
                             {c.name}
                             {!c.company_id && <Badge variant="secondary" className="ml-2 text-[10px]">Padrão Aura</Badge>}
                             {c.is_active === false && <Badge variant="outline" className="ml-2 text-[10px] text-muted-foreground">Inativa</Badge>}

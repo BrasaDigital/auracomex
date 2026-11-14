@@ -23,7 +23,7 @@ function currentMonthISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
 function fmt(n: number, currency = 'BRL') {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(n || 0);
 }
 function fmtDate(s?: string | null) {
   if (!s) return '—';

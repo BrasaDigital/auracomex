@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -263,7 +264,7 @@ export function AuraFinanceTab() {
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {e.currency} {(e.amount_cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      {formatMoney(e.amount_cents / 100, e.currency)}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button size="icon" variant="ghost" onClick={() => openEdit(e)}>

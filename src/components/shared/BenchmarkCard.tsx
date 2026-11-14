@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -96,7 +97,7 @@ export function BenchmarkCard({ companyId, clientId, transportMode, originPort, 
             {clientBenchmark && clientBenchmark.count > 0 ? (
               <>
                 <p className="text-lg font-bold font-mono">
-                  {clientBenchmark.currency} {clientBenchmark.avgProfit.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatMoney(clientBenchmark.avgProfit, clientBenchmark.currency)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">{clientBenchmark.count} {t('financial.based_on_n_shipments')}</p>
                 {(() => {
@@ -118,7 +119,7 @@ export function BenchmarkCard({ companyId, clientId, transportMode, originPort, 
             {marketBenchmark && marketBenchmark.count > 0 ? (
               <>
                 <p className="text-lg font-bold font-mono">
-                  {marketBenchmark.currency} {marketBenchmark.avgProfit.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatMoney(marketBenchmark.avgProfit, marketBenchmark.currency)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">{marketBenchmark.count} {t('financial.based_on_n_shipments')}</p>
                 {(() => {

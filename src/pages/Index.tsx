@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { lazy, Suspense } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -225,8 +226,7 @@ export default function Index() {
     return acc;
   }, {} as Record<string, number>);
 
-  const fmtMoney = (amount: number, currency: string) =>
-    `${currency} ${amount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtMoney = (amount: number, currency: string) => formatMoney(amount, currency);
 
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('pt-BR');
 

@@ -376,7 +376,7 @@ export default function Shipments() {
                         <TooltipContent>{t(`mode.${s.transport_mode}`)}</TooltipContent>
                       </Tooltip>
                     </TableCell>
-                    <TableCell className="py-0.5 px-3 cursor-pointer max-w-[160px] truncate" onClick={() => setSelectedId(s.id)}>
+                    <TableCell className="py-0.5 px-3 cursor-pointer" onClick={() => setSelectedId(s.id)}>
                       {(s.clients as any)?.name || '-'}
                     </TableCell>
                     <TableCell className="py-0.5 px-3 cursor-pointer" onClick={() => setSelectedId(s.id)}>

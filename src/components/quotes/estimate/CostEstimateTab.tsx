@@ -1,3 +1,4 @@
+import { formatAmount } from '@/lib/money';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -47,7 +48,7 @@ interface Props {
 }
 
 function fmtUSD(n: number) {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatAmount(n, 'USD');
 }
 function fmtBRL(n: number) {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -174,7 +175,7 @@ export function ClientDebitNotesTab({ quoteId, companyId, clientId, readOnly, hi
                   <TableCell className="font-medium">{dn.dn_number}</TableCell>
                   <TableCell>{format(parseISO(dn.issue_date), 'dd/MM/yyyy')}</TableCell>
                   <TableCell>{dn.due_date ? format(parseISO(dn.due_date), 'dd/MM/yyyy') : '-'}</TableCell>
-                  <TableCell className="text-right tabular-nums">{dn.currency} {Number(dn.total_amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatMoney(Number(dn.total_amount), dn.currency)}</TableCell>
                   <TableCell><Badge className={STATUS_COLOR[dn.status] || 'bg-slate-500/20'} variant="secondary">{STATUS_LABEL[dn.status] || dn.status}</Badge></TableCell>
                   {!readOnly && (
                     <TableCell className="text-right">
@@ -560,7 +561,7 @@ function CreateClientDnDialog({
                     <TableRow key={r.id}>
                       <TableCell><Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggle(r.id)} /></TableCell>
                       <TableCell>{r.description}</TableCell>
-                      <TableCell className="text-right font-mono">{r.currency} {Number(r.sell_amount).toFixed(2)}</TableCell>
+                      <TableCell className="text-right font-mono">{formatMoney(Number(r.sell_amount), r.currency)}</TableCell>
                       <TableCell className="text-right">
                         {r.currency === 'BRL' ? (
                           <span className="font-mono">—</span>

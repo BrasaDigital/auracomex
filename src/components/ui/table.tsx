@@ -157,7 +157,7 @@ const Table = React.forwardRef<HTMLTableElement, TableProps>(
         <div className="relative w-full overflow-auto rounded-md border border-border/60">
           <table
             ref={setRefs}
-            className={cn("w-full caption-bottom text-sm", widths && "table-fixed", className)}
+            className={cn("w-full caption-bottom text-sm", widths && "table-fixed [&_td]:whitespace-normal [&_td]:break-words", className)}
             style={widths ? { ...style, width: "100%", minWidth: soma } : style}
             {...props}
           >

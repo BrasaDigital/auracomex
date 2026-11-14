@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -427,7 +428,7 @@ export default function AccountsPayableTab() {
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <div>{r.currency} {Number(r.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      <div>{formatMoney(Number(r.amount), r.currency)}</div>
                       {r.currency && r.currency.toUpperCase() !== 'BRL' && (
                         <div className="text-[10px] text-muted-foreground font-normal">
                           câmbio {rateFor(r.currency, r.debit_note_id, r.exchange_rate).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
@@ -475,7 +476,7 @@ export default function AccountsPayableTab() {
           {payTarget && (
             <div className="space-y-3">
               <div className="text-sm text-muted-foreground">
-                {payTarget.description} — {payTarget.currency} {Number(payTarget.amount).toFixed(2)}
+                {payTarget.description} — {formatMoney(Number(payTarget.amount), payTarget.currency)}
               </div>
               <div>
                 <Label>Data do pagamento</Label>

@@ -167,7 +167,7 @@ export default function Clients() {
               ) : (
                 filtered.map((c: any) => (
                   <TableRow key={c.id} className="hover:bg-secondary/50 whitespace-nowrap">
-                    <TableCell className="py-2 px-3 font-medium max-w-[180px] truncate">{c.name}</TableCell>
+                    <TableCell className="py-2 px-3 font-medium">{c.name}</TableCell>
                     <TableCell className="py-2 px-3">{c.contact_person || '-'}</TableCell>
                     <TableCell className="py-2 px-3">{c.email || '-'}</TableCell>
                     <TableCell className="py-2 px-3">{c.phone || '-'}</TableCell>

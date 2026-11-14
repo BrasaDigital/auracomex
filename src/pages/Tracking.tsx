@@ -532,9 +532,9 @@ function ShipmentRow({ shipment: s, docs, events, statusOptions, defaultExpanded
           {s.client_reference ? <Badge variant="outline" className="font-mono font-normal text-[10px] px-1.5 py-0">{s.client_reference}</Badge> : '—'}
         </TableCell>
         <TableCell className="py-1 px-2"><Badge className={cn(statusBadgeClass, 'text-[10px] px-1.5 py-0 whitespace-nowrap')}>{statusLabel}</Badge></TableCell>
-        <TableCell className="py-1 px-2 max-w-[90px] truncate">{s.invoice_number || '—'}</TableCell>
-        <TableCell className="py-1 px-2 max-w-[90px] truncate">{s.carrier || '—'}</TableCell>
-        <TableCell className="py-1 px-2 max-w-[90px] truncate">{s.vessel_flight || '—'}</TableCell>
+        <TableCell className="py-1 px-2">{s.invoice_number || '—'}</TableCell>
+        <TableCell className="py-1 px-2">{s.carrier || '—'}</TableCell>
+        <TableCell className="py-1 px-2">{s.vessel_flight || '—'}</TableCell>
         <TableCell className="py-1 px-2">{s.free_time != null ? `${s.free_time}d` : '—'}</TableCell>
         <TableCell className={cn('py-1 px-2', s.atd && 'font-semibold text-emerald-600')} title={s.atd ? 'Data real' : 'Estimativa'}>
           {shortDate(s.atd || s.etd)}

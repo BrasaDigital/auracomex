@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -135,7 +136,7 @@ export function PercentBaseDialog({ quoteId, chargeId, charges, usdBrl, eurBrl, 
                         <Checkbox checked={checked} onCheckedChange={() => toggle(c.id)} />
                         <span className="flex-1 truncate">{c.description}</span>
                         <span className="text-[10px] text-muted-foreground">
-                          {c.currency || 'USD'} {(Number(c.buy_amount) || 0).toFixed(2)} / {(Number(c.sell_amount) || 0).toFixed(2)}
+                          {formatMoney(Number(c.buy_amount) || 0, c.currency || 'USD')} / {(Number(c.sell_amount) || 0).toFixed(2)}
                         </span>
                       </label>
                     );

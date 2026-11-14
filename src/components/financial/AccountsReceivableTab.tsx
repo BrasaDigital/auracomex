@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -465,7 +466,7 @@ export default function AccountsReceivableTab() {
                 {filtered.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="text-xs text-muted-foreground">{r.quote_charge_id ? 'Taxa conferida' : (SOURCE_LABEL[r.source] || r.source)}</TableCell>
-                    <TableCell className="max-w-[220px] truncate whitespace-nowrap" title={r.description}>{r.description}</TableCell>
+                    <TableCell title={r.description}>{r.description}</TableCell>
                     <TableCell>{r.client_id ? clientMap.get(r.client_id) ?? '—' : '—'}</TableCell>
                     <TableCell>
                       {r.quote_id && quoteMap.get(r.quote_id) ? (
@@ -484,16 +485,16 @@ export default function AccountsReceivableTab() {
                         const launched = r.source === 'storage_fee' && r.quote_id && storageFeeMap.get(r.quote_id) != null
                           ? Number(storageFeeMap.get(r.quote_id))
                           : Number(r.amount);
-                        return <>{r.currency} {launched.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>;
+                        return <>{formatMoney(launched, r.currency)}</>;
                       })()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {r.status === 'recebido' && r.received_amount != null && Number(r.received_amount) !== Number(r.amount) ? (
                         <span className={Number(r.received_amount) < Number(r.amount) ? 'text-amber-500' : 'text-emerald-500'}>
-                          {r.currency} {Number(r.received_amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formatMoney(Number(r.received_amount), r.currency)}
                         </span>
                       ) : (
-                        <>{r.currency} {Number(r.status === 'recebido' ? (r.received_amount ?? r.amount) : r.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
+                        <>{formatMoney(Number(r.status === 'recebido' ? (r.received_amount ?? r.amount) : r.amount), r.currency)}</>
                       )}
                       {r.currency && r.currency.toUpperCase() !== 'BRL' && (() => {
                         const shown = Number(r.status === 'recebido' ? (r.received_amount ?? r.amount) : r.amount);
@@ -566,7 +567,7 @@ export default function AccountsReceivableTab() {
           {target && (
             <div className="space-y-3">
               <div className="text-sm text-muted-foreground">
-                {target.description} — previsto {target.currency} {Number(target.amount).toFixed(2)}
+                {target.description} — previsto {formatMoney(Number(target.amount), target.currency)}
               </div>
               <div>
                 <Label>Data do recebimento</Label>
@@ -577,7 +578,7 @@ export default function AccountsReceivableTab() {
                 <Input type="number" step="0.01" value={form.received_amount} onChange={(e) => setForm({ ...form, received_amount: e.target.value })} />
                 {form.received_amount !== '' && Number(form.received_amount) !== Number(target.amount) && (
                   <p className={`text-xs mt-1 ${Number(form.received_amount) < Number(target.amount) ? 'text-amber-500' : 'text-emerald-500'}`}>
-                    Diferença em relação ao previsto: {target.currency} {(Number(form.received_amount) - Number(target.amount)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'always' })}
+                    Diferença em relação ao previsto: {formatMoney(Number(form.received_amount) - Number(target.amount), target.currency, { sign: true })}
                   </p>
                 )}
               </div>

@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -365,7 +366,7 @@ export function AiImportQuoteModal({ open, onClose, onCreated }: Props) {
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">Valor Total</Label>
-                    <p className="font-medium">{extracted.currency || 'USD'} {(extracted.total_amount ?? 0).toFixed(2)}</p>
+                    <p className="font-medium">{formatMoney(extracted.total_amount ?? 0, extracted.currency || 'USD')}</p>
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">Peso Bruto</Label>
@@ -419,7 +420,7 @@ export function AiImportQuoteModal({ open, onClose, onCreated }: Props) {
                       {it.ncm_code ? ` [NCM ${it.ncm_code}]` : ''}
                     </span>
                     <span className="text-muted-foreground whitespace-nowrap">
-                      {it.quantity ?? '-'} × {extracted.currency || 'USD'} {(it.unit_price ?? 0).toFixed(2)} = {(it.total_amount ?? 0).toFixed(2)}
+                      {it.quantity ?? '-'} × {formatMoney(it.unit_price ?? 0, extracted.currency || 'USD')} = {(it.total_amount ?? 0).toFixed(2)}
                     </span>
                   </div>
                 ))}

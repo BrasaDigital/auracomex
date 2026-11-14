@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -870,8 +871,8 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
     ...Object.keys(sellByCurrency).filter(c => !convertibleCurrencies.has(c)),
   ])];
   const ratesAvailable = usdBrl != null && eurBrl != null;
-  const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const fmtMoney = (cur: string, v: number) => `${cur} ${v.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtBRL = (v: number) => formatMoney(v, 'BRL', { symbol: true });
+  const fmtMoney = (cur: string, v: number) => formatMoney(v, cur);
   const detailLine = (map: Record<string, number>) => {
     const entries = Object.entries(map).filter(([, v]) => v !== 0);
     if (entries.length === 0) return '—';
@@ -2136,7 +2137,7 @@ export function QuoteDetail({ quoteId, onBack, shipmentId }: Props) {
                     <span className="text-[10px] text-muted-foreground">Lucro</span>
                     {Object.entries(profitByCurrency).map(([cur, val]) => (
                       <span key={cur} className={`block text-sm font-bold font-mono ${val >= 0 ? 'text-status-completed' : 'text-status-urgent'}`}>
-                        {cur} {val.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatMoney(val, cur)}
                       </span>
                     ))}
                     {Object.keys(profitByCurrency).length === 0 && <span className="text-sm font-bold font-mono">-</span>}
@@ -3683,7 +3684,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                   const total = chargeLineTotal(unitPrice, mult, c.billing_unit, c[chargeMinKey(amountKey)]);
                                   return (
                                     <p className="text-[10px] text-muted-foreground mt-0.5 font-mono flex items-center gap-1.5 flex-wrap">
-                                      <span>{getBillingRef(c.billing_unit)} × {c.currency || 'USD'} {unitPrice.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = {c.currency || 'USD'} {total.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                      <span>{getBillingRef(c.billing_unit)} × {formatMoney(unitPrice, c.currency || 'USD')} = {formatMoney(total, c.currency || 'USD')}</span>
                                       {supportsChargeMin(c.billing_unit) && (
                                         <ChargeMinInput value={c[chargeMinKey(amountKey)]} disabled={readOnly || lockedForEdit}
                                           applied={total > unitPrice * mult}
@@ -3876,7 +3877,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                                       const total = unitPrice * mult;
                                       return (
                                         <span className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
-                                          {getBillingRef(c.billing_unit)} × {c.currency || 'USD'} {unitPrice.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = <strong>{c.currency || 'USD'} {total.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                          {getBillingRef(c.billing_unit)} × {formatMoney(unitPrice, c.currency || 'USD')} = <strong>{formatMoney(total, c.currency || 'USD')}</strong>
                                         </span>
                                       );
                                     })()}
@@ -3912,7 +3913,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs">
                         {entries.map(([cur, val]) => (
-                          <span key={cur} className="block">{cur} {val.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <span key={cur} className="block">{formatMoney(val, cur)}</span>
                         ))}
                       </TableCell>
                       <TableCell />
@@ -3923,7 +3924,7 @@ function ChargeColumn({ title, charges, amountKey, totalByCurrency, legLabels, l
                 <TableCell colSpan={2}>{t('financial.total')}</TableCell>
                 <TableCell className={`text-right font-mono ${colorClass}`}>
                   {Object.entries(totalByCurrency).map(([cur, val]) => (
-                    <span key={cur} className="block">{cur} {val.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span key={cur} className="block">{formatMoney(val, cur)}</span>
                   ))}
                 </TableCell>
                 <TableCell />

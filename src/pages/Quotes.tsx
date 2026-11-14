@@ -483,7 +483,7 @@ export default function Quotes() {
                         <span className="text-xs">{modeLabel(q)}</span>
                       </span>
                     </TableCell>
-                    <TableCell className="py-0.5 px-4 max-w-[180px] truncate">{(q.clients as any)?.name || '-'}</TableCell>
+                    <TableCell className="py-0.5 px-4">{(q.clients as any)?.name || '-'}</TableCell>
                     <TableCell className="py-0.5 px-4">{q.origin || '-'}</TableCell>
                     <TableCell className="py-0.5 px-4">{q.destination || '-'}</TableCell>
                     <TableCell className="py-0.5 px-4 text-right font-mono text-[15px] font-semibold">

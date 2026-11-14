@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -617,7 +618,7 @@ export function FinancialTab({ shipmentId, companyId, clientId, transportMode, o
                   <p className="text-xs text-muted-foreground uppercase">{t('financial.payables')}</p>
                   <div className="mt-1">
                     {Object.entries(payableTotals).map(([cur, val]) => (
-                      <p key={cur} className="text-lg font-bold text-destructive">{cur} {val.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p key={cur} className="text-lg font-bold text-destructive">{formatMoney(val, cur)}</p>
                     ))}
                     {Object.keys(payableTotals).length === 0 && <p className="text-lg font-bold text-muted-foreground">-</p>}
                   </div>
@@ -628,7 +629,7 @@ export function FinancialTab({ shipmentId, companyId, clientId, transportMode, o
                   <p className="text-xs text-muted-foreground uppercase">{t('financial.receivables')}</p>
                   <div className="mt-1">
                     {Object.entries(receivableTotals).map(([cur, val]) => (
-                      <p key={cur} className="text-lg font-bold text-emerald-500">{cur} {val.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p key={cur} className="text-lg font-bold text-emerald-500">{formatMoney(val, cur)}</p>
                     ))}
                     {Object.keys(receivableTotals).length === 0 && <p className="text-lg font-bold text-muted-foreground">-</p>}
                   </div>
@@ -643,7 +644,7 @@ export function FinancialTab({ shipmentId, companyId, clientId, transportMode, o
                       return (
                         <div key={cur}>
                           <p className={`text-lg font-bold ${profit >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
-                            {cur} {profit.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatMoney(profit, cur)}
                           </p>
                         </div>
                       );

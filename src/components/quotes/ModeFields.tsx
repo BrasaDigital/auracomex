@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money';
 import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Input } from '@/components/ui/input';
@@ -841,7 +842,7 @@ export function ModeFields({ mode, items, onChange, readOnly, saving, volumes, c
               )}
               {typedValueTotal > 0 ? (
                 <span>
-                  Valor Total da Carga: <strong className="font-mono">{cargoValueCurrency || 'USD'} {typedValueTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  Valor Total da Carga: <strong className="font-mono">{formatMoney(typedValueTotal, cargoValueCurrency || 'USD')}</strong>
                 </span>
               ) : totalCargoValueUsd > 0 && (
                 <span title={hasNonUsdCargoValue ? 'Itens em outra moeda não estão somados aqui' : undefined}>
